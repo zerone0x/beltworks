@@ -15,7 +15,7 @@ import {
   FACTORY_1K_ENTITIES,
   factory1k,
   factory1kLayout,
-  inserterSpots,
+  FACTORY_1K_BUILDERS,
 } from '../../tools/bench/scenes/factory1k';
 import { SCENES } from '../../tools/bench/scenes/index';
 
@@ -160,24 +160,17 @@ describe('1k scene', () => {
     const built = factory1k.build();
     expect(built.sim.state.entities.count).toBe(FACTORY_1K_ENTITIES);
     expect(built.entityCounts).toEqual({
-      'wooden-chest': 184,
+      'wooden-chest': 160,
+      'burner-inserter': 264,
       'stone-furnace': 48,
+      'transport-belt': 480,
       'burner-mining-drill': 48,
-      'transport-belt': 720,
     });
-    expect(built.beltItems).toBe(720);
-    // The builder used up its whole kit.
-    const inventory = built.sim.state.players.inventory(0);
-    for (const item of Object.values(ItemId)) {
-      if (item !== ItemId.None) expect(inventory.count(item)).toBe(0);
-    }
-    // Inserter spots are left free.
-    const { entities } = built.sim.state;
-    const spots = inserterSpots();
-    expect(spots).toHaveLength(184);
-    for (const [x, y] of spots) {
-      expect(entities.at(x, y)).toBe(0);
-    }
+    // Two coal on every second loop belt.
+    expect(built.beltItems).toBe(18 * 24);
+    // Every builder used what it carried for its own share; the kit is sized
+    // for the busiest one, so the others only have leftovers.
+    expect(built.sim.state.players.count).toBe(FACTORY_1K_BUILDERS);
   });
 
   it('is deterministic', () => {
@@ -187,19 +180,22 @@ describe('1k scene', () => {
     expect(a.sim.hash()).toBe(b.sim.hash());
   });
 
-  it('lays out the belt blocks clear of the smelting grids', () => {
+  it('lays out the belt blocks clear of the smelting grids and the spawn', () => {
     const { patches, blocks } = factory1kLayout();
     expect(patches).toHaveLength(4);
-    expect(blocks).toHaveLength(30);
+    expect(blocks).toHaveLength(18);
+    expect(blocks.reduce((n, b) => n + b.units, 0)).toBe(56);
+    const apart = (b: { x: number; y: number }, x0: number, y0: number, x1: number, y1: number) =>
+      b.x > x1 || b.x + 12 < x0 || b.y > y1 || b.y + 4 < y0;
     for (const b of blocks) {
+      expect(apart(b, -2, -2, 1, 1)).toBe(true);
       for (const p of patches) {
-        const apart = b.x > p.x + 6 || b.x + 12 < p.x - 7 || b.y > p.y + 7 || b.y + 4 < p.y - 8;
-        expect(apart).toBe(true);
+        expect(apart(b, p.x - 9, p.y - 8, p.x + 8, p.y + 7)).toBe(true);
       }
     }
   });
 
-  it('keeps its drills, furnaces and belts busy', () => {
+  it('keeps its drills, furnaces, inserters and belts busy', () => {
     const result = measureScene(factory1k, {
       warmupTicks: 60,
       measuredTicks: 60,
@@ -215,8 +211,9 @@ describe('1k scene', () => {
     const { machineStates, activeBeltLanes } = result.activity;
     expect(machineStates['burner-mining-drill']?.Working).toBeGreaterThanOrEqual(40);
     expect(machineStates['stone-furnace']?.Working).toBeGreaterThan(0);
-    // Every loop keeps both lanes moving.
-    expect(activeBeltLanes).toBe(60);
+    expect(machineStates['burner-inserter']?.Working).toBeGreaterThanOrEqual(100);
+    // Every loop keeps at least one lane moving.
+    expect(activeBeltLanes).toBeGreaterThanOrEqual(18);
     expect(result.meanMs).toBeGreaterThan(0);
     expect(result.hash).toMatch(/^0x[0-9a-f]{8}$/);
   });

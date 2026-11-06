@@ -54,13 +54,13 @@ Other options: `--warmup <ticks>`, `--ticks <ticks>`, `--runs <n>`, `--warmup-ru
 
 | Scene | Contents | Target mean |
 |---|---|---|
-| `1k` | 1 000 entities on seed `0xbe4c01`: 48 drill → furnace → chest cells on the four starting ore patches (fuelled; the drills mine into the furnaces), and 30 closed two-row belt loops (720 belts, 720 iron plates circulating) with 136 chests beside them | < 1 ms |
+| `1k` | 1 000 entities on seed `0xbe4c01`: 48 fuelled `drill → belt → inserter → furnace → inserter → chest` cells on the four starting ore patches, and 18 closed two-row belt loops (432 belts, 432 coal) with 56 exchange units below them (`loop → inserter → chest → inserter → chest → inserter → loop`), so coal keeps circulating; those inserters refuel from the coal they move. In total 480 belts, 264 burner inserters, 160 chests, 48 drills, 48 furnaces | < 1 ms |
 
-Every scene leaves an empty **inserter spot** wherever an inserter belongs (between each furnace and its chest, and between each loop and its chests; `inserterSpots()` in `tools/bench/scenes/factory1k.ts` lists them). Once burner inserters are simulated, place them there and refresh the baseline.
+The scene is built by four players (one per ore patch plus a quarter of the belt blocks) because one 40-slot inventory can't carry all its items and coal; every player gets the same starting kit, sized for the busiest builder.
 
 **Rules for scenes:**
 
-- Build through Commands only. `tools/bench/builder.ts` walks the player with `Move` commands to within build reach, then sends `Place` and `Insert` commands, stepping the simulation as it goes. It only reads state (player position, entity ids, inventory counts) to steer and to check that every command applied, and throws if one was ignored, so a scene can't silently shrink. The builder's items come from `SimOptions.startingKit`.
+- Build through Commands only. `tools/bench/builder.ts` walks a player with `Move` commands to within build reach, then sends `Place` and `Insert` commands, stepping the simulation as it goes. It only reads state (player position, entity ids, inventory counts) to steer and to check that every command applied, and throws if one was ignored, so a scene can't silently shrink. The builders' items come from `SimOptions.startingKit` (and `SimOptions.players` for more than one builder).
 - Stay deterministic: fixed seed, fixed layout, no randomness or clock in the scene. The report's `hash` is the state hash after the last measured tick; when it differs from the baseline's, the comparison says that the scene or the simulation changed.
 - Keep the scene busy. The report's `activity` (machine states per entity type and active belt lanes after the last tick) shows whether the measured ticks did real work or slept.
 
