@@ -32,6 +32,11 @@
  *    puts an electric mining drill on the stone next to its chain, feeding
  *    an electric inserter into a chest, with a pole over them on a network
  *    of its own: with nothing producing power there they stay `NoPower`.
+ *    Player 1 then puts an assembling machine 1 on its steam network, sets
+ *    it to copper cable, feeds it copper plates (the input slot takes 2),
+ *    takes out the first cables, switches it to gears (the copper in it and
+ *    in the craft under way comes back) and back to cable, and refills it,
+ *    plus recipe commands that must be ignored.
  *    Meanwhile the players hand-craft from the plates, wood and stone of
  *    `DETERMINISM_KIT`: crafts with auto-queued intermediates, crafts cut
  *    short by missing items, and cancels (of a craft, of an intermediate in
@@ -63,18 +68,25 @@ export const DETERMINISM_SCRIPTED_TICKS = 1_000;
 
 const AXES: readonly Axis[] = [-1, 0, 1];
 /** Random `Place` and `Insert` commands use item ids in `[0, ITEM_ID_SPAN)` (the last two unknown). */
-const ITEM_ID_SPAN = 24;
+const ITEM_ID_SPAN = 26;
 /** Random `Insert` and `Take` commands target entity ids in `[0, ENTITY_ID_SPAN)`. */
 const ENTITY_ID_SPAN = 16;
-/** Random `Craft` commands use recipe ids in `[0, RECIPE_ID_SPAN)` (the last one unknown). */
-const RECIPE_ID_SPAN = 18;
+/** Random `Craft` and `SetRecipe` commands use recipe ids in `[0, RECIPE_ID_SPAN)` (the last one unknown). */
+const RECIPE_ID_SPAN = 20;
+/** Random `SetRecipe` commands target entity ids in `[0, RECIPE_ENTITY_SPAN)` (the assembler included). */
+const RECIPE_ENTITY_SPAN = 48;
 
-/** What every player starts with: the normal starting kit plus materials to craft from. */
+/**
+ * What every player starts with: the normal starting kit plus materials to
+ * craft from, and an assembling machine with copper plates to feed it.
+ */
 export const DETERMINISM_KIT: readonly ItemStack[] = [
   ...STARTING_KIT,
   { item: ItemId.IronPlate, count: 30 },
   { item: ItemId.Wood, count: 4 },
   { item: ItemId.Stone, count: 10 },
+  { item: ItemId.AssemblingMachine1, count: 1 },
+  { item: ItemId.CopperPlate, count: 10 },
 ];
 
 interface Walker {
@@ -426,6 +438,65 @@ function electricPhase(): Command[] {
   ];
 }
 
+/** Tick player 1 places its assembling machine (after player 2's electric rig). */
+export const DETERMINISM_ASSEMBLER_TICK = 932;
+/** Entity id of player 1's assembling machine (it follows player 2's electric rig). */
+export const DETERMINISM_ASSEMBLER = 39;
+
+/**
+ * Player 1's assembling machine 1 on `(x + 2..x + 4, y + 5..y + 7)`, while
+ * it stands on `(x, y)` among its poles: the south pole covers it, so it is
+ * on the steam network. Set to copper cable (60 ticks a craft) and given 10
+ * copper plates, of which the input slot takes 2, it starts a craft at once
+ * and finishes it 59 ticks later (tick 993), when the second one starts.
+ * The cables are taken out, the plates topped up, and the recipe switched
+ * to gears (refunding the craft under way and the input) and back to cable,
+ * which gets plates again and is crafting at the end of the scripted phase.
+ */
+function assemblerPhase(x: number, y: number): Command[] {
+  const p = { playerId: 1 };
+  const t = DETERMINISM_ASSEMBLER_TICK;
+  const id = DETERMINISM_ASSEMBLER;
+  const copper = (tick: number): Command => ({
+    ...p,
+    tick,
+    type: 'Insert',
+    entity: id,
+    item: ItemId.CopperPlate,
+    count: 10,
+  });
+  const recipe = (tick: number, entity: number, r: number): Command => ({
+    ...p,
+    tick,
+    type: 'SetRecipe',
+    entity,
+    recipe: r,
+  });
+  return [
+    {
+      ...p,
+      tick: t,
+      type: 'Place',
+      item: ItemId.AssemblingMachine1,
+      x: x + 2,
+      y: y + 5,
+      dir: Direction.North,
+    },
+    recipe(t + 1, id, RecipeId.CopperCable),
+    copper(t + 2),
+    // Ignored: smelting, an unknown recipe, and a boiler (no recipe).
+    recipe(t + 3, id, RecipeId.IronPlate),
+    recipe(t + 3, id, 999),
+    recipe(t + 3, DETERMINISM_BOILER, RecipeId.CopperCable),
+    // The first craft is done on tick t + 61; the second one starts on t + 62.
+    { ...p, tick: t + 62, type: 'Take', entity: id, slot: 1, count: 5 },
+    copper(t + 63),
+    recipe(t + 64, id, RecipeId.IronGearWheel),
+    recipe(t + 65, id, RecipeId.CopperCable),
+    copper(t + 66),
+  ];
+}
+
 /**
  * Hand-crafting while the players walk and mine (it only uses
  * `DETERMINISM_KIT` items, so the mined ore stays untouched).
@@ -555,6 +626,7 @@ function scriptedPhase(): Command[] {
     if (id === 1) {
       commands.push(...polePhase(fixedToTile(w.x), fixedToTile(w.y)));
       commands.push(...steamPhase(fixedToTile(w.x), fixedToTile(w.y)));
+      commands.push(...assemblerPhase(fixedToTile(w.x), fixedToTile(w.y)));
     }
   }
   return commands;
@@ -583,8 +655,13 @@ export function buildDeterminismScript(
     for (let i = 0; i < burst; i++) {
       // Player id DETERMINISM_PLAYERS is out of range on purpose: it must be ignored.
       const playerId = rng.nextInt(DETERMINISM_PLAYERS + 1);
-      const kind = rng.nextInt(18);
-      if (kind < 6) {
+      const kind = rng.nextInt(19);
+      if (kind === 18) {
+        // Recipe changes: any entity (the assembler among them) and recipe id.
+        const entity = rng.nextInt(RECIPE_ENTITY_SPAN);
+        const recipe = rng.nextInt(RECIPE_ID_SPAN);
+        commands.push({ tick, playerId, type: 'SetRecipe', entity, recipe });
+      } else if (kind < 6) {
         commands.push({
           tick,
           playerId,

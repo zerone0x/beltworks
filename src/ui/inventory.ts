@@ -143,6 +143,8 @@ export class SlotGrid {
   readonly element: HTMLElement;
   private readonly cells: { root: HTMLElement; icon: HTMLElement; count: HTMLElement }[] = [];
   private readonly shown: (string | null)[] = [];
+  /** Per cell, the item shown faintly while the cell is empty (0 for none). */
+  private hints: readonly number[] = [];
 
   constructor(
     slots: number,
@@ -220,21 +222,32 @@ export class SlotGrid {
     });
   }
 
-  /** Shows `slots[i]` in cell `i`; missing entries show as empty. */
+  /**
+   * Items to show faintly in cells while they are empty (an assembling
+   * machine's ingredients and products), by cell; applies from the next
+   * `update`.
+   */
+  setHints(items: readonly number[]): void {
+    this.hints = items;
+  }
+
+  /** Shows `slots[i]` in cell `i`; missing entries show as empty (with the cell's hint, if any). */
   update(slots: readonly SlotData[]): void {
     this.cells.forEach((cell, i) => {
       const slot = slots[i] ?? { item: 0, count: 0 };
       const view = slotView(slot);
-      const key = `${view.name}:${view.count}`;
+      const hint = view.color ? 0 : (this.hints[i] ?? 0);
+      const key = `${view.name}:${view.count}:${String(hint)}`;
       if (this.shown[i] === key) {
         return;
       }
       this.shown[i] = key;
       cell.root.dataset.item = view.name;
       cell.root.dataset.count = view.count === '' ? '0' : view.count;
-      cell.root.title = view.title;
-      cell.icon.style.display = view.color ? 'block' : 'none';
-      setSlotIcon(cell.icon, view.color ? slot.item : 0);
+      cell.root.title = hint !== 0 ? (itemPrototype(hint)?.label ?? view.title) : view.title;
+      cell.icon.style.display = view.color || hint !== 0 ? 'block' : 'none';
+      cell.icon.style.opacity = hint !== 0 ? '0.3' : '1';
+      setSlotIcon(cell.icon, view.color ? slot.item : hint);
       cell.count.textContent = view.count;
     });
   }

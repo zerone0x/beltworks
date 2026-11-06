@@ -2,7 +2,8 @@
  * Recipe prototypes: how items turn into other items.
  *
  * Recipe ids are stored in simulation state (the hand-crafting queue as
- * uint16s, furnaces as uint8s; later assemblers), where 0 means "no recipe".
+ * uint16s, furnaces as uint8s, assembling machines as uint16s), where 0
+ * means "no recipe".
  * They must stay stable: changing an id breaks saves and state hashes.
  *
  * Every amount and duration is an integer; durations are in ticks (60 per
@@ -34,6 +35,9 @@ export const RecipeId = {
   SteamEngine: 14,
   ElectricMiningDrill: 15,
   ElectricInserter: 16,
+  // Hand recipes for production (M3).
+  AssemblingMachine1: 17,
+  AssemblingMachine2: 18,
 } as const;
 
 export type RecipeId = (typeof RecipeId)[keyof typeof RecipeId];
@@ -41,7 +45,10 @@ export type RecipeId = (typeof RecipeId)[keyof typeof RecipeId];
 /** Ids of real recipes, i.e. every id except {@link RecipeId.None}. */
 export type RealRecipeId = Exclude<RecipeId, typeof RecipeId.None>;
 
-/** Where a recipe is made: by hand (the crafting queue) or in a furnace. */
+/**
+ * Where a recipe is made: by hand (the crafting queue) or in a furnace.
+ * Assembling machines make every recipe that isn't smelting.
+ */
 export type RecipeCategory = 'hand' | 'smelting';
 
 /** An amount of one item in a recipe: `[item, count]`, with `count >= 1`. */
@@ -205,6 +212,29 @@ export const RECIPES: Readonly<Record<RealRecipeId, Recipe>> = {
     ticks: 30,
     category: 'hand',
   },
+  [RecipeId.AssemblingMachine1]: {
+    id: RecipeId.AssemblingMachine1,
+    inputs: [
+      [ItemId.ElectronicCircuit, 3],
+      [ItemId.IronGearWheel, 5],
+      [ItemId.IronPlate, 9],
+    ],
+    outputs: [[ItemId.AssemblingMachine1, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
+  [RecipeId.AssemblingMachine2]: {
+    id: RecipeId.AssemblingMachine2,
+    inputs: [
+      [ItemId.ElectronicCircuit, 2],
+      [ItemId.IronGearWheel, 5],
+      [ItemId.IronPlate, 20],
+      [ItemId.AssemblingMachine1, 1],
+    ],
+    outputs: [[ItemId.AssemblingMachine2, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
 };
 
 /** Every real recipe id, in id order. */
@@ -225,11 +255,31 @@ export const RECIPE_IDS: readonly RealRecipeId[] = [
   RecipeId.SteamEngine,
   RecipeId.ElectricMiningDrill,
   RecipeId.ElectricInserter,
+  RecipeId.AssemblingMachine1,
+  RecipeId.AssemblingMachine2,
 ];
 
 /** The hand recipes, in id order (the order of the crafting panel). */
 export const HAND_RECIPES: readonly Recipe[] = RECIPE_IDS.map((id) => RECIPES[id]).filter(
   (r) => r.category === 'hand',
+);
+
+/**
+ * Most ingredients and products an assembling machine recipe may have: the
+ * machine's slots are sized from its recipe, its table stores this many
+ * input and output counts per machine.
+ */
+export const ASSEMBLER_MAX_INPUTS = 6;
+export const ASSEMBLER_MAX_OUTPUTS = 2;
+
+/** Whether an assembling machine can make recipe `r`: every recipe but smelting. */
+export function isAssemblerRecipe(r: Recipe): boolean {
+  return r.category !== 'smelting';
+}
+
+/** The recipes an assembling machine can make, in id order (the order of its recipe picker). */
+export const ASSEMBLER_RECIPES: readonly Recipe[] = RECIPE_IDS.map((id) => RECIPES[id]).filter(
+  isAssemblerRecipe,
 );
 
 /**

@@ -5,8 +5,9 @@
  * means "no entity". They must stay stable: changing an id breaks saves and
  * state hashes.
  *
- * Chests, furnaces, mining drills and inserters (burner and electric) have
- * their own tables and behavior (src/sim/entities/), belts theirs in
+ * Chests, furnaces, mining drills and inserters (burner and electric) and
+ * assembling machines have their own tables and behavior
+ * (src/sim/entities/), belts theirs in
  * src/sim/belts/, small electric poles (the power grid), boilers and steam
  * engines theirs in src/sim/power/.
  *
@@ -31,6 +32,8 @@ export const EntityTypeId = {
   SteamEngine: 8,
   ElectricMiningDrill: 9,
   ElectricInserter: 10,
+  AssemblingMachine1: 11,
+  AssemblingMachine2: 12,
 } as const;
 
 export type EntityTypeId = (typeof EntityTypeId)[keyof typeof EntityTypeId];
@@ -91,6 +94,12 @@ export interface EntityPrototype {
    * tile (and as many to swing back).
    */
   readonly swingTicks?: number;
+  /**
+   * An assembling machine's crafting speed as an exact fraction: a recipe of
+   * `ticks` ticks takes `ceil(ticks × den / num)` working ticks at full power
+   * (see {@link craftingTicks}).
+   */
+  readonly craftingSpeed?: { readonly num: number; readonly den: number };
 }
 
 /** Where an entity gets its energy from. */
@@ -113,6 +122,28 @@ export const BELT_ITEM_SPACING = 64;
 
 /** Most units a stone furnace's output slot holds before it stops. */
 export const FURNACE_OUTPUT_LIMIT = 100;
+
+/**
+ * An assembling machine's input slots take up to this many times the
+ * recipe's amount of each ingredient (from inserters and by hand alike), so
+ * one craft can wait while the next one runs, as in Factorio.
+ */
+export const ASSEMBLER_INPUT_MULTIPLIER = 2;
+
+/**
+ * Working ticks at full power an entity with crafting speed `speed` takes
+ * for a recipe of `ticks` ticks: `ceil(ticks × den / num)` (assembling
+ * machine 1, speed 1/2: twice the recipe's ticks; assembling machine 2,
+ * speed 3/4: four thirds, rounded up). Recipe ticks for an entity without a
+ * crafting speed.
+ */
+export function craftingTicks(
+  ticks: number,
+  speed: EntityPrototype['craftingSpeed'] | undefined,
+): number {
+  if (!speed) return ticks;
+  return Math.floor((ticks * speed.den + speed.num - 1) / speed.num);
+}
 
 /** Entity prototypes keyed by id. There is no entry for id 0 ("no entity"). */
 export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
@@ -259,6 +290,37 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     // One cycle takes 2 × 26 = 52 ticks.
     swingTicks: 26,
   },
+  // Production (M3), with the shared design numbers.
+  [EntityTypeId.AssemblingMachine1]: {
+    id: EntityTypeId.AssemblingMachine1,
+    name: 'assembling-machine-1',
+    label: 'Assembling machine 1',
+    width: 3,
+    height: 3,
+    rotatable: false,
+    item: ItemId.AssemblingMachine1,
+    color: 0x8c8f6e,
+    energySource: 'electric',
+    // 75 kW while crafting.
+    energyPerTick: 1_250,
+    // Recipes take twice their ticks.
+    craftingSpeed: { num: 1, den: 2 },
+  },
+  [EntityTypeId.AssemblingMachine2]: {
+    id: EntityTypeId.AssemblingMachine2,
+    name: 'assembling-machine-2',
+    label: 'Assembling machine 2',
+    width: 3,
+    height: 3,
+    rotatable: false,
+    item: ItemId.AssemblingMachine2,
+    color: 0x5f8a78,
+    energySource: 'electric',
+    // 150 kW while crafting.
+    energyPerTick: 2_500,
+    // Recipes take 4/3 of their ticks, rounded up.
+    craftingSpeed: { num: 3, den: 4 },
+  },
 };
 
 /** Every real entity type id, in id order. */
@@ -273,6 +335,8 @@ export const ENTITY_TYPE_IDS: readonly RealEntityTypeId[] = [
   EntityTypeId.SteamEngine,
   EntityTypeId.ElectricMiningDrill,
   EntityTypeId.ElectricInserter,
+  EntityTypeId.AssemblingMachine1,
+  EntityTypeId.AssemblingMachine2,
 ];
 
 /** Largest footprint edge of any entity, in tiles (the steam engine's 5). */

@@ -9,13 +9,14 @@
 import { beltTable } from './belts/belts';
 import { CommandQueue, validateCommand, type Command } from './commands';
 import { updateCrafting } from './crafting/queue';
+import { ASSEMBLER_TYPES, assemblerTable } from './entities/assembler';
 import { placeEntity, removeEntity, rotateEntity } from './entities/build';
 import { drillTable } from './entities/drill';
 import { electricDrillTable } from './entities/electricDrill';
 import { electricInserterTable } from './entities/electricInserter';
 import { furnaceTable } from './entities/furnace';
 import { inserterTable } from './entities/inserter';
-import { insertIntoEntity, takeFromEntity } from './entities/transfer';
+import { insertIntoEntity, setEntityRecipe, takeFromEntity } from './entities/transfer';
 import { updatePlayers } from './player';
 import { powerGrid } from './power/grid';
 import { createSimState, hashState, type SimOptions, type SimState } from './state';
@@ -48,7 +49,15 @@ export const SYSTEMS: readonly System[] = [
       electricInserterTable(state.entities)?.update(state.entities);
     },
   },
-  { name: 'machines', run: (sim) => furnaceTable(sim.state.entities)?.update(sim.state.entities) },
+  {
+    // Furnaces, then assembling machines 1 and 2.
+    name: 'machines',
+    run: ({ state }) => {
+      furnaceTable(state.entities)?.update(state.entities);
+      for (const type of ASSEMBLER_TYPES)
+        assemblerTable(state.entities, type)?.update(state.entities);
+    },
+  },
   {
     name: 'players',
     run: ({ state }) => {
@@ -62,8 +71,8 @@ export const SYSTEMS: readonly System[] = [
 ];
 
 /**
- * Applies one command. Commands for unknown players, and build, transfer and
- * crafting commands that don't apply (see src/sim/entities/build.ts,
+ * Applies one command. Commands for unknown players, and build, transfer,
+ * recipe and crafting commands that don't apply (see src/sim/entities/build.ts,
  * src/sim/entities/transfer.ts and src/sim/crafting/queue.ts), are ignored.
  */
 export function applyCommand(state: SimState, cmd: Command): void {
@@ -95,6 +104,9 @@ export function applyCommand(state: SimState, cmd: Command): void {
       break;
     case 'Take':
       takeFromEntity(state, cmd.playerId, cmd.entity, cmd.slot, cmd.count);
+      break;
+    case 'SetRecipe':
+      setEntityRecipe(state, cmd.playerId, cmd.entity, cmd.recipe);
       break;
     case 'Craft':
       state.crafting.queue(cmd.playerId, players.inventory(cmd.playerId), cmd.recipe, cmd.count);

@@ -4,6 +4,7 @@
  */
 
 import { EntityTypeId, SAT_ONE } from '../data/entities';
+import { RECIPE_IDS } from '../data/recipes';
 import { beltTable } from './belts/belts';
 import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
 import { reaches } from './entities/build';
@@ -13,6 +14,7 @@ import { MachineState } from './entities/machine';
 import type { ChunkRange } from './entities/occupancy';
 import { powerGrid } from './power/grid';
 import { poweredEnergy } from './power/solver';
+import { forceOf, isRecipeUnlocked } from './research/unlocks';
 import type { SimState } from './state';
 import { CHUNK_AREA } from './world/chunk';
 
@@ -134,7 +136,7 @@ function consumerDraw(state: SimState, id: number): number {
 }
 
 /** Int32 fields per entity in {@link encodeEntities}. */
-export const ENTITY_STRIDE = 6;
+export const ENTITY_STRIDE = 7;
 /** Field offsets within one entity record. */
 export const EntityField = {
   id: 0,
@@ -143,13 +145,17 @@ export const EntityField = {
   y: 3,
   dir: 4,
   status: 5,
+  /** The recipe an assembling machine is set to (0 for none and for other types). */
+  recipe: 6,
 } as const;
 
 /**
  * Encodes the entities whose origin (top-left tile) lies in the chunks of
- * `range` as `ENTITY_STRIDE` int32s each: `[id, type, x, y, dir, status]`
- * (ids are uint32s stored bit for bit; `x`, `y` is the top-left tile; status
- * is a `MachineState`, so the renderer can show working machines). Entities are
+ * `range` as `ENTITY_STRIDE` int32s each: `[id, type, x, y, dir, status,
+ * recipe]` (ids are uint32s stored bit for bit; `x`, `y` is the top-left
+ * tile; status is a `MachineState`, so the renderer can show working
+ * machines; recipe the one an assembling machine is set to, so it can show
+ * its product). Entities are
  * at most `MAX_ENTITY_SIZE` tiles wide, so a range with a one-chunk margin
  * around the viewport catches every entity that overlaps it.
  */
@@ -169,6 +175,7 @@ export function encodeEntities(state: SimState, range: ChunkRange | null): Int32
     out[o + EntityField.y] = store.y(id);
     out[o + EntityField.dir] = store.dir(id);
     out[o + EntityField.status] = displayStatus(state, id);
+    out[o + EntityField.recipe] = entities.selectedRecipe(id);
   });
   return out;
 }
@@ -638,9 +645,26 @@ export const DetailField = {
 const DETAIL_HEADER = 12;
 
 /**
+ * The recipes player `playerId` can set entity `id` to, in id order: those
+ * it can make (`allowsRecipe`) that the player's force has unlocked
+ * (`isRecipeUnlocked`). Empty for entities without a recipe picker.
+ */
+export function recipeOptions(state: SimState, playerId: number, id: number): number[] {
+  const { entities } = state;
+  if (entities.table(entities.store.type(id))?.setRecipe === undefined) return [];
+  const force = forceOf(state, playerId);
+  return RECIPE_IDS.filter(
+    (r) => entities.allowsRecipe(id, r) && isRecipeUnlocked(state, force, r),
+  );
+}
+
+/**
  * Encodes what the entity GUI shows about entity `id` for player `playerId`
- * as int32s: the {@link DetailField} header, then one `[item, count]` pair per
- * slot. `null` when there is no such entity.
+ * as int32s: the {@link DetailField} header, one `[item, count]` pair per
+ * slot, then `[optionCount]` and the recipes its recipe picker offers
+ * (`recipeOptions`; none for entities without one). `recipe` is the recipe
+ * set (assembling machines) or being made (furnaces). `null` when there is
+ * no such entity.
  */
 export function encodeEntityDetail(
   state: SimState,
@@ -654,7 +678,8 @@ export function encodeEntityDetail(
   }
   const slots = entities.slots(id);
   const detail = entities.detail(id);
-  const out = new Int32Array(DETAIL_HEADER + 2 * slots.length);
+  const options = recipeOptions(state, playerId, id);
+  const out = new Int32Array(DETAIL_HEADER + 2 * slots.length + 1 + options.length);
   out[DetailField.id] = id;
   out[DetailField.type] = type;
   out[DetailField.reachable] = reaches(state, playerId, id) ? 1 : 0;
@@ -672,6 +697,9 @@ export function encodeEntityDetail(
     out[DETAIL_HEADER + 2 * i] = slot.item;
     out[DETAIL_HEADER + 2 * i + 1] = slot.count;
   });
+  const o = DETAIL_HEADER + 2 * slots.length;
+  out[o] = options.length;
+  out.set(options, o + 1);
   return out;
 }
 
@@ -691,6 +719,8 @@ export interface EntityDetailData {
   network: number;
   satisfaction: number;
   slots: SlotData[];
+  /** The recipes the entity's recipe picker offers, in id order (empty without a picker). */
+  recipeOptions: number[];
 }
 
 /** Unpacks a buffer made by {@link encodeEntityDetail}. */
@@ -701,6 +731,9 @@ export function decodeEntityDetail(buffer: ArrayBuffer): EntityDetailData {
   for (let i = 0; i < n; i++) {
     slots.push({ item: v[DETAIL_HEADER + 2 * i]!, count: v[DETAIL_HEADER + 2 * i + 1]! });
   }
+  const o = DETAIL_HEADER + 2 * n;
+  const recipeCount = Math.max(0, Math.min(v[o] ?? 0, v.length - o - 1));
+  const recipeOptions = Array.from(v.subarray(o + 1, o + 1 + recipeCount));
   return {
     id: v[DetailField.id]! >>> 0,
     type: v[DetailField.type]!,
@@ -714,6 +747,7 @@ export function decodeEntityDetail(buffer: ArrayBuffer): EntityDetailData {
     network: v[DetailField.network]! >>> 0,
     satisfaction: v[DetailField.satisfaction]!,
     slots,
+    recipeOptions,
   };
 }
 

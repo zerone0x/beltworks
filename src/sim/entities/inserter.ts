@@ -59,7 +59,8 @@
  *   change near its tile, see "Notifications" in src/sim/belts/belts.ts),
  * - an entity is placed or rotated on its pickup or drop tile
  *   (`entityPlaced`, `entityRotated`; a belt's far lane depends on its
- *   direction),
+ *   direction), or one there changes its recipe (`entityReconfigured`: an
+ *   assembling machine then accepts other items),
  * - it is rotated itself.
  * Waiting costs nothing per tick.
  */
@@ -224,6 +225,11 @@ export abstract class InserterTableBase implements EntityTypeTable {
   /** A rotated belt has its lanes the other way round, and may be on another line. */
   entityRotated(rotated: number, entities: Entities): void {
     this.wakeAround(rotated, entities);
+  }
+
+  /** What a target accepts may have changed (an assembling machine's recipe). */
+  entityReconfigured(changed: number, entities: Entities): void {
+    this.wakeAround(changed, entities);
   }
 
   /** The entity waited on changed (or went away): look again. */

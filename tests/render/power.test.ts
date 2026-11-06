@@ -98,6 +98,7 @@ describe('powerFocus', () => {
     h: 1,
     dir: North,
     status: 0,
+    recipe: 0,
   });
 
   it('previews the wires a pole ghost would get, judged like the simulation', () => {

@@ -25,7 +25,7 @@ describe('item icons', () => {
     const looks = new Set<string>();
     for (const id of ITEM_IDS) {
       const { label, shape } = iconSpec(id);
-      expect(label).toMatch(/^[A-Z?]{1,2}$/);
+      expect(label).toMatch(/^[A-Z12?]{1,2}$/);
       // Same label and shape only with clearly different colors (none so far).
       looks.add(`${label}:${shape}`);
     }

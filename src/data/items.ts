@@ -32,6 +32,8 @@ export const ItemId = {
   SteamEngine: 19,
   ElectricMiningDrill: 20,
   ElectricInserter: 21,
+  AssemblingMachine1: 22,
+  AssemblingMachine2: 23,
 } as const;
 
 export type ItemId = (typeof ItemId)[keyof typeof ItemId];
@@ -220,6 +222,21 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 50,
     color: 0x3f7fc8,
   },
+  // Production (M3; see src/data/entities.ts); colors match the entities.
+  [ItemId.AssemblingMachine1]: {
+    id: ItemId.AssemblingMachine1,
+    name: 'assembling-machine-1',
+    label: 'Assembling machine 1',
+    stackSize: 50,
+    color: 0x8c8f6e,
+  },
+  [ItemId.AssemblingMachine2]: {
+    id: ItemId.AssemblingMachine2,
+    name: 'assembling-machine-2',
+    label: 'Assembling machine 2',
+    stackSize: 50,
+    color: 0x5f8a78,
+  },
 };
 
 /** Every real item id, in id order. */
@@ -245,6 +262,8 @@ export const ITEM_IDS: readonly RealItemId[] = [
   ItemId.SteamEngine,
   ItemId.ElectricMiningDrill,
   ItemId.ElectricInserter,
+  ItemId.AssemblingMachine1,
+  ItemId.AssemblingMachine2,
 ];
 
 /** The prototype of item `id`, or `undefined` for 0 and unknown ids. */

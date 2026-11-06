@@ -1,7 +1,7 @@
 /**
  * The entity GUI (plain DOM): opened by left-clicking a chest, furnace,
- * mining drill or inserter (burner or electric), boiler or steam engine with
- * nothing to build in hand. It shows the entity's slots (and, for a furnace,
+ * mining drill or inserter (burner or electric), boiler, steam engine or
+ * assembling machine with nothing to build in hand. It shows the entity's slots (and, for a furnace,
  * drill or inserter, its state, smelting or mining progress or arm position,
  * and remaining fuel for burner entities; for a boiler, its state, fuel and
  * output; for a steam engine, its state, output out of its maximum and its
@@ -12,6 +12,13 @@
  *   simulation routes fuel to the fuel slot and ores to the input; a drill or
  *   inserter only takes fuel),
  * - clicking one of the entity's slots takes its contents (`Take`).
+ *
+ * An assembling machine's window also has a recipe picker: one button per
+ * recipe the worker says it may make (`recipeOptions` of the detail, from
+ * the simulation's `isRecipeUnlocked`), showing the product's icon; a click
+ * sends `SetRecipe`, which refunds the machine's contents. Below it, the
+ * recipe as text, its input slots, the craft's progress and its output
+ * slots (rebuilt whenever the recipe changes), then its power draw.
  *
  * Both ways, a click (or shift-click) moves the whole stack, a right click
  * half of it (rounded up), and a ctrl-click or middle click one item
@@ -24,9 +31,10 @@
  * of reach.
  */
 
-import { ENTITIES, EntityTypeId, SAT_ONE, entityPrototype } from '../data/entities';
-import { fuelValue } from '../data/items';
-import { recipePrototype } from '../data/recipes';
+import { ENTITIES, EntityTypeId, SAT_ONE, craftingTicks, entityPrototype } from '../data/entities';
+import { fuelValue, itemPrototype } from '../data/items';
+import { recipePrototype, type Recipe } from '../data/recipes';
+import { isAssemblerType } from '../sim/entities/assembler';
 import { DrillSlot } from '../sim/entities/drill';
 import { ElectricDrillSlot } from '../sim/entities/electricDrill';
 import { ElectricInserterSlot } from '../sim/entities/electricInserter';
@@ -35,7 +43,15 @@ import { InserterSlot } from '../sim/entities/inserter';
 import { MachineState } from '../sim/entities/machine';
 import { BoilerSlot } from '../sim/power/boiler';
 import type { EntityDetailData, SlotData } from '../sim/snapshot';
-import { INVENTORY_COLUMNS, SlotGrid, transferCount, type Transfer } from './inventory';
+import {
+  INVENTORY_COLUMNS,
+  SLOT_PX,
+  SlotGrid,
+  makeSlotIcon,
+  setSlotIcon,
+  transferCount,
+  type Transfer,
+} from './inventory';
 
 const isDrill = (type: number | undefined): boolean =>
   type === EntityTypeId.BurnerMiningDrill || type === EntityTypeId.ElectricMiningDrill;
@@ -51,8 +67,37 @@ export function hasEntityGui(type: number): boolean {
     isDrill(type) ||
     isInserter(type) ||
     type === EntityTypeId.Boiler ||
-    type === EntityTypeId.SteamEngine
+    type === EntityTypeId.SteamEngine ||
+    isAssemblerType(type)
   );
+}
+
+/** `ticks` (60 per second) as seconds: `1 s`, `0.67 s`. */
+const seconds = (ticks: number): string => `${String(Math.round((ticks / 60) * 100) / 100)} s`;
+
+/**
+ * What a recipe button and the recipe line of an assembling machine of type
+ * `type` show for recipe `recipe`: the product (its item name, for tests and
+ * styling, and label) and the recipe as text, with the time a craft takes
+ * in that machine: `2 × Iron plate → Iron gear wheel (1 s)`.
+ */
+export function recipeView(
+  recipe: Recipe,
+  type: number,
+): { name: string; label: string; text: string } {
+  const product = itemPrototype(recipe.outputs[0]![0]);
+  const stack = ([item, count]: readonly [number, number]): string => {
+    const label = itemPrototype(item)?.label ?? '?';
+    return count === 1 ? label : `${String(count)} × ${label}`;
+  };
+  const ticks = craftingTicks(recipe.ticks, entityPrototype(type)?.craftingSpeed);
+  const inputs = recipe.inputs.map(stack).join(' + ');
+  const outputs = recipe.outputs.map(stack).join(' + ');
+  return {
+    name: product?.name ?? '',
+    label: product?.label ?? '?',
+    text: `${inputs} → ${outputs} (${seconds(ticks)})`,
+  };
 }
 
 /** Ticks per second: a power of `j` joules per tick is `60 × j` watts. */
@@ -97,6 +142,8 @@ export function powerView(detail: EntityDetailData): {
 
 /** Columns of the chest grid. */
 const CHEST_COLUMNS = 8;
+/** Columns of an assembling machine's recipe picker. */
+const RECIPE_COLUMNS = 8;
 
 /**
  * Display text and a stable key (for tests and styling) per machine state of
@@ -130,6 +177,8 @@ export function statusView(status: number, type?: number): { key: string; text: 
       return { key: 'no-power', text: 'No power' };
     case MachineState.LowPower:
       return { key: 'low-power', text: 'Low power' };
+    case MachineState.NoRecipe:
+      return { key: 'no-recipe', text: 'No recipe' };
     default:
       return { key: 'idle', text: '' };
   }
@@ -138,15 +187,18 @@ export function statusView(status: number, type?: number): { key: string; text: 
 /**
  * Fractions (0..1) for the progress and fuel bars of a furnace (progress on
  * the recipe being smelted), a mining drill (progress on the unit being
- * mined) or an inserter (the arm's position from its pickup to its drop tile).
+ * mined), an inserter (the arm's position from its pickup to its drop tile)
+ * or an assembling machine (progress on the craft, out of the recipe's time
+ * at the machine's crafting speed).
  */
 export function machineBars(detail: EntityDetailData): { progress: number; fuel: number } {
   const proto = entityPrototype(detail.type);
+  const recipeTicks = recipePrototype(detail.recipe)?.ticks ?? 0;
   const ticks = isDrill(detail.type)
     ? (proto?.miningTicks ?? 0)
     : isInserter(detail.type)
       ? (proto?.swingTicks ?? 0)
-      : (recipePrototype(detail.recipe)?.ticks ?? 0);
+      : craftingTicks(recipeTicks, proto?.craftingSpeed);
   const value = fuelValue(detail.burning);
   return {
     progress: ticks > 0 ? Math.min(1, detail.progress / ticks) : 0,
@@ -161,6 +213,8 @@ export interface EntityPanelOptions {
   take: (entity: number, slot: number, count: number) => void;
   /** The panel opened for `entity`, or closed (0): forward it to the worker (`inspect`). */
   inspect: (entity: number) => void;
+  /** The player picked recipe `recipe` for assembling machine `entity` (`SetRecipe`). */
+  setRecipe: (entity: number, recipe: number) => void;
 }
 
 /** A thin horizontal bar showing a fraction. */
@@ -228,6 +282,21 @@ export class EntityPanel {
     output: Bar;
     text: HTMLElement;
     network: HTMLElement;
+  } | null = null;
+  /**
+   * An assembling machine's recipe picker (rebuilt when the options or the
+   * recipe change) and its slots and progress bar (rebuilt when the recipe
+   * changes).
+   */
+  private assembler: {
+    picker: HTMLElement;
+    options: string;
+    recipe: number;
+    crafting: HTMLElement;
+    info: HTMLElement;
+    inputs: SlotGrid | null;
+    outputs: SlotGrid | null;
+    progress: Bar | null;
   } | null = null;
 
   constructor(
@@ -377,6 +446,9 @@ export class EntityPanel {
       this.machine.progress?.set(bars.progress);
       this.machine.fuel?.set(bars.fuel);
     }
+    if (this.assembler) {
+      this.updateAssembler(detail);
+    }
     if (this.power) {
       const view = powerView(detail);
       this.power.output.set(view.output);
@@ -403,6 +475,11 @@ export class EntityPanel {
     this.chestGrid = null;
     this.machine = null;
     this.power = null;
+    this.assembler = null;
+    if (isAssemblerType(type)) {
+      this.buildAssembler();
+      return;
+    }
     if (type === EntityTypeId.WoodenChest) {
       const slots = ENTITIES[EntityTypeId.WoodenChest].slots ?? 0;
       this.chestGrid = new SlotGrid(slots, CHEST_COLUMNS, (i, transfer) => {
@@ -494,6 +571,120 @@ export class EntityPanel {
     this.machine = { slots, progress, fuel: fuelBar };
     this.body.appendChild(row);
     if (this.power) this.body.appendChild(this.power.element);
+  }
+
+  /**
+   * An assembling machine: the recipe picker, the recipe line, the slots and
+   * progress of the recipe set (filled in by `updateAssembler`), and power.
+   */
+  private buildAssembler(): void {
+    const picker = document.createElement('div');
+    picker.dataset.role = 'recipes';
+    Object.assign(picker.style, {
+      display: 'grid',
+      gridTemplateColumns: `repeat(${String(RECIPE_COLUMNS)}, ${String(SLOT_PX)}px)`,
+      gap: '2px',
+      marginBottom: '6px',
+    } satisfies Partial<CSSStyleDeclaration>);
+    const info = document.createElement('div');
+    info.dataset.role = 'recipe';
+    Object.assign(info.style, {
+      maxWidth: '300px',
+      fontSize: '12px',
+      color: '#b9b29e',
+      marginBottom: '6px',
+    } satisfies Partial<CSSStyleDeclaration>);
+    const crafting = document.createElement('div');
+    Object.assign(crafting.style, {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+    } satisfies Partial<CSSStyleDeclaration>);
+    this.power = this.buildPower();
+    this.assembler = {
+      picker,
+      options: '',
+      recipe: -1,
+      crafting,
+      info,
+      inputs: null,
+      outputs: null,
+      progress: null,
+    };
+    this.body.append(picker, info, crafting, this.power.element);
+  }
+
+  /** Shows an assembling machine's options, recipe, slots and progress from `detail`. */
+  private updateAssembler(detail: EntityDetailData): void {
+    const a = this.assembler!;
+    const options = detail.recipeOptions.join(',');
+    if (options !== a.options || detail.recipe !== a.recipe) {
+      a.options = options;
+      a.picker.replaceChildren(
+        ...detail.recipeOptions.map((id) => this.recipeButton(id, id === detail.recipe)),
+      );
+    }
+    if (detail.recipe !== a.recipe) {
+      a.recipe = detail.recipe;
+      const r = recipePrototype(detail.recipe);
+      a.crafting.replaceChildren();
+      a.inputs = a.outputs = a.progress = null;
+      a.info.textContent = r ? recipeView(r, this.type).text : 'Pick a recipe.';
+      if (r) {
+        const inputs = r.inputs.length;
+        a.inputs = new SlotGrid(inputs, inputs, (i, transfer) => {
+          this.takeSlot(i, transfer);
+        });
+        a.inputs.element.dataset.role = 'input';
+        a.inputs.setHints(r.inputs.map(([item]) => item));
+        a.outputs = new SlotGrid(r.outputs.length, r.outputs.length, (j, transfer) => {
+          this.takeSlot(inputs + j, transfer);
+        });
+        a.outputs.element.dataset.role = 'output';
+        a.outputs.setHints(r.outputs.map(([item]) => item));
+        a.progress = new Bar('progress', '#f2d36b');
+        a.progress.element.style.width = '72px';
+        a.crafting.append(a.inputs.element, a.progress.element, a.outputs.element);
+      }
+    }
+    if (a.inputs && a.outputs) {
+      const inputs = recipePrototype(detail.recipe)?.inputs.length ?? 0;
+      a.inputs.update(detail.slots.slice(0, inputs));
+      a.outputs.update(detail.slots.slice(inputs));
+      a.progress?.set(machineBars(detail).progress);
+    }
+  }
+
+  /** A button of the recipe picker: the product's icon; a click picks the recipe. */
+  private recipeButton(id: number, selected: boolean): HTMLElement {
+    const r = recipePrototype(id)!;
+    const view = recipeView(r, this.type);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'recipe';
+    button.dataset.recipe = view.name;
+    button.dataset.selected = String(selected);
+    button.title = `${view.label}: ${view.text}`;
+    Object.assign(button.style, {
+      position: 'relative',
+      boxSizing: 'border-box',
+      width: `${String(SLOT_PX)}px`,
+      height: `${String(SLOT_PX)}px`,
+      padding: '0',
+      border: '1px solid rgba(232, 226, 208, 0.25)',
+      borderRadius: '3px',
+      background: selected ? 'rgba(242, 211, 107, 0.3)' : 'rgba(0, 0, 0, 0.55)',
+      outline: selected ? '2px solid #f2d36b' : 'none',
+      outlineOffset: '-2px',
+      cursor: 'pointer',
+    } satisfies Partial<CSSStyleDeclaration>);
+    const icon = makeSlotIcon();
+    setSlotIcon(icon, r.outputs[0]![0]);
+    button.appendChild(icon);
+    button.addEventListener('click', () => {
+      if (this.entityId !== 0 && !selected) this.options.setRecipe(this.entityId, id);
+    });
+    return button;
   }
 
   /** The power bar, the power text and the network line of a boiler, steam engine or electric consumer. */

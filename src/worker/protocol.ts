@@ -5,7 +5,7 @@
  * Worker → main: `snapshot`, `stats`, `error`.
  *
  * Commands include the build commands `Place`, `Remove` and `Rotate` and the
- * entity GUI's `Insert` and `Take` and the crafting commands `Craft` and
+ * entity GUI's `Insert`, `Take` and `SetRecipe` and the crafting commands `Craft` and
  * `CancelCraft`; like every command they are validated for shape here and
  * ignored by the simulation when they don't apply.
  *

@@ -23,7 +23,8 @@ function records(
     [number, number, number, number, number] | [number, number, number, number, number, number]
   )[]
 ): ArrayBuffer {
-  return Int32Array.from(entities.flatMap((e) => [...e.slice(0, 5), e[5] ?? 0])).buffer;
+  // Status (default 0) and recipe (0) follow the first five fields.
+  return Int32Array.from(entities.flatMap((e) => [...e.slice(0, 5), e[5] ?? 0, 0])).buffer;
 }
 
 describe('hotbarSlotForKey', () => {

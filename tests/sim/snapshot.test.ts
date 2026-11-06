@@ -102,6 +102,7 @@ describe('encodeEntityDetail / decodeEntityDetail', () => {
         { item: ItemId.Coal, count: 1 },
         { item: 0, count: 0 },
       ],
+      recipeOptions: [],
     });
     state.entities.insert(chest, ItemId.Stone, 3);
     const chestDetail = decodeEntityDetail(encodeEntityDetail(state, 0, chest)!.buffer);
