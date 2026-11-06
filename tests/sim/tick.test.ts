@@ -3,6 +3,7 @@ import type { Command } from '../../src/sim/commands';
 import { PLAYER_DIAGONAL_SPEED, PLAYER_SPEED } from '../../src/sim/player';
 import { PLAYER_STRIDE, PlayerField, encodePlayers } from '../../src/sim/snapshot';
 import { SYSTEMS, Sim } from '../../src/sim/tick';
+import { startingPatches } from '../../src/sim/world/generate';
 
 const move = (tick: number, playerId: number, dx: -1 | 0 | 1, dy: -1 | 0 | 1): Command => ({
   tick,
@@ -122,15 +123,17 @@ describe('Sim', () => {
     }
   });
 
-  it('includes the world slot in the hash', () => {
-    let worldValue = 1;
-    const world = { hashInto: (h: number) => Math.imul(h ^ worldValue, 0x01000193) >>> 0 };
-    const sim = new Sim({ seed: 1, world });
-    const withoutWorld = new Sim({ seed: 1 });
-    const h1 = sim.hash();
-    expect(h1).not.toBe(withoutWorld.hash());
-    worldValue = 2;
-    expect(sim.hash()).not.toBe(h1);
+  it('owns a world generated from its seed and includes it in the hash', () => {
+    const sim = new Sim({ seed: 7 });
+    expect(sim.state.world.seed).toBe(7);
+    // Generating chunks (e.g. for rendering) is not a state change.
+    const h0 = sim.hash();
+    sim.state.world.getChunk(3, -2);
+    expect(sim.hash()).toBe(h0);
+    // Modifying the world is.
+    const { x, y } = startingPatches(7)[0]!;
+    expect(sim.state.world.mine(x, y, 1)).toBe(1);
+    expect(sim.hash()).not.toBe(h0);
   });
 });
 

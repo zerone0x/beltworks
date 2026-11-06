@@ -16,12 +16,40 @@ export const MAX_CATCH_UP_TICKS = 5;
 /** How often the worker reports `stats`, in ticks (twice a second at full speed). */
 export const STATS_INTERVAL_TICKS = 30;
 
+/**
+ * Viewports wider or taller than this many tiles are clamped by the worker, so
+ * a bogus viewport can't make it generate an unbounded number of chunks. At
+ * the minimum zoom (0.25×, 8 px per tile) this is still 8192 px.
+ */
+export const MAX_VIEWPORT_TILES = 1024;
+/** Chunks kept around the viewport on each side, so panning reveals ready-made chunks. */
+export const CHUNK_MARGIN = 1;
+/**
+ * At most this many chunks go into one snapshot (nearest to the viewport
+ * center first); the rest follow in later snapshots. This spreads generation
+ * and baking over several frames when the view jumps or zooms out.
+ */
+export const MAX_CHUNKS_PER_SNAPSHOT = 16;
+
 /** A rectangle in tile coordinates. */
 export interface Viewport {
   x: number;
   y: number;
   w: number;
   h: number;
+}
+
+/** An inclusive rectangle of chunk coordinates: `cx0 <= cx <= cx1`, `cy0 <= cy <= cy1`. */
+export interface ChunkRect {
+  cx0: number;
+  cy0: number;
+  cx1: number;
+  cy1: number;
+}
+
+/** Whether chunk `(cx, cy)` lies inside `rect`. */
+export function rectContains(rect: ChunkRect, cx: number, cy: number): boolean {
+  return cx >= rect.cx0 && cx <= rect.cx1 && cy >= rect.cy0 && cy <= rect.cy1;
 }
 
 export interface InitMessage {
@@ -38,6 +66,7 @@ export interface CommandsMessage {
 
 export interface SetViewportMessage {
   type: 'setViewport';
+  /** Tiles visible on screen (int32 `x`, `y`; `w`, `h` in [0, MAX_VIEWPORT_TILES], larger values are clamped). */
   viewport: Viewport;
 }
 
@@ -59,6 +88,19 @@ export interface SnapshotMessage {
   viewport: Viewport | null;
   /** Players as int32 records; see `PLAYER_STRIDE` in src/sim/snapshot.ts. */
   players: ArrayBuffer;
+  /**
+   * The chunks the main thread should keep cached: the viewport plus
+   * `CHUNK_MARGIN` chunks on each side. Cached chunks outside it can be
+   * dropped; the worker sends them again if they come back into view. `null`
+   * before the first viewport.
+   */
+  chunkWindow: ChunkRect | null;
+  /**
+   * Chunks inside `chunkWindow` that the main thread doesn't have yet, or that
+   * changed since they were last sent (see `encodeChunks` in
+   * src/sim/snapshot.ts). `null` when there are none.
+   */
+  chunks: ArrayBuffer | null;
 }
 
 export interface StatsMessage {

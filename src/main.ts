@@ -1,11 +1,11 @@
-import { Application, Text } from 'pixi.js';
+import { Application } from 'pixi.js';
+import { GameView } from './render/gameView';
 import { DebugOverlay } from './ui/debugOverlay';
 import { SimClient } from './worker/client';
 
 const BACKGROUND = 0x111418;
 /** Fixed world seed until there is a new-game screen. */
 const WORLD_SEED = 1;
-const TILE_PX = 32;
 
 async function main(): Promise<void> {
   const root = document.getElementById('app') ?? document.body;
@@ -15,10 +15,6 @@ async function main(): Promise<void> {
   client.onStats = (stats) => {
     overlay.update(stats);
   };
-  if (import.meta.env.DEV || import.meta.env.MODE === 'test') {
-    const { installTestHook } = await import('./testHook');
-    installTestHook(client);
-  }
 
   const app = new Application();
   await app.init({
@@ -30,34 +26,25 @@ async function main(): Promise<void> {
   });
   root.appendChild(app.canvas);
 
-  const title = new Text({
-    text: 'Beltworks',
-    style: {
-      fill: 0xe8e2d0,
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: 64,
-      fontWeight: '700',
-      letterSpacing: 2,
-    },
+  const view = new GameView(app, (viewport) => {
+    client.setViewport(viewport);
   });
-  title.anchor.set(0.5);
-  app.stage.addChild(title);
+  // Every snapshot must reach the view, in order, or its chunk cache drifts from
+  // what the worker thinks was sent. Snapshots before this point carry no
+  // chunks: the worker only sends them once it has a viewport, and the first
+  // one goes out on the first frame below.
+  client.onSnapshot = (snapshot) => {
+    view.applySnapshot(snapshot);
+  };
+  app.ticker.add((ticker) => {
+    view.frame(ticker.deltaMS);
+    overlay.updateTile(view.hoveredTile());
+  });
 
-  const center = (): void => {
-    title.position.set(app.screen.width / 2, app.screen.height / 2);
-  };
-  // Until the camera exists, the viewport is the screen at 32 px per tile, centered on (0, 0).
-  const sendViewport = (): void => {
-    const w = Math.ceil(app.screen.width / TILE_PX);
-    const h = Math.ceil(app.screen.height / TILE_PX);
-    client.setViewport({ x: -Math.floor(w / 2), y: -Math.floor(h / 2), w, h });
-  };
-  const onResize = (): void => {
-    center();
-    sendViewport();
-  };
-  onResize();
-  app.renderer.on('resize', onResize);
+  if (import.meta.env.DEV || import.meta.env.MODE === 'test') {
+    const { installTestHook } = await import('./testHook');
+    installTestHook(client, view, WORLD_SEED);
+  }
 }
 
 main().catch((err: unknown) => {

@@ -13,13 +13,22 @@ import { generateChunk } from './generate';
  */
 export const CHUNK_COORD_LIMIT = 1 << 15;
 
-/** Packs chunk coordinates into a single int32 `Map` key. */
+/**
+ * Packs chunk coordinates into a single int32 `Map` key. Only unique for
+ * coordinates that pass {@link isChunkCoord}; anything else wraps around and
+ * aliases another chunk, so callers must check the range first.
+ */
 export function chunkKey(cx: number, cy: number): number {
   return ((cx & 0xffff) << 16) | (cy & 0xffff);
 }
 
+/** True if `c` is an integer chunk coordinate in the supported range. */
+export function isChunkCoord(c: number): boolean {
+  return Number.isInteger(c) && c >= -CHUNK_COORD_LIMIT && c < CHUNK_COORD_LIMIT;
+}
+
 function assertChunkCoord(c: number): void {
-  if (!Number.isInteger(c) || c < -CHUNK_COORD_LIMIT || c >= CHUNK_COORD_LIMIT) {
+  if (!isChunkCoord(c)) {
     throw new RangeError(`chunk coordinate out of range: ${String(c)}`);
   }
 }
@@ -28,8 +37,13 @@ export class World {
   /** World seed (uint32). */
   readonly seed: number;
   private readonly chunks = new Map<number, Chunk>();
-  /** Keys of chunks that differ from what {@link generateChunk} would produce. */
-  private readonly dirty = new Set<number>();
+  /**
+   * Chunks that differ from what {@link generateChunk} would produce, keyed by
+   * {@link chunkKey}, with the number of modifications made to each. Only the
+   * keys are game state (they select what gets hashed); the counts are
+   * bookkeeping for {@link chunkVersion}.
+   */
+  private readonly dirty = new Map<number, number>();
 
   constructor(seed: number) {
     this.seed = seed >>> 0;
@@ -40,22 +54,54 @@ export class World {
     return this.chunks.size;
   }
 
-  /** Returns chunk `(cx, cy)`, generating it on first access. */
+  /**
+   * Returns chunk `(cx, cy)`, generating it on first access. Throws a
+   * `RangeError` for coordinates outside the supported range.
+   */
   getChunk(cx: number, cy: number): Chunk {
+    // Check before building the key: out-of-range coordinates would wrap
+    // around in `chunkKey` and return an unrelated cached chunk.
+    assertChunkCoord(cx);
+    assertChunkCoord(cy);
     const key = chunkKey(cx, cy);
     let chunk = this.chunks.get(key);
     if (chunk === undefined) {
-      assertChunkCoord(cx);
-      assertChunkCoord(cy);
       chunk = generateChunk(this.seed, cx, cy);
       this.chunks.set(key, chunk);
     }
     return chunk;
   }
 
-  /** Returns the chunk if it has already been generated, without generating it. */
+  /**
+   * Returns the chunk if it has already been generated, without generating it.
+   * Returns `undefined` for coordinates outside the supported range.
+   */
   peekChunk(cx: number, cy: number): Chunk | undefined {
+    if (!isChunkCoord(cx) || !isChunkCoord(cy)) return undefined;
     return this.chunks.get(chunkKey(cx, cy));
+  }
+
+  /**
+   * Number of modifications made to chunk `(cx, cy)` so far: 0 while it is
+   * still exactly what generation produces. Lets the worker tell which chunks
+   * changed since it last sent them to the renderer.
+   */
+  chunkVersion(cx: number, cy: number): number {
+    if (!isChunkCoord(cx) || !isChunkCoord(cy)) return 0;
+    return this.dirty.get(chunkKey(cx, cy)) ?? 0;
+  }
+
+  /**
+   * Drops chunk `(cx, cy)` from the cache if it is unmodified, so memory stays
+   * bounded while a viewer pans across the map. An unmodified chunk is a pure
+   * function of the seed, so it is simply generated again on the next access;
+   * modified chunks are kept. Returns whether the chunk was dropped.
+   */
+  unloadChunk(cx: number, cy: number): boolean {
+    if (!isChunkCoord(cx) || !isChunkCoord(cy)) return false;
+    const key = chunkKey(cx, cy);
+    if (this.dirty.has(key)) return false;
+    return this.chunks.delete(key);
   }
 
   /** Tile id at world tile `(x, y)` (integers). */
@@ -98,7 +144,8 @@ export class World {
     const left = available - taken;
     chunk.amount[i] = left;
     if (left === 0) chunk.resource[i] = ResourceId.None;
-    this.dirty.add(chunkKey(cx, cy));
+    const key = chunkKey(cx, cy);
+    this.dirty.set(key, (this.dirty.get(key) ?? 0) + 1);
     return taken;
   }
 
@@ -112,7 +159,7 @@ export class World {
    * client looked at a different part of the map.
    */
   hashInto(hash: number = FNV1A32_OFFSET_BASIS): number {
-    const modified = Array.from(this.dirty, (key) => this.chunks.get(key)!).sort(
+    const modified = Array.from(this.dirty.keys(), (key) => this.chunks.get(key)!).sort(
       (a, b) => a.cx - b.cx || a.cy - b.cy,
     );
     const header = Int32Array.of(this.seed | 0, modified.length);

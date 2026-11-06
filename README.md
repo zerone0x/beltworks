@@ -4,6 +4,8 @@ A factory-automation game for the browser, inspired by Factorio. All art and nam
 
 > Status: in development. Live build: https://zerone0x.github.io/beltworks-play/
 
+Controls so far: drag with the middle mouse button or hold the arrow keys to pan, scroll to zoom. The debug overlay shows the tile under the mouse.
+
 ## Docs
 
 | Doc | Contents |
@@ -23,13 +25,13 @@ npm ci
 npm run dev        # start the Vite dev server
 npm run lint       # ESLint (including the src/sim purity rules) + Prettier check
 npm run typecheck  # tsc --noEmit
-npm test           # Vitest unit tests (tests/sim)
+npm test           # Vitest unit tests (tests/sim, tests/worker, tests/render)
 npm run build      # production build into dist/ (set BASE_PATH to change the base URL, default /)
 npm run preview    # serve dist/
-npm run test:e2e   # Playwright smoke test against a fresh production build (Chromium)
+npm run test:e2e   # Playwright tests against a fresh test-mode build (Chromium)
 ```
 
-Run `npx playwright install chromium` once before the first `npm run test:e2e`.
+Run `npx playwright install chromium` once before the first `npm run test:e2e`. The terrain screenshot baselines live in `tests/e2e/render.spec.ts-snapshots/`; after an intended visual change, regenerate them with `npx playwright test --update-snapshots` and check the new images.
 
 ## Deployment
 
