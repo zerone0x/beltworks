@@ -22,6 +22,7 @@ import { Camera, TILE_PX, type Point } from './camera';
 import { CameraInput } from './cameraInput';
 import { EntityIndex } from './entityIndex';
 import { EntityLayer, GhostLayer, type Ghost } from './entityLayer';
+import { GeneratorLayer } from './generatorLayer';
 import { InserterLayer } from './inserterLayer';
 import { PlayerLayer } from './playerLayer';
 import { PlayerTrack } from './playerTrack';
@@ -43,6 +44,8 @@ export class GameView {
   /** Entities around the view, from the latest snapshot. */
   readonly entityIndex = new EntityIndex();
   readonly entities = new EntityLayer();
+  /** Steam engine flywheels, turning with their output. */
+  readonly generators = new GeneratorLayer();
   /** Belts and the items on them, below the other entities. */
   readonly belts = new BeltLayer();
   /** Inserter arms and what they hold, above the buildings. */
@@ -72,6 +75,7 @@ export class GameView {
       this.belts.container,
       this.belts.itemContainer,
       this.entities.container,
+      this.generators.container,
       this.inserters.container,
       this.power.container,
       this.players.container,
@@ -162,6 +166,7 @@ export class GameView {
     this.terrain.update();
     this.belts.draw(now);
     this.entities.draw(this.entityIndex);
+    this.generators.draw(this.entityIndex, this.power.data, dtMs);
     this.inserters.draw(now);
     this.power.drawWires();
     this.players.draw(this.track, now);

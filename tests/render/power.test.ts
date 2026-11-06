@@ -63,6 +63,7 @@ describe('encodePower', () => {
       poles: [],
       wires: [],
       networks: [],
+      members: [],
     });
   });
 });
@@ -76,6 +77,7 @@ describe('powerFocus', () => {
     ],
     wires: [[1, 2]],
     networks: [],
+    members: [],
   };
   const view = (id: number, proto = POLE, x = 0, y = 0): EntityView => ({
     id,

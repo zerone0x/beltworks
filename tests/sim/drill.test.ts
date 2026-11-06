@@ -428,6 +428,9 @@ describe('burner mining drill', () => {
       progress: 100,
       energy: COAL_J - 100 * DRILL_W,
       burning: ItemId.Coal,
+      power: 0,
+      network: 0,
+      satisfaction: 0,
       slots: [
         { item: ItemId.Coal, count: 1 },
         { item: 0, count: 0 },

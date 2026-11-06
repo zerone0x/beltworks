@@ -13,6 +13,7 @@ import { InserterSlot, InserterState, inserterTable } from '../../src/sim/entiti
 import { MachineState } from '../../src/sim/entities/machine';
 import {
   DETERMINISM_BELTS,
+  DETERMINISM_BOILER,
   DETERMINISM_BUILD_TICKS,
   DETERMINISM_CHAIN,
   DETERMINISM_CHAIN_CHEST,
@@ -22,6 +23,8 @@ import {
   DETERMINISM_CHAIN_PUT,
   DETERMINISM_CHAIN_TICK,
   DETERMINISM_DRILL_CHEST,
+  DETERMINISM_ENGINE_EAST,
+  DETERMINISM_ENGINE_WEST,
   DETERMINISM_KIT,
   DETERMINISM_PATCH_CHEST,
   DETERMINISM_PATCH_FURNACE,
@@ -38,6 +41,7 @@ import {
   DETERMINISM_SEED,
   DETERMINISM_SPAWN_CHEST,
   DETERMINISM_SPAWN_INSERTER,
+  DETERMINISM_STEAM_TICK,
   DETERMINISM_TICKS,
   DETERMINISM_TREE_CHESTS,
   buildDeterminismScript,
@@ -46,7 +50,9 @@ import {
   nearestTree,
 } from '../../src/sim/scenarios/determinism';
 import { Sim } from '../../src/sim/tick';
+import { BoilerSlot, boilerTable } from '../../src/sim/power/boiler';
 import { powerGrid } from '../../src/sim/power/grid';
+import { steamEngineTable } from '../../src/sim/power/steamEngine';
 import { startingPatches } from '../../src/sim/world/generate';
 import { DETERMINISM_EXPECTED_HASH } from './determinism.expected';
 
@@ -122,6 +128,11 @@ describe('determinism', () => {
           KIT_PLATES_LEFT_0;
         const smelting = entities.detail(furnace)!.recipe !== 0 ? 1 : 0;
         mined += entities.slots(furnace)[FurnaceSlot.Input]!.count + smelting + plates;
+      }
+      if (id === 1) {
+        // Player 1 mines coal and fuels its boiler with two (it burns none: no demand yet).
+        expect(item).toBe(ItemId.Coal);
+        mined += sim.state.entities.slots(DETERMINISM_BOILER)[BoilerSlot.Fuel]!.count;
       }
       // 300 + 150 ticks of mining at 30 ticks per unit, on top of the starting kit.
       expect(mined).toBe(15);
@@ -470,6 +481,34 @@ describe('determinism', () => {
     expect(grid.poleCount).toBe(5);
     expect(grid.networkCount).toBe(2);
     expect(sim.state.players.inventory(1).count(ItemId.SmallElectricPole)).toBe(5);
+  });
+
+  it("builds a boiler and two steam engines among player 1's poles, which wait for demand", () => {
+    const sim = createDeterminismSim();
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    const { entities } = sim.state;
+    const grid = powerGrid(entities)!;
+    const boilers = boilerTable(entities)!;
+    const engines = steamEngineTable(entities)!;
+    const [boiler, west, east] = [
+      DETERMINISM_BOILER,
+      DETERMINISM_ENGINE_WEST,
+      DETERMINISM_ENGINE_EAST,
+    ];
+    while (sim.tick <= DETERMINISM_STEAM_TICK + 3) sim.step();
+    expect(entities.store.type(boiler)).toBe(EntityTypeId.Boiler);
+    expect([west, east].map((e) => entities.store.type(e))).toEqual([
+      EntityTypeId.SteamEngine,
+      EntityTypeId.SteamEngine,
+    ]);
+    expect(engines.enginesOf(boiler)).toEqual([west, east]);
+    expect([west, east].map((e) => grid.networkOf(e))).toEqual([1, 1]);
+    while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
+    // No consumers yet: the engines could deliver 30 000 J/tick, nothing is drawn or burnt.
+    expect(grid.network(1)).toMatchObject({ supply: 30_000, demand: 0, load: 0 });
+    expect(entities.slots(boiler)).toEqual([{ item: ItemId.Coal, count: 2 }]);
+    expect(boilers.detail(boiler).energy).toBe(0);
+    for (const id of [boiler, west, east]) expect(entities.status(id)).toBe(MachineState.NoDemand);
   });
 
   it('matches the expected hash shared with the Chromium test', () => {

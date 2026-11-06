@@ -305,9 +305,11 @@ export function decodeInserters(buffer: ArrayBuffer): InserterData[] {
 export const POLE_STRIDE = 5;
 /** Int32 fields per network in {@link encodePower}. */
 export const NETWORK_STRIDE = 5;
+/** Int32 fields per electric entity in {@link encodePower}. */
+export const MEMBER_STRIDE = 5;
 
 /**
- * Encodes the electric grid around the view as int32s, in three sections:
+ * Encodes the electric grid around the view as int32s, in four sections:
  * - `[poleCount]`, then per pole whose tile lies in the chunks of `range`
  *   (in the order of `encodeEntities`) `[id, type, x, y, network]`;
  * - `[wireCount]`, then per wire between two of those poles `[a, b]` (pole
@@ -316,15 +318,21 @@ export const NETWORK_STRIDE = 5;
  *   around the viewport, so none of them would show;
  * - `[networkCount]`, then per network of those poles (ascending ids) `[id,
  *   poles, demand, supply, satisfaction]` as of the latest tick (joules are
- *   uint32s stored bit for bit).
+ *   uint32s stored bit for bit);
+ * - `[memberCount]`, then per electric entity (consumer or producer) whose
+ *   origin lies in the chunks of `range`, in the order of `encodeEntities`,
+ *   `[id, network, demand, maxOutput, drawn]` as of the latest tick (see
+ *   `MemberStats`; network 0 when not connected). Steam engines animate
+ *   with what they delivered.
  */
 export function encodePower(state: SimState, range: ChunkRange | null): Int32Array<ArrayBuffer> {
   const grid = powerGrid(state.entities);
   if (range === null || !grid) {
-    return new Int32Array(3);
+    return new Int32Array(4);
   }
   const { store, occupancy } = state.entities;
-  const poles = occupancy.originsIn(range).filter((id) => grid.isPole(id));
+  const origins = occupancy.originsIn(range);
+  const poles = origins.filter((id) => grid.isPole(id));
   const inRange = new Set(poles);
   const out: number[] = [poles.length];
   const nets = new Set<number>();
@@ -346,6 +354,12 @@ export function encodePower(state: SimState, range: ChunkRange | null): Int32Arr
     const n = grid.network(net)!;
     out.push(net, n.poles, n.demand | 0, n.supply | 0, n.satisfaction);
   }
+  const members: number[] = [];
+  for (const id of origins) {
+    const m = grid.member(id);
+    if (m) members.push(id, m.network, m.demand | 0, m.maxOutput | 0, m.drawn | 0);
+  }
+  out.push(members.length / MEMBER_STRIDE, ...members);
   return Int32Array.from(out);
 }
 
@@ -369,18 +383,29 @@ export interface NetworkData {
   satisfaction: number;
 }
 
+/** An electric entity as decoded on the main thread (joules per tick, as of the latest tick). */
+export interface MemberData {
+  id: number;
+  /** 0 when not connected. */
+  network: number;
+  demand: number;
+  maxOutput: number;
+  drawn: number;
+}
+
 /** The grid around the view as decoded on the main thread. */
 export interface PowerData {
   poles: PoleData[];
   /** Wired pole pairs `[a, b]` with `a < b`. */
   wires: [number, number][];
   networks: NetworkData[];
+  members: MemberData[];
 }
 
 /** Unpacks a buffer made by {@link encodePower}. */
 export function decodePower(buffer: ArrayBuffer): PowerData {
   const v = new Int32Array(buffer);
-  const out: PowerData = { poles: [], wires: [], networks: [] };
+  const out: PowerData = { poles: [], wires: [], networks: [], members: [] };
   let o = 0;
   const poleCount = v[o++] ?? 0;
   for (let i = 0; i < poleCount && o + POLE_STRIDE <= v.length; i++, o += POLE_STRIDE) {
@@ -406,6 +431,16 @@ export function decodePower(buffer: ArrayBuffer): PowerData {
       satisfaction: v[o + 4]!,
     });
   }
+  const memberCount = v[o++] ?? 0;
+  for (let i = 0; i < memberCount && o + MEMBER_STRIDE <= v.length; i++, o += MEMBER_STRIDE) {
+    out.members.push({
+      id: v[o]! >>> 0,
+      network: v[o + 1]! >>> 0,
+      demand: v[o + 2]! >>> 0,
+      maxOutput: v[o + 3]! >>> 0,
+      drawn: v[o + 4]! >>> 0,
+    });
+  }
   return out;
 }
 
@@ -420,9 +455,14 @@ export const DetailField = {
   progress: 5,
   energy: 6,
   burning: 7,
-  slotCount: 8,
+  /** Joules per tick of electric power delivered on the latest tick (generators, boilers). */
+  power: 8,
+  /** The electric network the entity belongs to (0: none, or not electric) and its satisfaction. */
+  network: 9,
+  satisfaction: 10,
+  slotCount: 11,
 } as const;
-const DETAIL_HEADER = 9;
+const DETAIL_HEADER = 12;
 
 /**
  * Encodes what the entity GUI shows about entity `id` for player `playerId`
@@ -450,6 +490,10 @@ export function encodeEntityDetail(
   out[DetailField.progress] = detail?.progress ?? 0;
   out[DetailField.energy] = detail?.energy ?? 0;
   out[DetailField.burning] = detail?.burning ?? 0;
+  out[DetailField.power] = detail?.power ?? 0;
+  const grid = powerGrid(entities);
+  out[DetailField.network] = grid?.networkOf(id) ?? 0;
+  out[DetailField.satisfaction] = grid?.satisfaction(id) ?? 0;
   out[DetailField.slotCount] = slots.length;
   slots.forEach((slot, i) => {
     out[DETAIL_HEADER + 2 * i] = slot.item;
@@ -468,6 +512,11 @@ export interface EntityDetailData {
   progress: number;
   energy: number;
   burning: number;
+  /** Joules per tick of electric power delivered on the latest tick. */
+  power: number;
+  /** Electric network (0: none) and its satisfaction in units of 1/`SAT_ONE`. */
+  network: number;
+  satisfaction: number;
   slots: SlotData[];
 }
 
@@ -488,6 +537,9 @@ export function decodeEntityDetail(buffer: ArrayBuffer): EntityDetailData {
     progress: v[DetailField.progress]!,
     energy: v[DetailField.energy]!,
     burning: v[DetailField.burning]!,
+    power: v[DetailField.power]! >>> 0,
+    network: v[DetailField.network]! >>> 0,
+    satisfaction: v[DetailField.satisfaction]!,
     slots,
   };
 }

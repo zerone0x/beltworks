@@ -94,6 +94,9 @@ describe('encodeEntityDetail / decodeEntityDetail', () => {
       progress: 10,
       energy: 4_000_000 - 10 * 1_500,
       burning: ItemId.Coal,
+      power: 0,
+      network: 0,
+      satisfaction: 0,
       slots: [
         { item: ItemId.IronOre, count: 3 },
         { item: ItemId.Coal, count: 1 },

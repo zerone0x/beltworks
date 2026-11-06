@@ -85,7 +85,7 @@ export function powerFocus(
   };
 }
 
-const EMPTY: PowerData = { poles: [], wires: [], networks: [] };
+const EMPTY: PowerData = { poles: [], wires: [], networks: [], members: [] };
 
 export class PowerLayer {
   /** Wires, above the buildings. */

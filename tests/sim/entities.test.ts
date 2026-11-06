@@ -170,11 +170,12 @@ describe('entity prototypes', () => {
     }
   });
 
-  it('places the power stubs as plain placeholders until they get behavior', () => {
+  it('places a steam engine turned east on its 5×3 footprint, and picks it up', () => {
     const sim = simAt(0, 0);
     const { state } = sim;
     state.players.inventory(0).add(ItemId.SteamEngine, 1);
     state.players.inventory(0).add(ItemId.SmallElectricPole, 1);
+    const before = state.players.inventory(0).count(ItemId.SteamEngine);
     expect(place(state, ItemId.SteamEngine, 2, -2, East)).toBe(BuildResult.Ok);
     // Facing east, the 3×5 engine lies 5 wide and 3 tall.
     const engine = state.entities.at(2, -2);
@@ -182,7 +183,7 @@ describe('entity prototypes', () => {
     expect(state.entities.at(6, 0)).toBe(engine);
     expect(place(state, ItemId.SmallElectricPole, -3, 0)).toBe(BuildResult.Ok);
     expect(removeEntity(state, 0, 4, -1)).toBe(BuildResult.Ok);
-    expect(state.players.inventory(0).count(ItemId.SteamEngine)).toBe(1);
+    expect(state.players.inventory(0).count(ItemId.SteamEngine)).toBe(before);
   });
 });
 
@@ -202,6 +203,8 @@ describe('starting kit', () => {
     expect(count(ItemId.WoodenChest)).toBe(2);
     expect(count(ItemId.BurnerInserter)).toBe(4);
     expect(count(ItemId.Coal)).toBe(10);
+    expect(count(ItemId.Boiler)).toBe(1);
+    expect(count(ItemId.SteamEngine)).toBe(2);
     expect(
       new Sim({ seed: 1, startingKit: [] }).state.players.inventory(0).count(ItemId.Coal),
     ).toBe(0);
