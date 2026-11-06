@@ -1,0 +1,8 @@
+dist/
+node_modules/
+coverage/
+playwright-report/
+test-results/
+package-lock.json
+# Docs are hand-written prose; keep their formatting as authored.
+*.md
