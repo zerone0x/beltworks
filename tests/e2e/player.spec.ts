@@ -2,6 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { ITEMS, MINED_ITEM } from '../../src/data/items';
 import { ResourceId } from '../../src/data/resources';
 import { TILE_PX } from '../../src/render/camera';
+import { SUBTILES_PER_TILE } from '../../src/sim/fixed';
+import { inMiningReach } from '../../src/sim/player';
 import { startingPatches } from '../../src/sim/world/generate';
 
 /** Seed used by src/main.ts. */
@@ -27,6 +29,22 @@ async function open(page: Page): Promise<void> {
 const player = async (page: Page) => (await page.evaluate(() => window.__beltworks!.player()))!;
 const camera = (page: Page) => page.evaluate(() => window.__beltworks!.camera());
 
+/** Animation frames per second over half a second, for failure diagnostics. */
+const fps = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        let frames = 0;
+        const start = performance.now();
+        const tick = (now: number): void => {
+          frames++;
+          if (now - start < 500) requestAnimationFrame(tick);
+          else resolve(Math.round((frames * 1000) / (now - start)));
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+
 /** Waits until the player stopped moving (two snapshots apart show the same position). */
 async function waitUntilStill(page: Page): Promise<{ x: number; y: number }> {
   let last = await player(page);
@@ -39,35 +57,50 @@ async function waitUntilStill(page: Page): Promise<{ x: number; y: number }> {
 }
 
 /**
- * Walks the player with WASD until it stands within `tolerance` tiles of the
- * center of tile `(tx, ty)` on both axes, steering every 40 ms.
+ * Walks the player with WASD until it stands still within `tolerance` tiles
+ * of `(tx, ty)` (tile coordinates) on both axes.
+ *
+ * Input only becomes commands on the next rendered frame, and software-
+ * rendered Chromium on CI can run at a low frame rate, so a key release takes
+ * effect late and the player overshoots. Each pass therefore holds the keys
+ * until the player is within the tolerance (or past the target) on each axis,
+ * waits for it to stop, and measures again.
  */
-async function walkTo(page: Page, tx: number, ty: number, tolerance = 0.6): Promise<void> {
-  const held = new Set<string>();
-  const set = async (key: string, on: boolean): Promise<void> => {
-    if (on && !held.has(key)) {
-      held.add(key);
-      await page.keyboard.down(key);
-    } else if (!on && held.has(key)) {
-      held.delete(key);
-      await page.keyboard.up(key);
-    }
-  };
-  const deadline = Date.now() + 15_000;
+async function walkNear(
+  page: Page,
+  tx: number,
+  ty: number,
+  tolerance: number,
+): Promise<{ x: number; y: number }> {
+  const deadline = Date.now() + 30_000;
   for (;;) {
-    const p = await player(page);
-    const dx = tx + 0.5 - p.x;
-    const dy = ty + 0.5 - p.y;
-    if (Math.abs(dx) <= tolerance && Math.abs(dy) <= tolerance) break;
-    if (Date.now() > deadline)
-      throw new Error(`walk to (${tx}, ${ty}) timed out at (${p.x}, ${p.y})`);
-    await set('d', dx > tolerance);
-    await set('a', dx < -tolerance);
-    await set('s', dy > tolerance);
-    await set('w', dy < -tolerance);
-    await page.waitForTimeout(40);
+    const p = await waitUntilStill(page);
+    const dx = tx - p.x;
+    const dy = ty - p.y;
+    if (Math.abs(dx) <= tolerance && Math.abs(dy) <= tolerance) return p;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `walk to (${tx}, ${ty}) timed out at (${p.x}, ${p.y}); page at ${await fps(page)} fps`,
+      );
+    }
+    // For each held key: the remaining distance along its axis, positive while short of the target.
+    const remaining: Record<string, (q: { x: number; y: number }) => number> = {};
+    if (dx > tolerance) remaining.d = (q) => tx - q.x;
+    if (dx < -tolerance) remaining.a = (q) => q.x - tx;
+    if (dy > tolerance) remaining.s = (q) => ty - q.y;
+    if (dy < -tolerance) remaining.w = (q) => q.y - ty;
+    for (const key of Object.keys(remaining)) await page.keyboard.down(key);
+    while (Object.keys(remaining).length > 0) {
+      await page.waitForTimeout(20);
+      const q = await player(page);
+      for (const [key, left] of Object.entries(remaining)) {
+        if (left(q) <= tolerance || Date.now() > deadline) {
+          delete remaining[key];
+          await page.keyboard.up(key);
+        }
+      }
+    }
   }
-  for (const key of [...held]) await set(key, false);
 }
 
 test('WASD moves the player, the camera follows, panning frees it and F re-follows', async ({
@@ -135,36 +168,54 @@ test('WASD moves the player, the camera follows, panning frees it and F re-follo
 test('walk to an ore tile, mine it for 2 s, and find the ore in the inventory', async ({
   page,
 }, testInfo) => {
+  // Walking with the keyboard is slow on CI's software-rendered Chromium.
+  test.setTimeout(90_000);
   const errors = collectErrors(page);
   await open(page);
   // The copper patch: its color stands out best in the screenshot.
   const patch = startingPatches(WORLD_SEED).find((p) => p.ore === ResourceId.CopperOre)!;
   const item = ITEMS[MINED_ITEM[patch.ore]];
-  const generated = await page.evaluate(
-    ([x, y]) => window.__beltworks!.generatedTile(x!, y!),
-    [patch.x, patch.y],
-  );
-  expect(generated.resource).toBe(patch.ore);
+  const generatedAt = (x: number, y: number) =>
+    page.evaluate(([gx, gy]) => window.__beltworks!.generatedTile(gx!, gy!), [x, y]);
 
-  // Stand next to the patch center (within the 2.5-tile reach), not on it,
-  // so the player doesn't hide the mining indicator.
-  await walkTo(page, patch.x - 1, patch.y + 1);
-  await waitUntilStill(page);
+  // Walk onto the patch, then mine an ore tile next to wherever the player
+  // stopped: diagonally up-right first, so the player doesn't hide the
+  // mining indicator. Any neighbouring tile is within the 2.5-tile reach.
+  const stand = await walkNear(page, patch.x + 0.5, patch.y + 0.5, 1.5);
+  const [px, py] = [Math.floor(stand.x), Math.floor(stand.y)];
+  let tile: { x: number; y: number } | null = null;
+  for (const [ox, oy] of [
+    [1, -1],
+    [1, 0],
+    [0, -1],
+    [-1, -1],
+    [1, 1],
+    [-1, 0],
+    [0, 1],
+    [-1, 1],
+  ] as const) {
+    const [x, y] = [px + ox, py + oy];
+    const inReach = inMiningReach(stand.x * SUBTILES_PER_TILE, stand.y * SUBTILES_PER_TILE, x, y);
+    if (inReach && (await generatedAt(x, y)).resource === patch.ore) {
+      tile = { x, y };
+      break;
+    }
+  }
+  expect(tile, `no ore tile in reach of (${stand.x}, ${stand.y})`).not.toBeNull();
+  const { x: tx, y: ty } = tile!;
+  const generated = await generatedAt(tx, ty);
   const hotbar = page.locator('#hotbar');
   const panel = page.locator('#inventory-panel');
   await expect(panel).toBeHidden();
   await expect(hotbar.locator(`[data-item="${item.name}"]`)).toHaveCount(0);
 
   // Hold the right mouse button on the ore tile for 2 s.
-  const at = await page.evaluate(
-    ([x, y]) => window.__beltworks!.tileToScreen(x!, y!),
-    [patch.x, patch.y],
-  );
+  const at = await page.evaluate(([x, y]) => window.__beltworks!.tileToScreen(x!, y!), [tx, ty]);
   await page.mouse.move(at.x, at.y);
   await page.mouse.down({ button: 'right' });
   await expect.poll(async () => (await player(page)).mining).toBe(true);
   const target = await player(page);
-  expect([target.mineX, target.mineY]).toEqual([patch.x, patch.y]);
+  expect([target.mineX, target.mineY]).toEqual([tx, ty]);
   await page.waitForTimeout(2_000);
 
   // Open the inventory while still mining.
@@ -194,10 +245,7 @@ test('walk to an ore tile, mine it for 2 s, and find the ore in the inventory', 
   expect(total).toBeGreaterThanOrEqual(mined);
   await expect
     .poll(() =>
-      page.evaluate(
-        ([x, y]) => window.__beltworks!.renderedTile(x!, y!)?.amount,
-        [patch.x, patch.y],
-      ),
+      page.evaluate(([x, y]) => window.__beltworks!.renderedTile(x!, y!)?.amount, [tx, ty]),
     )
     .toBe(generated.amount - total);
 
