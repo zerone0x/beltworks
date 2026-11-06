@@ -75,7 +75,10 @@ async function main(): Promise<void> {
     },
     pointer: () => view.input.pointer,
     tileAt: (sx, sy) => view.camera.tileAt(sx, sy),
-    isMineable: (x, y) => (view.terrain.tileAt(x, y)?.resource ?? 0) !== 0,
+    isMineable: (x, y) => {
+      const tile = view.terrain.tileAt(x, y);
+      return tile !== null && (tile.resource !== 0 || tile.tree !== 0);
+    },
     entityAt: (x, y) => view.entityIndex.at(x, y)?.id ?? 0,
     onToggleInventory: () => {
       // Like Escape, E first closes an open entity window (which shows the

@@ -8,11 +8,14 @@
  *   own, so a player pushing diagonally into a shore slides along it.
  * - Hand-mining: while the mining intent is set and the target tile is within
  *   reach, one unit is mined every `HAND_MINING_TICKS` ticks and goes into the
- *   player's inventory. Out of reach, mining pauses (progress resets) until
- *   the player comes back; a depleted tile or a full inventory ends it.
+ *   player's inventory. A tree is felled whole after `TREE_MINING_TICKS`
+ *   ticks and gives `TREE_WOOD` wood. Out of reach, mining pauses (progress
+ *   resets) until the player comes back; a depleted tile, a felled tree, or
+ *   an inventory without room for what the next unit (or tree) gives ends it.
  */
 
 import { minedItem } from '../data/items';
+import { TREE_ITEM, TREE_MINING_TICKS, TREE_WOOD } from '../data/trees';
 import type { Axis } from './commands';
 import { HALF_TILE, SUBTILES_PER_TILE, fixedToTile, isInt32, tileToFixed } from './fixed';
 import { fnv1a32 } from './hash';
@@ -61,7 +64,7 @@ export class PlayerTable {
   readonly mining: Uint8Array;
   readonly mineX: Int32Array;
   readonly mineY: Int32Array;
-  /** Ticks spent on the current unit, in [0, HAND_MINING_TICKS). */
+  /** Ticks spent on the current unit, in [0, HAND_MINING_TICKS) (or TREE_MINING_TICKS for a tree). */
   readonly mineProgress: Uint16Array;
   /** Inventories of every player, `PLAYER_INVENTORY_SLOTS` consecutive slots each. */
   readonly invItems: Uint16Array;
@@ -235,19 +238,28 @@ function minePlayer(players: PlayerTable, world: World, i: number): void {
     players.mineProgress[i] = 0;
     return;
   }
-  const item = world.isTileInRange(tx, ty) ? minedItem(world.resourceAt(tx, ty)) : undefined;
+  const inRange = world.isTileInRange(tx, ty);
+  // Trees never stand on resource tiles, so a tile has at most one of the two.
+  const tree = inRange && world.treeAt(tx, ty);
+  const item = tree ? TREE_ITEM : inRange ? minedItem(world.resourceAt(tx, ty)) : undefined;
+  const units = tree ? TREE_WOOD : 1;
   const inventory = players.inventory(i);
-  if (item === undefined || inventory.spaceFor(item) === 0) {
-    // Nothing (left) to mine, or nowhere to put it.
+  if (item === undefined || inventory.spaceFor(item) < units) {
+    // Nothing (left) to mine, or nowhere to put all of it.
     players.stopMining(i);
     return;
   }
   const progress = players.mineProgress[i]! + 1;
-  if (progress < HAND_MINING_TICKS) {
+  if (progress < (tree ? TREE_MINING_TICKS : HAND_MINING_TICKS)) {
     players.mineProgress[i] = progress;
     return;
   }
   players.mineProgress[i] = 0;
+  if (tree) {
+    world.removeTree(tx, ty);
+    inventory.add(item, units);
+    return;
+  }
   const taken = world.mine(tx, ty, 1);
   inventory.add(item, taken);
 }

@@ -41,6 +41,7 @@ export function simPlacementView(state: SimState): PlacementView {
   return {
     inMap: (x, y) => world.isTileInRange(x, y),
     buildable: (x, y) => isBuildable(world.tileAt(x, y)),
+    tree: (x, y) => world.treeAt(x, y),
     occupant: (x, y) => entities.at(x, y),
     playerCount: players.count,
     playerX: (i) => players.x[i]!,

@@ -4,6 +4,7 @@ import {
   ENTITY_TYPE_IDS,
   EntityTypeId,
   MAX_ENTITY_SIZE,
+  SAT_ONE,
   entityForItem,
   entityPrototype,
 } from '../../src/data/entities';
@@ -93,6 +94,95 @@ describe('entity prototypes', () => {
     expect(ENTITIES[EntityTypeId.TransportBelt].rotatable).toBe(true);
     expect(ENTITIES[EntityTypeId.BurnerInserter].rotatable).toBe(true);
     expect(ENTITIES[EntityTypeId.WoodenChest].rotatable).toBe(false);
+  });
+
+  it('include the M2 power stubs with the shared design numbers', () => {
+    const pick = (id: keyof typeof ENTITIES) => {
+      const { width, height, rotatable, energySource, item } = ENTITIES[id];
+      return { size: [width, height], rotatable, energySource, item };
+    };
+    expect(SAT_ONE).toBe(65_536);
+
+    expect(pick(EntityTypeId.SmallElectricPole)).toEqual({
+      size: [1, 1],
+      rotatable: false,
+      energySource: undefined,
+      item: ItemId.SmallElectricPole,
+    });
+    expect(ENTITIES[EntityTypeId.SmallElectricPole]).toMatchObject({ wireReach: 7, supplyArea: 5 });
+
+    expect(pick(EntityTypeId.Boiler)).toEqual({
+      size: [2, 3],
+      rotatable: true,
+      energySource: 'burner',
+      item: ItemId.Boiler,
+    });
+    expect(ENTITIES[EntityTypeId.Boiler].maxOutputPerTick).toBe(30_000);
+
+    expect(pick(EntityTypeId.SteamEngine)).toEqual({
+      size: [3, 5],
+      rotatable: true,
+      energySource: undefined,
+      item: ItemId.SteamEngine,
+    });
+    // One boiler feeds exactly two engines at full load.
+    expect(ENTITIES[EntityTypeId.SteamEngine].maxOutputPerTick).toBe(15_000);
+
+    expect(pick(EntityTypeId.ElectricMiningDrill)).toEqual({
+      size: [3, 3],
+      rotatable: true,
+      energySource: 'electric',
+      item: ItemId.ElectricMiningDrill,
+    });
+    expect(ENTITIES[EntityTypeId.ElectricMiningDrill]).toMatchObject({
+      energyPerTick: 1_500,
+      miningTicks: 120,
+      miningArea: 5,
+    });
+
+    expect(pick(EntityTypeId.ElectricInserter)).toEqual({
+      size: [1, 1],
+      rotatable: true,
+      energySource: 'electric',
+      item: ItemId.ElectricInserter,
+    });
+    expect(ENTITIES[EntityTypeId.ElectricInserter]).toMatchObject({
+      energyPerTick: 220,
+      drainPerTick: 7,
+      swingTicks: 26,
+    });
+
+    // Every energy number is a non-negative integer.
+    for (const id of ENTITY_TYPE_IDS) {
+      const p = ENTITIES[id];
+      for (const n of [
+        p.energyPerTick,
+        p.drainPerTick,
+        p.maxOutputPerTick,
+        p.wireReach,
+        p.supplyArea,
+        p.miningArea,
+      ]) {
+        if (n !== undefined) expect(Number.isInteger(n) && n >= 0).toBe(true);
+      }
+      // Burner entities that burn a fixed rate say so; electric ones always have a rate.
+      if (p.energySource === 'electric') expect(p.energyPerTick).toBeGreaterThan(0);
+    }
+  });
+
+  it('places the power stubs as plain placeholders until they get behavior', () => {
+    const sim = simAt(0, 0);
+    const { state } = sim;
+    state.players.inventory(0).add(ItemId.SteamEngine, 1);
+    state.players.inventory(0).add(ItemId.SmallElectricPole, 1);
+    expect(place(state, ItemId.SteamEngine, 2, -2, East)).toBe(BuildResult.Ok);
+    // Facing east, the 3×5 engine lies 5 wide and 3 tall.
+    const engine = state.entities.at(2, -2);
+    expect(state.entities.footprint(engine)).toEqual({ x: 2, y: -2, w: 5, h: 3 });
+    expect(state.entities.at(6, 0)).toBe(engine);
+    expect(place(state, ItemId.SmallElectricPole, -3, 0)).toBe(BuildResult.Ok);
+    expect(removeEntity(state, 0, 4, -1)).toBe(BuildResult.Ok);
+    expect(state.players.inventory(0).count(ItemId.SteamEngine)).toBe(1);
   });
 });
 

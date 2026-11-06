@@ -13,6 +13,13 @@ describe('crafting panel helpers', () => {
       'burner-mining-drill',
       'transport-belt',
       'burner-inserter',
+      'copper-cable',
+      'electronic-circuit',
+      'small-electric-pole',
+      'boiler',
+      'steam-engine',
+      'electric-mining-drill',
+      'electric-inserter',
     ]);
     expect(recipeTitle(RECIPES[RecipeId.TransportBelt])).toBe(
       '2 × Transport belt ← 1 × Iron gear wheel, 1 × Iron plate (0.5 s)',

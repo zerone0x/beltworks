@@ -26,6 +26,14 @@ export const RecipeId = {
   BurnerMiningDrill: 7,
   TransportBelt: 8,
   BurnerInserter: 9,
+  // Hand recipes for power (M2).
+  CopperCable: 10,
+  ElectronicCircuit: 11,
+  SmallElectricPole: 12,
+  Boiler: 13,
+  SteamEngine: 14,
+  ElectricMiningDrill: 15,
+  ElectricInserter: 16,
 } as const;
 
 export type RecipeId = (typeof RecipeId)[keyof typeof RecipeId];
@@ -128,6 +136,75 @@ export const RECIPES: Readonly<Record<RealRecipeId, Recipe>> = {
     ticks: 30,
     category: 'hand',
   },
+  [RecipeId.CopperCable]: {
+    id: RecipeId.CopperCable,
+    inputs: [[ItemId.CopperPlate, 1]],
+    outputs: [[ItemId.CopperCable, 2]],
+    ticks: 30,
+    category: 'hand',
+  },
+  [RecipeId.ElectronicCircuit]: {
+    id: RecipeId.ElectronicCircuit,
+    inputs: [
+      [ItemId.CopperCable, 3],
+      [ItemId.IronPlate, 1],
+    ],
+    outputs: [[ItemId.ElectronicCircuit, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
+  [RecipeId.SmallElectricPole]: {
+    id: RecipeId.SmallElectricPole,
+    inputs: [
+      [ItemId.Wood, 1],
+      [ItemId.CopperCable, 2],
+    ],
+    outputs: [[ItemId.SmallElectricPole, 2]],
+    ticks: 30,
+    category: 'hand',
+  },
+  [RecipeId.Boiler]: {
+    id: RecipeId.Boiler,
+    inputs: [
+      [ItemId.StoneFurnace, 1],
+      [ItemId.IronPlate, 4],
+    ],
+    outputs: [[ItemId.Boiler, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
+  [RecipeId.SteamEngine]: {
+    id: RecipeId.SteamEngine,
+    inputs: [
+      [ItemId.IronGearWheel, 8],
+      [ItemId.IronPlate, 15],
+    ],
+    outputs: [[ItemId.SteamEngine, 1]],
+    ticks: 60,
+    category: 'hand',
+  },
+  [RecipeId.ElectricMiningDrill]: {
+    id: RecipeId.ElectricMiningDrill,
+    inputs: [
+      [ItemId.ElectronicCircuit, 3],
+      [ItemId.IronGearWheel, 5],
+      [ItemId.IronPlate, 10],
+    ],
+    outputs: [[ItemId.ElectricMiningDrill, 1]],
+    ticks: 120,
+    category: 'hand',
+  },
+  [RecipeId.ElectricInserter]: {
+    id: RecipeId.ElectricInserter,
+    inputs: [
+      [ItemId.ElectronicCircuit, 1],
+      [ItemId.IronGearWheel, 1],
+      [ItemId.IronPlate, 1],
+    ],
+    outputs: [[ItemId.ElectricInserter, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
 };
 
 /** Every real recipe id, in id order. */
@@ -141,6 +218,13 @@ export const RECIPE_IDS: readonly RealRecipeId[] = [
   RecipeId.BurnerMiningDrill,
   RecipeId.TransportBelt,
   RecipeId.BurnerInserter,
+  RecipeId.CopperCable,
+  RecipeId.ElectronicCircuit,
+  RecipeId.SmallElectricPole,
+  RecipeId.Boiler,
+  RecipeId.SteamEngine,
+  RecipeId.ElectricMiningDrill,
+  RecipeId.ElectricInserter,
 ];
 
 /** The hand recipes, in id order (the order of the crafting panel). */
@@ -150,7 +234,7 @@ export const HAND_RECIPES: readonly Recipe[] = RECIPE_IDS.map((id) => RECIPES[id
 
 /**
  * Items that no recipe makes: what players mine from resource patches, and
- * wood (from trees, once the map has them).
+ * wood (from trees, see src/data/trees.ts).
  */
 export const RAW_ITEMS: readonly RealItemId[] = [
   ...ORE_IDS.map((ore) => MINED_ITEM[ore]),

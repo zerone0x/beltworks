@@ -8,4 +8,4 @@
  * that is intended, run `npm test`, check that the change is expected, and
  * paste the new value printed by the failing assertion here.
  */
-export const DETERMINISM_EXPECTED_HASH = 0x6c71665a;
+export const DETERMINISM_EXPECTED_HASH = 0xc581d4f4;

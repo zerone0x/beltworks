@@ -26,6 +26,8 @@ export interface TileInfo {
   terrain: number;
   resource: number;
   amount: number;
+  /** 1 where a tree stands, else 0. */
+  tree: number;
 }
 
 interface CachedChunk {
@@ -95,7 +97,7 @@ export class TerrainLayer {
     }
   }
 
-  /** Terrain and resource at world tile `(x, y)`, or `null` if that chunk isn't loaded. */
+  /** Terrain, resource and tree at world tile `(x, y)`, or `null` if that chunk isn't loaded. */
   tileAt(x: number, y: number): TileInfo | null {
     const cx = x >> CHUNK_SHIFT;
     const cy = y >> CHUNK_SHIFT;
@@ -109,6 +111,7 @@ export class TerrainLayer {
       terrain: cached.data.terrain[i]!,
       resource: cached.data.resource[i]!,
       amount: cached.data.amount[i]!,
+      tree: cached.data.tree[i]!,
     };
   }
 

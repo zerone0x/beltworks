@@ -20,7 +20,7 @@ import { Sim } from '../../src/sim/tick';
 import { generateChunk } from '../../src/sim/world/generate';
 
 describe('encodeChunks / decodeChunks', () => {
-  it('round-trips chunk coordinates, terrain, resources and amounts', () => {
+  it('round-trips chunk coordinates, terrain, resources, amounts and trees', () => {
     // The starting region has ore patches, so resources and amounts are non-trivial.
     const chunks = [generateChunk(3, 0, 0), generateChunk(3, -1, 0), generateChunk(3, -700, 512)];
     const buffer = encodeChunks(chunks);
@@ -33,8 +33,11 @@ describe('encodeChunks / decodeChunks', () => {
       expect(d.terrain).toEqual(c.terrain);
       expect(d.resource).toEqual(c.resource);
       expect(d.amount).toEqual(c.amount);
+      expect(d.tree).toEqual(c.tree);
     });
     expect(chunks[0]!.amount.some((a) => a > 0)).toBe(true);
+    // Far from the spawn there are trees.
+    expect(chunks[2]!.tree.some((t) => t === 1)).toBe(true);
   });
 
   it('handles an empty batch and rejects truncated buffers', () => {

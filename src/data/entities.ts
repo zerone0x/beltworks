@@ -7,9 +7,15 @@
  *
  * Chests, furnaces, burner mining drills and burner inserters have their own
  * tables and behavior (src/sim/entities/), belts theirs in src/sim/belts/.
+ * The power entities (small electric pole, boiler, steam engine, electric
+ * mining drill, electric inserter) are prototype stubs for now: they carry
+ * the shared M2 design numbers, but no table gives them behavior yet, so
+ * they are plain placeholders when placed.
  *
  * Energy is in integer joules; a burner entity burns `energyPerTick` joules on
- * every tick it works (60 ticks/s, so 1 500 J/tick is 90 kW).
+ * every tick it works (60 ticks/s, so 1 500 J/tick is 90 kW). An electric
+ * entity draws `energyPerTick` from its network while it works (scaled by the
+ * network's satisfaction, see {@link SAT_ONE}) plus `drainPerTick` while idle.
  */
 
 import { ItemId, type RealItemId } from './items';
@@ -22,6 +28,11 @@ export const EntityTypeId = {
   BurnerMiningDrill: 3,
   TransportBelt: 4,
   BurnerInserter: 5,
+  SmallElectricPole: 6,
+  Boiler: 7,
+  SteamEngine: 8,
+  ElectricMiningDrill: 9,
+  ElectricInserter: 10,
 } as const;
 
 export type EntityTypeId = (typeof EntityTypeId)[keyof typeof EntityTypeId];
@@ -44,12 +55,37 @@ export interface EntityPrototype {
   readonly item: RealItemId;
   /** Placeholder display color as 0xRRGGBB. */
   readonly color: number;
-  /** Joules a burner entity burns per tick while it works. */
+  /** Where an entity that uses energy gets it from: a fuel slot, or an electric network. */
+  readonly energySource?: EnergySource;
+  /**
+   * Joules per tick while it works: what a burner entity burns, or what an
+   * electric entity draws at full satisfaction.
+   */
   readonly energyPerTick?: number;
+  /** Joules per tick an electric entity draws while it is idle but powered. */
+  readonly drainPerTick?: number;
+  /**
+   * Most joules per tick a power producer can deliver: a boiler's output to
+   * its steam engines, a steam engine's output to its network.
+   */
+  readonly maxOutputPerTick?: number;
+  /**
+   * How far an electric pole's wires reach, in tiles: it connects to every pole
+   * whose center is within this distance (Euclidean, compared as integer
+   * squared distances).
+   */
+  readonly wireReach?: number;
+  /** Edge of the square area, in tiles and centered on the pole, an electric pole supplies. */
+  readonly supplyArea?: number;
   /** Item slots of a container. */
   readonly slots?: number;
-  /** Working ticks a mining drill takes per unit it mines. */
+  /** Working ticks a mining drill takes per unit it mines (at full power for electric drills). */
   readonly miningTicks?: number;
+  /**
+   * Edge of the square area, in tiles and centered on the drill, that a
+   * mining drill mines; absent when it mines exactly its own footprint.
+   */
+  readonly miningArea?: number;
   /** How far items on a belt move per tick, in subtiles (1/256 tile). */
   readonly beltSpeed?: number;
   /**
@@ -58,6 +94,17 @@ export interface EntityPrototype {
    */
   readonly swingTicks?: number;
 }
+
+/** Where an entity gets its energy from. */
+export type EnergySource = 'burner' | 'electric';
+
+/**
+ * Fixed-point one of an electric network's satisfaction, `min(1, supply /
+ * demand)`, which has a resolution of 1/65536. Consumers at satisfaction `s`
+ * advance by `s` per tick in 1/65536 units of progress and draw
+ * `energyPerTick × s / SAT_ONE`.
+ */
+export const SAT_ONE = 65_536;
 
 /**
  * Closest two items on one belt lane may be, in subtiles: a quarter tile, so
@@ -91,6 +138,7 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     rotatable: false,
     item: ItemId.StoneFurnace,
     color: 0x8c7f6a,
+    energySource: 'burner',
     // 90 kW.
     energyPerTick: 1_500,
   },
@@ -104,6 +152,7 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     rotatable: true,
     item: ItemId.BurnerMiningDrill,
     color: 0x6d6f78,
+    energySource: 'burner',
     // 150 kW.
     energyPerTick: 2_500,
     // 0.25 units/s.
@@ -130,10 +179,87 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     rotatable: true,
     item: ItemId.BurnerInserter,
     color: 0xb5562f,
+    energySource: 'burner',
     // 100 kW (100 000 / 60 ≈ 1 667 J/tick), only while moving.
     energyPerTick: 1_667,
     // One pickup → drop → return cycle takes 2 × 36 = 72 ticks (1.2 s).
     swingTicks: 36,
+  },
+  // Power (M2): prototype stubs with the shared design numbers.
+  [EntityTypeId.SmallElectricPole]: {
+    id: EntityTypeId.SmallElectricPole,
+    name: 'small-electric-pole',
+    label: 'Small electric pole',
+    width: 1,
+    height: 1,
+    rotatable: false,
+    item: ItemId.SmallElectricPole,
+    color: 0x8a6440,
+    // Connects to poles within 7 tiles (squared distance <= 49).
+    wireReach: 7,
+    // Supplies the 5×5 tiles centered on it.
+    supplyArea: 5,
+  },
+  [EntityTypeId.Boiler]: {
+    id: EntityTypeId.Boiler,
+    name: 'boiler',
+    label: 'Boiler',
+    width: 2,
+    height: 3,
+    // Feeds the steam engines in front of its output side.
+    rotatable: true,
+    item: ItemId.Boiler,
+    color: 0x9a8a78,
+    // Burns fuel for exactly the energy its engines draw (100% efficiency).
+    energySource: 'burner',
+    // 1.8 MW: exactly two steam engines at full load.
+    maxOutputPerTick: 30_000,
+  },
+  [EntityTypeId.SteamEngine]: {
+    id: EntityTypeId.SteamEngine,
+    name: 'steam-engine',
+    label: 'Steam engine',
+    width: 3,
+    height: 5,
+    rotatable: true,
+    item: ItemId.SteamEngine,
+    color: 0x6f8a94,
+    // 900 kW, only while a boiler feeds it.
+    maxOutputPerTick: 15_000,
+  },
+  [EntityTypeId.ElectricMiningDrill]: {
+    id: EntityTypeId.ElectricMiningDrill,
+    name: 'electric-mining-drill',
+    label: 'Electric mining drill',
+    width: 3,
+    height: 3,
+    // Drops what it mines onto the tile in front of it.
+    rotatable: true,
+    item: ItemId.ElectricMiningDrill,
+    color: 0x4f6f96,
+    energySource: 'electric',
+    // 90 kW while working.
+    energyPerTick: 1_500,
+    // 0.5 units/s at full power.
+    miningTicks: 120,
+    // Mines the 5×5 tiles centered on it.
+    miningArea: 5,
+  },
+  [EntityTypeId.ElectricInserter]: {
+    id: EntityTypeId.ElectricInserter,
+    name: 'electric-inserter',
+    label: 'Electric inserter',
+    width: 1,
+    height: 1,
+    rotatable: true,
+    item: ItemId.ElectricInserter,
+    color: 0x3f7fc8,
+    energySource: 'electric',
+    // 13.2 kW while moving, plus a 420 W drain while idle.
+    energyPerTick: 220,
+    drainPerTick: 7,
+    // One cycle takes 2 × 26 = 52 ticks.
+    swingTicks: 26,
   },
 };
 
@@ -144,10 +270,15 @@ export const ENTITY_TYPE_IDS: readonly RealEntityTypeId[] = [
   EntityTypeId.BurnerMiningDrill,
   EntityTypeId.TransportBelt,
   EntityTypeId.BurnerInserter,
+  EntityTypeId.SmallElectricPole,
+  EntityTypeId.Boiler,
+  EntityTypeId.SteamEngine,
+  EntityTypeId.ElectricMiningDrill,
+  EntityTypeId.ElectricInserter,
 ];
 
-/** Largest footprint edge of any entity, in tiles. */
-export const MAX_ENTITY_SIZE = 2;
+/** Largest footprint edge of any entity, in tiles (the steam engine's 5). */
+export const MAX_ENTITY_SIZE = 5;
 
 /** The prototype of entity type `id`, or `undefined` for 0 and unknown ids. */
 export function entityPrototype(id: number): EntityPrototype | undefined {

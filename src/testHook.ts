@@ -215,6 +215,7 @@ export function installTestHook({
         terrain: world.tileAt(x, y),
         resource: world.resourceAt(x, y),
         amount: world.amountAt(x, y),
+        tree: world.treeAt(x, y) ? 1 : 0,
       };
     },
     entities: () =>

@@ -1,9 +1,9 @@
 /**
- * Bakes a chunk's terrain and resources into RGBA pixels for one texture.
+ * Bakes a chunk's terrain, resources and trees into RGBA pixels for one texture.
  *
- * Placeholder art: every tile is a flat color from src/data/tiles.ts, and
+ * Placeholder art: every tile is a flat color from src/data/tiles.ts,
  * resource tiles get a tint of the ore color plus darker dots (more dots for
- * richer tiles). Everything is axis-aligned blocks of whole texels, so the
+ * richer tiles), and trees are a round canopy on a short trunk. Everything is axis-aligned blocks of whole texels, so the
  * texture is sampled with nearest filtering and stays crisp at every zoom
  * level while using `TEXELS_PER_TILE`² texels per tile instead of
  * `TILE_PX`² (1/16 of the memory at 8 texels per tile).
@@ -11,6 +11,7 @@
 
 import { RESOURCES, type OreId } from '../data/resources';
 import { TILES } from '../data/tiles';
+import { TREE_CANOPY_COLOR, TREE_CANOPY_LIGHT, TREE_TRUNK_COLOR } from '../data/trees';
 import type { ChunkData } from '../sim/snapshot';
 import { CHUNK_SHIFT, CHUNK_SIZE } from '../sim/world/chunk';
 
@@ -37,6 +38,25 @@ const DOT_SLOTS: readonly (readonly [number, number])[] = [
 ];
 /** A tile with at least `DOT_AMOUNTS[i]` units gets `i + 2` dots (always at least one). */
 const DOT_AMOUNTS = [400, 1000, 2000] as const;
+
+/**
+ * A tree's canopy as texel runs `[row, first column, width]` inside its tile:
+ * a rounded blob over the top six rows, with the trunk below it.
+ */
+const CANOPY_RUNS: readonly (readonly [number, number, number])[] = [
+  [0, 2, 4],
+  [1, 1, 6],
+  [2, 1, 6],
+  [3, 1, 6],
+  [4, 1, 6],
+  [5, 2, 4],
+];
+/** The lit patch on the canopy's upper left, as `[x, y, w, h]` texels. */
+const CANOPY_LIGHT: readonly [number, number, number, number] = [2, 1, 2, 2];
+/** The trunk under the canopy, as `[x, y, w, h]` texels. */
+const TRUNK: readonly [number, number, number, number] = [3, 6, 2, 2];
+/** Ground under a tree is darkened by this, out of 256 (its shadow). */
+const TREE_SHADOW = 200;
 
 function mix(a: number, b: number, t256: number): number {
   const ch = (shift: number): number => {
@@ -88,6 +108,23 @@ function fill(px: Uint8Array, x: number, y: number, w: number, h: number, color:
 }
 
 /**
+ * Draws a tree on the tile whose top-left texel is `(tx, ty)`, over a shaded
+ * `ground`. Bit 0 of `hash` shifts the canopy one texel sideways, so a forest
+ * doesn't look like a grid.
+ */
+function drawTree(px: Uint8Array, tx: number, ty: number, ground: number, hash: number): void {
+  fill(px, tx, ty, TEXELS_PER_TILE, TEXELS_PER_TILE, shade(ground, TREE_SHADOW));
+  const shift = (hash & 1) === 0 ? 0 : 1;
+  const [bx, by, bw, bh] = TRUNK;
+  fill(px, tx + bx, ty + by, bw, bh, TREE_TRUNK_COLOR);
+  for (const [row, col, w] of CANOPY_RUNS) {
+    fill(px, tx + col - shift, ty + row, w, 1, TREE_CANOPY_COLOR);
+  }
+  const [lx, ly, lw, lh] = CANOPY_LIGHT;
+  fill(px, tx + lx - shift, ty + ly, lw, lh, TREE_CANOPY_LIGHT);
+}
+
+/**
  * Returns `CHUNK_TEXTURE_SIZE`² RGBA texels (row-major, top row first) for
  * `chunk`. Pass `out` to reuse a buffer of the right size.
  */
@@ -105,6 +142,10 @@ export function bakeChunkPixels(
       const tx = lx * TEXELS_PER_TILE;
       const ty = ly * TEXELS_PER_TILE;
       const ground = TILES[chunk.terrain[i]!]?.color ?? MISSING_COLOR;
+      if (chunk.tree[i] === 1) {
+        drawTree(out, tx, ty, ground, tileHash(x0 + lx, y0 + ly));
+        continue;
+      }
       const resource = chunk.resource[i]!;
       if (resource === 0) {
         fill(out, tx, ty, TEXELS_PER_TILE, TEXELS_PER_TILE, ground);

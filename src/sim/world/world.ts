@@ -152,6 +152,30 @@ export class World {
     ]!;
   }
 
+  /** Whether a tree stands on world tile `(x, y)`. */
+  treeAt(x: number, y: number): boolean {
+    return (
+      this.getChunk(x >> CHUNK_SHIFT, y >> CHUNK_SHIFT).tree[
+        ((y & CHUNK_MASK) << CHUNK_SHIFT) | (x & CHUNK_MASK)
+      ] === 1
+    );
+  }
+
+  /**
+   * Fells the tree on tile `(x, y)`. Returns whether there was one (the
+   * caller hands out the wood).
+   */
+  removeTree(x: number, y: number): boolean {
+    const cx = x >> CHUNK_SHIFT;
+    const cy = y >> CHUNK_SHIFT;
+    const chunk = this.getChunk(cx, cy);
+    const i = ((y & CHUNK_MASK) << CHUNK_SHIFT) | (x & CHUNK_MASK);
+    if (chunk.tree[i] !== 1) return false;
+    chunk.tree[i] = 0;
+    this.markModified(cx, cy);
+    return true;
+  }
+
   /**
    * Removes up to `amount` units of resource from tile `(x, y)` and returns the
    * number actually removed. When the tile runs out its resource is cleared.
@@ -171,9 +195,14 @@ export class World {
     const left = available - taken;
     chunk.amount[i] = left;
     if (left === 0) chunk.resource[i] = ResourceId.None;
+    this.markModified(cx, cy);
+    return taken;
+  }
+
+  /** Records a modification of chunk `(cx, cy)` (see {@link chunkVersion}). */
+  private markModified(cx: number, cy: number): void {
     const key = chunkKey(cx, cy);
     this.dirty.set(key, (this.dirty.get(key) ?? 0) + 1);
-    return taken;
   }
 
   /**
@@ -181,7 +210,8 @@ export class World {
    * the new hash: `h = world.hashInto(h)`.
    *
    * Unmodified chunks are a pure function of the seed, so only the seed and the
-   * modified chunks (sorted by coordinates) are hashed. This keeps the hash
+   * modified chunks (sorted by coordinates: terrain, resources, amounts and
+   * trees) are hashed. This keeps the hash
    * independent of which chunks happen to have been generated, e.g. because a
    * client looked at a different part of the map.
    */
@@ -198,6 +228,7 @@ export class World {
       h = fnv1a32(chunk.terrain, h);
       h = fnv1a32(chunk.resource, h);
       h = fnv1a32(chunk.amount, h);
+      h = fnv1a32(chunk.tree, h);
     }
     return h;
   }
