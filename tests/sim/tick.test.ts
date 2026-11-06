@@ -150,6 +150,8 @@ describe('encodePlayers', () => {
     expect(out[o + PlayerField.y]).toBe(0);
     expect(out[o + PlayerField.mining]).toBe(1);
     expect([out[o + PlayerField.mineX], out[o + PlayerField.mineY]]).toEqual([2, 3]);
+    // In reach of (2, 3) from (38/256, 0)? No: the target is about 3.5 tiles away.
+    expect(out[o + PlayerField.mineProgress]).toBe(0);
     // A copy: later steps don't change it.
     sim.step();
     expect(out[o + PlayerField.x]).toBe(PLAYER_SPEED);

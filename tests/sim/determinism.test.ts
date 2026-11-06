@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { MINED_ITEM } from '../../src/data/items';
 import {
   DETERMINISM_PLAYERS,
+  DETERMINISM_SCRIPTED_TICKS,
   DETERMINISM_SEED,
   DETERMINISM_TICKS,
   buildDeterminismScript,
   runDeterminismScenario,
 } from '../../src/sim/scenarios/determinism';
 import { Sim } from '../../src/sim/tick';
+import { startingPatches } from '../../src/sim/world/generate';
 import { DETERMINISM_EXPECTED_HASH } from './determinism.expected';
 
 const hex = (h: number): string => `0x${h.toString(16).padStart(8, '0')}`;
@@ -34,6 +37,28 @@ describe('determinism', () => {
     expect(a.tick).toBe(DETERMINISM_TICKS);
     expect(a.commands).toBeGreaterThan(1000);
     expect(hex(b.hash)).toBe(hex(a.hash));
+  });
+
+  it('walks every player to an ore patch and mines it', () => {
+    const script = buildDeterminismScript();
+    const scripted = script.filter((c) => c.tick < DETERMINISM_SCRIPTED_TICKS);
+    // The scripted phase fits in its window (nothing got cut off).
+    expect(scripted.some((c) => c.type === 'MineStop' && c.playerId === 1)).toBe(true);
+
+    const sim = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+    script.forEach((c) => sim.enqueue(c));
+    for (let i = 0; i < DETERMINISM_SCRIPTED_TICKS; i++) {
+      sim.step();
+    }
+    const patches = startingPatches(DETERMINISM_SEED);
+    for (let id = 0; id < DETERMINISM_PLAYERS; id++) {
+      const inv = sim.state.players.inventory(id);
+      // 300 + 150 ticks of mining at 30 ticks per unit.
+      expect(inv.count(MINED_ITEM[patches[id]!.ore])).toBe(15);
+    }
+    // The mined patches show up in the world hash.
+    expect(sim.state.world.chunkVersion(0, 0)).toBeGreaterThan(0);
+    expect(runDeterminismScenario().itemsMined).toBeGreaterThanOrEqual(45);
   });
 
   it('matches the expected hash shared with the Chromium test', () => {

@@ -9,6 +9,9 @@
 
 import type { CommandInput } from '../sim/commands';
 
+/** The player controlled by this client: its commands carry this id, and its inventory is in snapshots. */
+export const LOCAL_PLAYER_ID = 0;
+
 /** Target simulation rate. */
 export const TICKS_PER_SECOND = 60;
 /** At most this many ticks run per worker wake-up; any further backlog is dropped. */
@@ -88,6 +91,8 @@ export interface SnapshotMessage {
   viewport: Viewport | null;
   /** Players as int32 records; see `PLAYER_STRIDE` in src/sim/snapshot.ts. */
   players: ArrayBuffer;
+  /** Inventory of `LOCAL_PLAYER_ID` as uint16 `[item, count]` pairs; see `encodeInventory`. */
+  inventory: ArrayBuffer;
   /**
    * The chunks the main thread should keep cached: the viewport plus
    * `CHUNK_MARGIN` chunks on each side. Cached chunks outside it can be

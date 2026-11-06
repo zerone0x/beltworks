@@ -4,7 +4,17 @@ A factory-automation game for the browser, inspired by Factorio. All art and nam
 
 > Status: in development. Live build: https://zerone0x.github.io/beltworks-play/
 
-Controls so far: drag with the middle mouse button or hold the arrow keys to pan, scroll to zoom. The debug overlay shows the tile under the mouse.
+Controls so far:
+
+- **WASD**: walk (water blocks the way). The camera follows the player.
+- **Hold right mouse** on an ore tile within reach (2.5 tiles): mine it by hand, one unit every 0.5 s.
+- **E**: open or close the inventory (40 slots; the first 10 are shown in the hotbar at the bottom).
+- **Middle-drag** or **arrow keys**: pan the camera freely; **F**: follow the player again.
+- **Mouse wheel**: zoom (towards the cursor with a free camera, around the player while following).
+
+The debug overlay shows the tile under the mouse.
+
+![The player mining copper ore with the inventory open](docs/screenshots/m0-player.png)
 
 ## Docs
 
@@ -31,7 +41,7 @@ npm run preview    # serve dist/
 npm run test:e2e   # Playwright tests against a fresh test-mode build (Chromium)
 ```
 
-Run `npx playwright install chromium` once before the first `npm run test:e2e`. The terrain screenshot baselines live in `tests/e2e/render.spec.ts-snapshots/`; after an intended visual change, regenerate them with `npx playwright test --update-snapshots` and check the new images.
+Run `npx playwright install chromium` once before the first `npm run test:e2e`. The screenshot baselines live in `tests/e2e/render.spec.ts-snapshots/`; after an intended visual change, regenerate them with `npx playwright test --update-snapshots` and check the new images.
 
 ## Deployment
 

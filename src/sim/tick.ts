@@ -25,7 +25,7 @@ export const SYSTEMS: readonly System[] = [
   stub('belts'),
   stub('inserters'),
   stub('machines'),
-  { name: 'players', run: (sim) => updatePlayers(sim.state.players) },
+  { name: 'players', run: (sim) => updatePlayers(sim.state.players, sim.state.world) },
   // Snapshots are read by the worker after `step()` returns; events will be emitted here.
   stub('events'),
 ];

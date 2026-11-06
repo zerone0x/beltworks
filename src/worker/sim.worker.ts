@@ -4,11 +4,12 @@
  */
 
 import { validateCommandInput } from '../sim/commands';
-import { encodeChunks, encodePlayers } from '../sim/snapshot';
+import { encodeChunks, encodeInventory, encodePlayers } from '../sim/snapshot';
 import { Sim } from '../sim/tick';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
 import { FixedStepClock } from './loop';
 import {
+  LOCAL_PLAYER_ID,
   MAX_CATCH_UP_TICKS,
   STATS_INTERVAL_TICKS,
   TICKS_PER_SECOND,
@@ -76,6 +77,7 @@ function sendSnapshot(ticksRun: number): void {
     return;
   }
   const players = encodePlayers(sim.state);
+  const inventory = encodeInventory(sim.state, LOCAL_PLAYER_ID);
   const batch = streamer.collect();
   const chunks = batch && batch.chunks.length > 0 ? encodeChunks(batch.chunks) : null;
   post(
@@ -85,10 +87,11 @@ function sendSnapshot(ticksRun: number): void {
       ticksRun,
       viewport,
       players: players.buffer,
+      inventory: inventory.buffer,
       chunkWindow: batch?.window ?? null,
       chunks,
     },
-    chunks ? [players.buffer, chunks] : [players.buffer],
+    chunks ? [players.buffer, inventory.buffer, chunks] : [players.buffer, inventory.buffer],
   );
 }
 

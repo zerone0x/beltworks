@@ -1,6 +1,7 @@
 /**
  * Camera controls: drag with the middle mouse button or hold the arrow keys
- * to pan, scroll the mouse wheel to zoom towards the cursor. Also tracks the
+ * to pan, scroll the mouse wheel to zoom towards the cursor (or towards the
+ * screen center while the camera follows the player). Also tracks the
  * pointer position for the tile readout.
  */
 
@@ -25,6 +26,10 @@ const ARROWS: Readonly<Record<string, readonly [number, number]>> = {
 export class CameraInput {
   /** Pointer position over the canvas in CSS pixels, or `null` when it is outside. */
   pointer: Point | null = null;
+  /** Called whenever the player pans the view by hand (arrow keys or drag). */
+  onPan: (() => void) | null = null;
+  /** Zoom around the screen center instead of the cursor (set while following the player). */
+  zoomAroundCenter = false;
   private readonly held = new Set<string>();
   private drag: { id: number; x: number; y: number } | null = null;
   private readonly controller = new AbortController();
@@ -66,6 +71,7 @@ export class CameraInput {
     const step = (KEY_PAN_SPEED * Math.min(dtMs, 100)) / 1000;
     const norm = dx !== 0 && dy !== 0 ? Math.SQRT1_2 : 1;
     this.camera.panBy(dx * step * norm, dy * step * norm);
+    this.onPan?.();
   }
 
   destroy(): void {
@@ -93,6 +99,7 @@ export class CameraInput {
       return;
     }
     this.camera.dragBy(e.clientX - this.drag.x, e.clientY - this.drag.y);
+    this.onPan?.();
     this.drag.x = e.clientX;
     this.drag.y = e.clientY;
   };
@@ -117,7 +124,12 @@ export class CameraInput {
     const unit = e.deltaMode === 1 ? LINE_PX : e.deltaMode === 2 ? PAGE_PX : 1;
     const p = this.local(e);
     this.pointer = p;
-    this.camera.zoomAt(Math.exp(-e.deltaY * unit * WHEEL_ZOOM_PER_PIXEL), p.x, p.y);
+    const factor = Math.exp(-e.deltaY * unit * WHEEL_ZOOM_PER_PIXEL);
+    if (this.zoomAroundCenter) {
+      this.camera.zoomAt(factor, this.camera.width / 2, this.camera.height / 2);
+    } else {
+      this.camera.zoomAt(factor, p.x, p.y);
+    }
   };
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {

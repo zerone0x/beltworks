@@ -5,18 +5,33 @@
  * contain it.
  */
 
+import { TILE_PX } from './render/camera';
 import type { GameView } from './render/gameView';
 import type { TerrainStats, TileInfo } from './render/terrainLayer';
+import { SUBTILES_PER_TILE } from './sim/fixed';
 import { runDeterminismScenario, type DeterminismResult } from './sim/scenarios/determinism';
+import { PlayerField, PLAYER_STRIDE, type SlotData } from './sim/snapshot';
 import { World } from './sim/world/world';
 import { chunkWindow } from './worker/chunkStream';
 import type { SimClient } from './worker/client';
-import type { ChunkRect } from './worker/protocol';
+import { LOCAL_PLAYER_ID, type ChunkRect } from './worker/protocol';
 
 export interface CameraState {
   x: number;
   y: number;
   zoom: number;
+}
+
+/** The local player as of the latest snapshot. */
+export interface PlayerState {
+  /** Position in tiles (fractional). */
+  x: number;
+  y: number;
+  mining: boolean;
+  mineX: number;
+  mineY: number;
+  /** Ticks into the current unit. */
+  mineProgress: number;
 }
 
 export interface BeltworksTestHook {
@@ -26,8 +41,18 @@ export interface BeltworksTestHook {
   latestTick(): number;
   /** Current camera position (world pixels at the screen center) and zoom. */
   camera(): CameraState;
-  /** Moves the camera, as if the player had panned and zoomed there. */
+  /** Moves the camera, as if the player had panned and zoomed there (this stops following the player). */
   setCamera(x: number, y: number, zoom?: number): void;
+  /** Whether the camera follows the local player. */
+  following(): boolean;
+  /** The local player from the latest snapshot, or `null` before the first one. */
+  player(): PlayerState | null;
+  /** The local player's inventory from the latest snapshot. */
+  inventory(): SlotData[];
+  /** Screen position (CSS pixels) of the center of tile `(x, y)`. */
+  tileToScreen(x: number, y: number): { x: number; y: number };
+  /** The tile as cached by the renderer from the worker's chunks, or `null` if not loaded. */
+  renderedTile(x: number, y: number): TileInfo | null;
   /** Tile under screen position `(sx, sy)` (CSS pixels). */
   tileAtScreen(sx: number, sy: number): { x: number; y: number };
   /** Chunk cache and sprite counts of the terrain layer. */
@@ -44,15 +69,44 @@ declare global {
   }
 }
 
-export function installTestHook(client: SimClient, view: GameView, seed: number): void {
+export interface TestHookContext {
+  client: SimClient;
+  view: GameView;
+  /** The world seed the game runs with. */
+  seed: number;
+  /** The local player's inventory as last shown by the UI. */
+  inventory: () => SlotData[];
+}
+
+export function installTestHook({ client, view, seed, inventory }: TestHookContext): void {
   let world: World | null = null;
   window.__beltworks = {
     runDeterminism: (ticks) => runDeterminismScenario(ticks),
     latestTick: () => client.latestSnapshot?.tick ?? -1,
     camera: () => ({ x: view.camera.x, y: view.camera.y, zoom: view.camera.zoom }),
     setCamera: (x, y, zoom) => {
+      view.following = false;
       view.camera.set(x, y, zoom);
     },
+    following: () => view.following,
+    player: () => {
+      const records = view.track.latest;
+      const o = LOCAL_PLAYER_ID * PLAYER_STRIDE;
+      if (records.length < o + PLAYER_STRIDE) {
+        return null;
+      }
+      return {
+        x: records[o + PlayerField.x]! / SUBTILES_PER_TILE,
+        y: records[o + PlayerField.y]! / SUBTILES_PER_TILE,
+        mining: records[o + PlayerField.mining] === 1,
+        mineX: records[o + PlayerField.mineX]!,
+        mineY: records[o + PlayerField.mineY]!,
+        mineProgress: records[o + PlayerField.mineProgress]!,
+      };
+    },
+    inventory: () => inventory().map((s) => ({ ...s })),
+    tileToScreen: (x, y) => view.camera.worldToScreen((x + 0.5) * TILE_PX, (y + 0.5) * TILE_PX),
+    renderedTile: (x, y) => view.terrain.tileAt(x, y),
     tileAtScreen: (sx, sy) => view.camera.tileAt(sx, sy),
     terrainStats: () => view.terrain.stats(),
     terrainReady: () => {
