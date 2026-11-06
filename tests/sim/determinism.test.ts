@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { EntityTypeId } from '../../src/data/entities';
 import { ItemId, MINED_ITEM } from '../../src/data/items';
-import { STARTING_KIT } from '../../src/data/start';
+import { RecipeId } from '../../src/data/recipes';
+import { CRAFT_QUEUE_LENGTH } from '../../src/sim/crafting/queue';
 import { Direction } from '../../src/sim/entities/direction';
 import { FurnaceSlot } from '../../src/sim/entities/furnace';
 import { MachineState } from '../../src/sim/entities/machine';
 import {
   DETERMINISM_BUILD_TICKS,
+  DETERMINISM_KIT,
   DETERMINISM_PATCH_CHEST,
   DETERMINISM_PATCH_FURNACE,
   DETERMINISM_PLAYERS,
@@ -14,6 +16,7 @@ import {
   DETERMINISM_SEED,
   DETERMINISM_TICKS,
   buildDeterminismScript,
+  createDeterminismSim,
   runDeterminismScenario,
 } from '../../src/sim/scenarios/determinism';
 import { Sim } from '../../src/sim/tick';
@@ -22,9 +25,12 @@ import { DETERMINISM_EXPECTED_HASH } from './determinism.expected';
 
 const hex = (h: number): string => `0x${h.toString(16).padStart(8, '0')}`;
 
+/** Kit plates player 0 has left once its crafts are done (checked in the crafting test). */
+const KIT_PLATES_LEFT_0 = 4;
+
 /** Runs the scenario, recording the hash every `every` ticks. */
 function hashTrace(every: number): number[] {
-  const sim = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+  const sim = createDeterminismSim();
   for (const cmd of buildDeterminismScript()) {
     sim.enqueue(cmd);
   }
@@ -53,7 +59,7 @@ describe('determinism', () => {
     // The scripted phase fits in its window (nothing got cut off).
     expect(scripted.some((c) => c.type === 'MineStop' && c.playerId === 1)).toBe(true);
 
-    const sim = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+    const sim = createDeterminismSim();
     script.forEach((c) => sim.enqueue(c));
     for (let i = 0; i < DETERMINISM_SCRIPTED_TICKS; i++) {
       sim.step();
@@ -62,17 +68,19 @@ describe('determinism', () => {
     for (let id = 0; id < DETERMINISM_PLAYERS; id++) {
       const inv = sim.state.players.inventory(id);
       const item = MINED_ITEM[patches[id]!.ore];
-      const kit = STARTING_KIT.find((s) => s.item === item)?.count ?? 0;
+      const kit = DETERMINISM_KIT.find((s) => s.item === item)?.count ?? 0;
       let mined = inv.count(item) - kit;
       if (id === 0) {
         // Player 0's iron went into its furnace: count the ore still there,
-        // the one being smelted, and every plate made from the others.
+        // the one being smelted, and every plate made from the others. The
+        // chest and the inventory also hold the kit plates crafting left.
         const { entities } = sim.state;
         const furnace = DETERMINISM_PATCH_FURNACE;
         const plates =
           entities.slots(furnace)[FurnaceSlot.Output]!.count +
           entities.contents(DETERMINISM_PATCH_CHEST)[0]!.count +
-          inv.count(ItemId.IronPlate);
+          inv.count(ItemId.IronPlate) -
+          KIT_PLATES_LEFT_0;
         const smelting = entities.detail(furnace)!.recipe !== 0 ? 1 : 0;
         mined += entities.slots(furnace)[FurnaceSlot.Input]!.count + smelting + plates;
       }
@@ -85,7 +93,7 @@ describe('determinism', () => {
   });
 
   it('builds at the spawn: places, rotates and removes, and ignores invalid commands', () => {
-    const sim = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+    const sim = createDeterminismSim();
     buildDeterminismScript().forEach((c) => sim.enqueue(c));
     for (let i = 0; i < DETERMINISM_BUILD_TICKS; i++) {
       sim.step();
@@ -119,7 +127,7 @@ describe('determinism', () => {
   });
 
   it('smelts the mined iron on the patch and stores plates in a chest', () => {
-    const sim = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+    const sim = createDeterminismSim();
     buildDeterminismScript().forEach((c) => sim.enqueue(c));
     for (let i = 0; i < DETERMINISM_SCRIPTED_TICKS; i++) {
       sim.step();
@@ -131,11 +139,87 @@ describe('determinism', () => {
     expect(entities.store.type(chest)).toBe(EntityTypeId.WoodenChest);
     expect(entities.status(furnace)).toBe(MachineState.Working);
     // 15 ores went in; two plates were done by the time they were taken out.
+    // They went into the chest with the kit plates crafting left; one came back.
     const slots = entities.slots(furnace);
     expect(slots[FurnaceSlot.Input]!.item).toBe(ItemId.IronOre);
     expect(slots[FurnaceSlot.Input]!.count).toBeLessThan(13);
-    expect(entities.contents(chest)).toEqual([{ item: ItemId.IronPlate, count: 1 }]);
+    expect(entities.contents(chest)).toEqual([
+      { item: ItemId.IronPlate, count: 2 + KIT_PLATES_LEFT_0 - 1 },
+    ]);
     expect(sim.state.players.inventory(0).count(ItemId.IronPlate)).toBe(1);
+  });
+
+  it('hand-crafts with intermediates, partial crafts and cancels', () => {
+    const sim = createDeterminismSim();
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    const entries = (id: number) => {
+      const q = sim.state.crafting;
+      const out: [number, number][] = [];
+      for (let i = 0; i < q.size(id); i++) {
+        out.push([q.recipe[id * CRAFT_QUEUE_LENGTH + i]!, q.crafts[id * CRAFT_QUEUE_LENGTH + i]!]);
+      }
+      return out;
+    };
+    while (sim.tick < DETERMINISM_BUILD_TICKS + 3) sim.step();
+    const { Gear, Drill, Furnace, Chest, Belt, Inserter } = {
+      Gear: RecipeId.IronGearWheel,
+      Drill: RecipeId.BurnerMiningDrill,
+      Furnace: RecipeId.StoneFurnace,
+      Chest: RecipeId.WoodenChest,
+      Belt: RecipeId.TransportBelt,
+      Inserter: RecipeId.BurnerInserter,
+    };
+    expect(entries(0)).toEqual([
+      [Furnace, 1],
+      [Gear, 6],
+      [Furnace, 1],
+      [Drill, 2],
+      [Chest, 2],
+      [Gear, 1],
+      [Belt, 1],
+      [Gear, 4],
+    ]);
+    const inv0 = sim.state.players.inventory(0);
+    expect(inv0.count(ItemId.IronPlate)).toBe(1);
+    expect(inv0.count(ItemId.Wood)).toBe(0);
+    expect(inv0.count(ItemId.Stone)).toBe(0);
+    expect(entries(1)).toEqual([
+      [Gear, 3],
+      [Inserter, 3],
+    ]);
+    expect(entries(2)).toEqual([
+      [Chest, 1],
+      [Gear, 2],
+      [Inserter, 2],
+    ]);
+
+    // Player 1 cancels its inserters and turns the refund into gears.
+    while (sim.tick < 42) sim.step();
+    expect(entries(1)).toEqual([[Gear, 14]]);
+
+    // Just before player 0 moves its plates into the patch chest (smeltPhase),
+    // everything left in its queue is done; the belt was cancelled.
+    while (sim.tick < DETERMINISM_SCRIPTED_TICKS - 10) sim.step();
+    expect(entries(0)).toEqual([]);
+    expect(inv0.count(ItemId.IronPlate)).toBe(KIT_PLATES_LEFT_0);
+
+    while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
+    // The kit's two drills, one of them placed, and two crafted.
+    expect(inv0.count(ItemId.BurnerMiningDrill)).toBe(3);
+    // Two chests and the first furnace were crafted; one of each went onto the iron patch.
+    expect(inv0.count(ItemId.WoodenChest)).toBe(3);
+    expect(inv0.count(ItemId.StoneFurnace)).toBe(0);
+    expect(sim.state.entities.store.type(DETERMINISM_PATCH_FURNACE)).toBe(
+      EntityTypeId.StoneFurnace,
+    );
+    expect(inv0.count(ItemId.IronGearWheel)).toBe(4);
+    expect(inv0.count(ItemId.TransportBelt)).toBe(9);
+    // KIT_PLATES_LEFT_0 plates were left; they went into the patch chest (see the smelting test).
+    expect(inv0.count(ItemId.IronPlate)).toBe(1);
+    const inv1 = sim.state.players.inventory(1);
+    expect(inv1.count(ItemId.IronGearWheel)).toBe(15);
+    expect(inv1.count(ItemId.IronPlate)).toBe(0);
+    expect(sim.state.players.inventory(2).count(ItemId.BurnerInserter)).toBe(6);
   });
 
   it('matches the expected hash shared with the Chromium test', () => {
@@ -150,13 +234,13 @@ describe('determinism', () => {
   });
 
   it('is sensitive to the seed and to the commands', () => {
-    const base = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+    const base = createDeterminismSim();
     const otherSeed = new Sim({ seed: DETERMINISM_SEED + 1, players: DETERMINISM_PLAYERS });
     expect(otherSeed.hash()).not.toBe(base.hash());
 
     const script = buildDeterminismScript(2000);
-    const plain = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
-    const withExtra = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+    const plain = createDeterminismSim();
+    const withExtra = createDeterminismSim();
     for (const cmd of script) {
       plain.enqueue(cmd);
       withExtra.enqueue(cmd);
@@ -175,7 +259,7 @@ describe('determinism', () => {
     const script = buildDeterminismScript(3000);
     const sorted = script.slice().sort((a, b) => a.tick - b.tick || a.playerId - b.playerId);
     const run = (commands: typeof script): number => {
-      const sim = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+      const sim = createDeterminismSim();
       commands.forEach((c) => sim.enqueue(c));
       for (let i = 0; i < 3000; i++) {
         sim.step();

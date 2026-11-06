@@ -1,0 +1,83 @@
+/**
+ * Helpers for e2e tests that walk the local player around with the keyboard.
+ */
+
+import type { Page } from '@playwright/test';
+
+export const player = async (page: Page) =>
+  (await page.evaluate(() => window.__beltworks!.player()))!;
+export const camera = (page: Page) => page.evaluate(() => window.__beltworks!.camera());
+
+/** Animation frames per second over half a second, for failure diagnostics. */
+export const fps = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        let frames = 0;
+        const start = performance.now();
+        const tick = (now: number): void => {
+          frames++;
+          if (now - start < 500) requestAnimationFrame(tick);
+          else resolve(Math.round((frames * 1000) / (now - start)));
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+
+/** Waits until the player stopped moving (two snapshots apart show the same position). */
+export async function waitUntilStill(page: Page): Promise<{ x: number; y: number }> {
+  let last = await player(page);
+  for (;;) {
+    await page.waitForTimeout(100);
+    const now = await player(page);
+    if (now.x === last.x && now.y === last.y) return now;
+    last = now;
+  }
+}
+
+/**
+ * Walks the player with WASD until it stands still within `tolerance` tiles
+ * of `(tx, ty)` (tile coordinates) on both axes.
+ *
+ * Input only becomes commands on the next rendered frame, and software-
+ * rendered Chromium on CI can run at a low frame rate, so a key release takes
+ * effect late and the player overshoots. Each pass therefore holds the keys
+ * until the player is within the tolerance (or past the target) on each axis,
+ * waits for it to stop, and measures again.
+ */
+export async function walkNear(
+  page: Page,
+  tx: number,
+  ty: number,
+  tolerance: number,
+): Promise<{ x: number; y: number }> {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    const p = await waitUntilStill(page);
+    const dx = tx - p.x;
+    const dy = ty - p.y;
+    if (Math.abs(dx) <= tolerance && Math.abs(dy) <= tolerance) return p;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `walk to (${tx}, ${ty}) timed out at (${p.x}, ${p.y}); page at ${await fps(page)} fps`,
+      );
+    }
+    // For each held key: the remaining distance along its axis, positive while short of the target.
+    const remaining: Record<string, (q: { x: number; y: number }) => number> = {};
+    if (dx > tolerance) remaining.d = (q) => tx - q.x;
+    if (dx < -tolerance) remaining.a = (q) => q.x - tx;
+    if (dy > tolerance) remaining.s = (q) => ty - q.y;
+    if (dy < -tolerance) remaining.w = (q) => q.y - ty;
+    for (const key of Object.keys(remaining)) await page.keyboard.down(key);
+    while (Object.keys(remaining).length > 0) {
+      await page.waitForTimeout(20);
+      const q = await player(page);
+      for (const [key, left] of Object.entries(remaining)) {
+        if (left(q) <= tolerance || Date.now() > deadline) {
+          delete remaining[key];
+          await page.keyboard.up(key);
+        }
+      }
+    }
+  }
+}

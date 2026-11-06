@@ -13,11 +13,17 @@
  *    reach, and walking out of reach while mining. Player 0 then builds a
  *    furnace and a chest on its (iron) patch, smelts the ore it mined, and
  *    moves plates into the chest; the furnace keeps smelting into phase 2.
+ *    Meanwhile the players hand-craft from the plates, wood and stone of
+ *    `DETERMINISM_KIT`: crafts with auto-queued intermediates, crafts cut
+ *    short by missing items, and cancels (of a craft, of an intermediate in
+ *    progress, and of nothing).
  * 2. Random: a pseudo-random but fixed stream of every command type for the
  *    remaining ticks.
  */
 
-import { ItemId } from '../../data/items';
+import { ItemId, type ItemStack } from '../../data/items';
+import { RecipeId } from '../../data/recipes';
+import { STARTING_KIT } from '../../data/start';
 import type { Axis, Command } from '../commands';
 import { Direction } from '../entities/direction';
 import { FurnaceSlot } from '../entities/furnace';
@@ -39,6 +45,16 @@ const AXES: readonly Axis[] = [-1, 0, 1];
 const ITEM_ID_SPAN = 16;
 /** Random `Insert` and `Take` commands target entity ids in `[0, ENTITY_ID_SPAN)`. */
 const ENTITY_ID_SPAN = 12;
+/** Random `Craft` commands use recipe ids in `[0, RECIPE_ID_SPAN)`. */
+const RECIPE_ID_SPAN = 11;
+
+/** What every player starts with: the normal starting kit plus materials to craft from. */
+export const DETERMINISM_KIT: readonly ItemStack[] = [
+  ...STARTING_KIT,
+  { item: ItemId.IronPlate, count: 30 },
+  { item: ItemId.Wood, count: 4 },
+  { item: ItemId.Stone, count: 10 },
+];
 
 interface Walker {
   readonly playerId: number;
@@ -108,7 +124,7 @@ function buildPhase(): Command[] {
     { ...p, tick: 7, type: 'Rotate', x: -2, y: 2 },
     // The furnace (entity 2) gets coal in its fuel slot, and gives one back.
     { ...p, tick: 3, type: 'Insert', entity: 2, item: ItemId.Coal, count: 4 },
-    // Ignored: belts hold nothing; entity 1 is gone; the player has no iron plates.
+    // Ignored: belts hold nothing; entity 1 is gone; iron plates neither burn nor smelt.
     { ...p, tick: 4, type: 'Insert', entity: 3, item: ItemId.Coal, count: 1 },
     { ...p, tick: 6, type: 'Take', entity: 2, slot: FurnaceSlot.Fuel, count: 1 },
     { ...p, tick: 7, type: 'Insert', entity: 1, item: ItemId.Coal, count: 1 },
@@ -124,7 +140,9 @@ export const DETERMINISM_PATCH_CHEST = 7;
  * Player 0's work on its iron patch, starting on tick `tick` while it stands
  * on `(x, y)`: a furnace two tiles east, fuelled and loaded with the mined
  * ore; a chest two tiles west; then, near the end of the scripted phase, the
- * plates so far go from the furnace into the chest and one comes back.
+ * plates so far go from the furnace into the chest, together with the kit
+ * plates that crafting left (see craftPhase), and one comes back. The furnace
+ * is the one player 0 crafts at the start of craftPhase.
  */
 function smeltPhase(tick: number, x: number, y: number): Command[] {
   const p = { playerId: 0 };
@@ -144,9 +162,54 @@ function smeltPhase(tick: number, x: number, y: number): Command[] {
   ];
 }
 
+/**
+ * Hand-crafting while the players walk and mine (it only uses
+ * `DETERMINISM_KIT` items, so the mined ore stays untouched).
+ */
+function craftPhase(): Command[] {
+  const craft = (tick: number, playerId: number, recipe: number, count: number): Command => ({
+    tick,
+    playerId,
+    type: 'Craft',
+    recipe,
+    count,
+  });
+  const cancel = (tick: number, playerId: number, index: number): Command => ({
+    tick,
+    playerId,
+    type: 'CancelCraft',
+    index,
+  });
+  const B = DETERMINISM_BUILD_TICKS;
+  return [
+    // Player 0 first crafts the furnace it will place on its patch (smeltPhase)
+    // from 5 of the kit's 10 stone. It has one furnace left after building:
+    // the second drill queues another furnace from the other 5 stone; both
+    // queue their gears. 18 plates.
+    craft(B, 0, RecipeId.StoneFurnace, 1),
+    craft(B, 0, RecipeId.BurnerMiningDrill, 2),
+    craft(B, 0, RecipeId.WoodenChest, 5), // only 2: 4 wood
+    craft(B + 1, 0, RecipeId.TransportBelt, 1), // a gear and a plate: 21 plates
+    craft(B + 1, 0, RecipeId.IronGearWheel, 5), // only 4: 8 plates left
+    craft(B + 2, 0, RecipeId.StoneFurnace, 1), // ignored: the stone is reserved
+    // By then the furnaces and the gears are done: the queue is drill, chest,
+    // the belt's gear, belt, gears. Cancelling the gear cancels the belt too.
+    cancel(B + 300, 0, 2),
+    cancel(B + 301, 0, 9), // ignored: no such entry
+    // Player 1 cancels its inserters while their second gear is under way.
+    craft(5, 1, RecipeId.BurnerInserter, 3),
+    cancel(40, 1, 0),
+    craft(41, 1, RecipeId.IronGearWheel, 15), // 14: the refund brings it back to 28 plates
+    // Player 2 crafts on its way to the stone patch (the kit's stone stays put).
+    craft(10, 2, RecipeId.WoodenChest, 1),
+    craft(10, 2, RecipeId.IronPlate, 1), // ignored: smelting, not hand
+    craft(10, 2, RecipeId.BurnerInserter, 2),
+  ];
+}
+
 /** Phase 1: player 0 builds, then each player walks to a starting ore patch and mines it. */
 function scriptedPhase(): Command[] {
-  const commands: Command[] = buildPhase();
+  const commands: Command[] = [...buildPhase(), ...craftPhase()];
   const patches = startingPatches(DETERMINISM_SEED);
   for (let id = 0; id < DETERMINISM_PLAYERS; id++) {
     const patch = patches[id]!;
@@ -199,7 +262,7 @@ export function buildDeterminismScript(
     for (let i = 0; i < burst; i++) {
       // Player id DETERMINISM_PLAYERS is out of range on purpose: it must be ignored.
       const playerId = rng.nextInt(DETERMINISM_PLAYERS + 1);
-      const kind = rng.nextInt(16);
+      const kind = rng.nextInt(18);
       if (kind < 6) {
         commands.push({
           tick,
@@ -218,6 +281,15 @@ export function buildDeterminismScript(
         });
       } else if (kind < 9) {
         commands.push({ tick, playerId, type: 'MineStop' });
+      } else if (kind >= 16) {
+        // Crafting: any recipe id, including smelting and unknown ones; most
+        // fail for lack of items, but mined stone makes furnaces.
+        if (kind === 16) {
+          const recipe = rng.nextInt(RECIPE_ID_SPAN);
+          commands.push({ tick, playerId, type: 'Craft', recipe, count: 1 + rng.nextInt(6) });
+        } else {
+          commands.push({ tick, playerId, type: 'CancelCraft', index: rng.nextInt(4) });
+        }
       } else if (kind >= 14) {
         // GUI transfers with any entity id (most don't exist or are out of reach).
         const entity = rng.nextInt(ENTITY_ID_SPAN);
@@ -283,9 +355,18 @@ export interface DeterminismResult {
   entities: number;
 }
 
+/** A fresh simulation set up like the scenario's (seed, players, kit), before any command. */
+export function createDeterminismSim(): Sim {
+  return new Sim({
+    seed: DETERMINISM_SEED,
+    players: DETERMINISM_PLAYERS,
+    startingKit: DETERMINISM_KIT,
+  });
+}
+
 /** Runs the scenario from scratch and returns the final state hash. */
 export function runDeterminismScenario(ticks: number = DETERMINISM_TICKS): DeterminismResult {
-  const sim = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+  const sim = createDeterminismSim();
   const script = buildDeterminismScript(ticks);
   for (const cmd of script) {
     sim.enqueue(cmd);

@@ -24,7 +24,7 @@
 
 import { ENTITIES, EntityTypeId, FURNACE_OUTPUT_LIMIT } from '../../data/entities';
 import { itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
-import { RECIPES, recipe as recipeById, type Recipe } from '../../data/recipes';
+import { recipePrototype, smeltingRecipeFor, type Recipe } from '../../data/recipes';
 import { fnv1a32 } from '../hash';
 import { BurnerColumns } from './burner';
 import type { Entities } from './entities';
@@ -41,19 +41,6 @@ export const FurnaceSlot = {
 
 /** Joules a furnace burns per working tick. */
 export const FURNACE_ENERGY_PER_TICK = ENTITIES[EntityTypeId.StoneFurnace].energyPerTick ?? 0;
-
-/** Smelting recipes by their (single) ingredient. */
-const SMELTING_BY_INPUT = new Map<number, Recipe>(
-  RECIPES.filter((r) => r.category === 'smelting' && r.inputs.length === 1).map((r) => [
-    r.inputs[0]![0],
-    r,
-  ]),
-);
-
-/** The smelting recipe that takes `item`, if any. */
-export function smeltingRecipeFor(item: number): Recipe | undefined {
-  return SMELTING_BY_INPUT.get(item);
-}
 
 export class FurnaceTable implements EntityTypeTable {
   readonly type = EntityTypeId.StoneFurnace;
@@ -121,7 +108,7 @@ export class FurnaceTable implements EntityTypeTable {
   contents(id: number): readonly ItemStack[] {
     const row = this.row(id);
     const out: ItemStack[] = [];
-    const r = recipeById(this.recipe[row]!);
+    const r = recipePrototype(this.recipe[row]!);
     if (r) {
       for (const [item, count] of r.inputs) out.push({ item, count });
     }
@@ -223,7 +210,7 @@ export class FurnaceTable implements EntityTypeTable {
 
   /** One tick of the furnace in row `row`; returns its new state. */
   private step(row: number, id: number, entities: Entities): MachineState {
-    let r = recipeById(this.recipe[row]!);
+    let r = recipePrototype(this.recipe[row]!);
     let changed = false;
     if (!r) {
       r = smeltingRecipeFor(this.inputItem[row]!);

@@ -1,9 +1,16 @@
 import { Application } from 'pixi.js';
+import type { CommandInput } from './sim/commands';
 import { PLAYER_INVENTORY_SLOTS } from './sim/inventory';
-import { decodeEntityDetail, decodeInventory, type SlotData } from './sim/snapshot';
+import {
+  decodeCraftQueue,
+  decodeEntityDetail,
+  decodeInventory,
+  type SlotData,
+} from './sim/snapshot';
 import { BuildInput } from './render/buildInput';
 import { GameView } from './render/gameView';
 import { PlayerInput } from './render/playerInput';
+import { CraftQueueStrip, CraftingPanel } from './ui/crafting';
 import { DebugOverlay } from './ui/debugOverlay';
 import { EntityPanel, hasEntityGui } from './ui/entityPanel';
 import { Hotbar, InventoryPanel } from './ui/inventory';
@@ -32,6 +39,15 @@ async function main(): Promise<void> {
       client.inspect(entity);
     },
   });
+  const crafting = {
+    playerId: LOCAL_PLAYER_ID,
+    send: (commands: CommandInput[]) => {
+      client.sendCommands(commands);
+    },
+  };
+  const craftingPanel = new CraftingPanel(crafting);
+  inventoryPanel.addSection(craftingPanel.element);
+  const craftQueue = new CraftQueueStrip(document.body, crafting);
   client.onStats = (stats) => {
     overlay.update(stats);
   };
@@ -61,6 +77,8 @@ async function main(): Promise<void> {
     entityAt: (x, y) => view.entityIndex.at(x, y)?.id ?? 0,
     onToggleInventory: () => {
       inventoryPanel.toggle();
+      const queue = client.latestSnapshot && decodeCraftQueue(client.latestSnapshot.craftQueue);
+      craftingPanel.update(inventory, queue?.entries.length ?? 0);
     },
     onFollow: () => {
       view.follow();
@@ -98,6 +116,11 @@ async function main(): Promise<void> {
     inventoryPanel.update(inventory);
     const detail = snapshot.entityDetail ? decodeEntityDetail(snapshot.entityDetail) : null;
     entityPanel.update(snapshot.inspected, detail, inventory);
+    const queue = decodeCraftQueue(snapshot.craftQueue);
+    craftQueue.update(queue);
+    if (inventoryPanel.isOpen) {
+      craftingPanel.update(inventory, queue.entries.length);
+    }
   };
   app.ticker.add((ticker) => {
     view.frame(ticker.deltaMS);

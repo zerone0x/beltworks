@@ -12,7 +12,13 @@ import type { TerrainStats, TileInfo } from './render/terrainLayer';
 import type { EntityPanel } from './ui/entityPanel';
 import { SUBTILES_PER_TILE } from './sim/fixed';
 import { runDeterminismScenario, type DeterminismResult } from './sim/scenarios/determinism';
-import { PlayerField, PLAYER_STRIDE, type SlotData } from './sim/snapshot';
+import {
+  decodeCraftQueue,
+  PlayerField,
+  PLAYER_STRIDE,
+  type CraftQueueData,
+  type SlotData,
+} from './sim/snapshot';
 import { World } from './sim/world/world';
 import { chunkWindow } from './worker/chunkStream';
 import type { SimClient } from './worker/client';
@@ -75,6 +81,8 @@ export interface BeltworksTestHook {
   player(): PlayerState | null;
   /** The local player's inventory from the latest snapshot. */
   inventory(): SlotData[];
+  /** The local player's crafting queue from the latest snapshot (empty before the first one). */
+  craftQueue(): CraftQueueData;
   /** Screen position (CSS pixels) of the center of tile `(x, y)`. */
   tileToScreen(x: number, y: number): { x: number; y: number };
   /** The tile as cached by the renderer from the worker's chunks, or `null` if not loaded. */
@@ -148,6 +156,10 @@ export function installTestHook({
       };
     },
     inventory: () => inventory().map((s) => ({ ...s })),
+    craftQueue: () => {
+      const snapshot = client.latestSnapshot;
+      return snapshot ? decodeCraftQueue(snapshot.craftQueue) : { progress: 0, entries: [] };
+    },
     tileToScreen: (x, y) => view.camera.worldToScreen((x + 0.5) * TILE_PX, (y + 0.5) * TILE_PX),
     renderedTile: (x, y) => view.terrain.tileAt(x, y),
     tileAtScreen: (sx, sy) => view.camera.tileAt(sx, sy),

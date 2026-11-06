@@ -24,6 +24,7 @@ export const ItemId = {
   IronPlate: 11,
   CopperPlate: 12,
   StoneBrick: 13,
+  IronGearWheel: 14,
 } as const;
 
 export type ItemId = (typeof ItemId)[keyof typeof ItemId];
@@ -154,6 +155,14 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 100,
     color: 0xb09060,
   },
+  // Intermediates (see src/data/recipes.ts).
+  [ItemId.IronGearWheel]: {
+    id: ItemId.IronGearWheel,
+    name: 'iron-gear-wheel',
+    label: 'Iron gear wheel',
+    stackSize: 100,
+    color: 0x8e9aa3,
+  },
 };
 
 /** Every real item id, in id order. */
@@ -171,6 +180,7 @@ export const ITEM_IDS: readonly RealItemId[] = [
   ItemId.IronPlate,
   ItemId.CopperPlate,
   ItemId.StoneBrick,
+  ItemId.IronGearWheel,
 ];
 
 /** The prototype of item `id`, or `undefined` for 0 and unknown ids. */

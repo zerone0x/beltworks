@@ -88,6 +88,22 @@ export interface TakeCommand extends CommandBase {
   readonly count: number;
 }
 
+/**
+ * Queues up to `count` hand-crafts of `recipe`, as many as the inventory
+ * allows, auto-queueing missing intermediates (see src/sim/crafting/queue.ts).
+ */
+export interface CraftCommand extends CommandBase {
+  readonly type: 'Craft';
+  readonly recipe: number;
+  readonly count: number;
+}
+
+/** Cancels entry `index` of the crafting queue (with its intermediates) and refunds it. */
+export interface CancelCraftCommand extends CommandBase {
+  readonly type: 'CancelCraft';
+  readonly index: number;
+}
+
 export type Command =
   | MoveCommand
   | MineStartCommand
@@ -96,7 +112,9 @@ export type Command =
   | RemoveCommand
   | RotateCommand
   | InsertCommand
-  | TakeCommand;
+  | TakeCommand
+  | CraftCommand
+  | CancelCraftCommand;
 export type CommandType = Command['type'];
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -154,6 +172,12 @@ export function validateCommandInput(input: unknown): string | null {
       return isUint32(c.entity) && isUint16(c.slot) && isCount(c.count)
         ? null
         : 'Take needs a uint32 entity, a uint16 slot and a count in [1, 65535]';
+    case 'Craft':
+      return isUint16(c.recipe) && isUint16(c.count) && c.count !== 0
+        ? null
+        : 'Craft needs a uint16 recipe and a count in [1, 65535]';
+    case 'CancelCraft':
+      return isUint16(c.index) ? null : 'CancelCraft needs a uint16 index';
     default:
       return `unknown command type ${String(c.type)}`;
   }

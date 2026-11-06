@@ -9,6 +9,7 @@ Controls so far:
 - **WASD**: walk (water blocks the way). The camera follows the player.
 - **Hold right mouse** on an ore tile within reach (2.5 tiles): mine it by hand, one unit every 0.5 s.
 - **E**: open or close the inventory (40 slots; the first 10 are shown in the hotbar at the bottom).
+- **Crafting** (in the inventory window): each hand recipe shows how many you can craft; **click** crafts 1, **shift-click** 5. Ingredients are taken when the craft is queued, and missing intermediates (gears, a furnace for a drill) are queued first. The queue shows above the hotbar; **click** an entry to cancel it and get its ingredients back.
 - **1–0**: select a hotbar slot (press it again, or **Q**, to deselect). A new game starts with a kit of belts, inserters, drills, furnaces, chests and coal.
 - With a buildable item selected, a **ghost** follows the cursor: green where it can be placed, red where it can't (water, another entity, the player, or out of build reach, 10 tiles). **R** rotates it, **left click** places it (hold and drag to place a row).
 - **R** with nothing selected rotates the entity under the cursor.
@@ -24,6 +25,8 @@ The debug overlay shows the tile under the mouse.
 ![Placed entities and the ghost preview of a transport belt](docs/screenshots/m1-placement.png)
 
 ![A working stone furnace and its window](docs/screenshots/m1-furnace.png)
+
+![Hand-crafting stone furnaces from mined stone, with the queue above the hotbar](docs/screenshots/m1-crafting.png)
 
 ## Docs
 

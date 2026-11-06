@@ -3,6 +3,7 @@
  * typed arrays whose buffers can be transferred to the main thread.
  */
 
+import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
 import { reaches } from './entities/build';
 import type { ChunkRange } from './entities/occupancy';
 import type { SimState } from './state';
@@ -51,6 +52,50 @@ export function encodeInventory(state: SimState, playerId: number): Uint16Array<
     out[2 * i + 1] = inv.counts[i]!;
   }
   return out;
+}
+
+/** Uint16 fields per queue entry in {@link encodeCraftQueue}, after the 2-field header. */
+export const CRAFT_ENTRY_STRIDE = 3;
+
+/**
+ * Encodes player `playerId`'s crafting queue as uint16s:
+ * `[progress, length, then per entry: recipe, crafts, flags]`, front first
+ * (progress in ticks into the front entry's current craft; flags as in
+ * `CraftFlag`).
+ */
+export function encodeCraftQueue(state: SimState, playerId: number): Uint16Array<ArrayBuffer> {
+  const q = state.crafting;
+  const len = q.size(playerId);
+  const out = new Uint16Array(2 + len * CRAFT_ENTRY_STRIDE);
+  out[0] = q.progress[playerId]!;
+  out[1] = len;
+  const base = playerId * CRAFT_QUEUE_LENGTH;
+  for (let i = 0; i < len; i++) {
+    const o = 2 + i * CRAFT_ENTRY_STRIDE;
+    out[o] = q.recipe[base + i]!;
+    out[o + 1] = q.crafts[base + i]!;
+    out[o + 2] = q.flags[base + i]!;
+  }
+  return out;
+}
+
+/** A crafting queue as decoded on the main thread. */
+export interface CraftQueueData {
+  /** Ticks into the front entry's current craft. */
+  progress: number;
+  entries: { recipe: number; crafts: number; flags: number }[];
+}
+
+/** Unpacks a buffer made by {@link encodeCraftQueue}. */
+export function decodeCraftQueue(buffer: ArrayBuffer): CraftQueueData {
+  const view = new Uint16Array(buffer, 0, buffer.byteLength >> 1);
+  const len = Math.min(view[1] ?? 0, Math.floor((view.length - 2) / CRAFT_ENTRY_STRIDE));
+  const entries: CraftQueueData['entries'] = [];
+  for (let i = 0; i < len; i++) {
+    const o = 2 + i * CRAFT_ENTRY_STRIDE;
+    entries.push({ recipe: view[o]!, crafts: view[o + 1]!, flags: view[o + 2]! });
+  }
+  return { progress: view[0] ?? 0, entries };
 }
 
 /** Int32 fields per entity in {@link encodeEntities}. */
