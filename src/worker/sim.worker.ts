@@ -4,8 +4,9 @@
  */
 
 import { validateCommandInput } from '../sim/commands';
-import { encodePlayers } from '../sim/snapshot';
+import { encodeChunks, encodePlayers } from '../sim/snapshot';
 import { Sim } from '../sim/tick';
+import { ChunkStreamer, sanitizeViewport } from './chunkStream';
 import { FixedStepClock } from './loop';
 import {
   MAX_CATCH_UP_TICKS,
@@ -18,6 +19,7 @@ import {
 
 const clock = new FixedStepClock(1000 / TICKS_PER_SECOND, MAX_CATCH_UP_TICKS);
 let sim: Sim | null = null;
+let streamer: ChunkStreamer | null = null;
 let viewport: Viewport | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -70,10 +72,12 @@ function schedule(): void {
 }
 
 function sendSnapshot(ticksRun: number): void {
-  if (!sim) {
+  if (!sim || !streamer) {
     return;
   }
   const players = encodePlayers(sim.state);
+  const batch = streamer.collect();
+  const chunks = batch && batch.chunks.length > 0 ? encodeChunks(batch.chunks) : null;
   post(
     {
       type: 'snapshot',
@@ -81,8 +85,10 @@ function sendSnapshot(ticksRun: number): void {
       ticksRun,
       viewport,
       players: players.buffer,
+      chunkWindow: batch?.window ?? null,
+      chunks,
     },
-    [players.buffer],
+    chunks ? [players.buffer, chunks] : [players.buffer],
   );
 }
 
@@ -90,6 +96,12 @@ function handle(msg: MainToWorker): void {
   switch (msg.type) {
     case 'init':
       sim = new Sim({ seed: msg.seed });
+      // A fresh streamer resends every chunk in the window, replacing the main
+      // thread's copies from the previous world.
+      streamer = new ChunkStreamer(sim.state.world);
+      if (viewport) {
+        streamer.setViewport(viewport);
+      }
       clock.reset();
       clock.advance(performance.now());
       statTicks = statStepMs = statDropped = 0;
@@ -109,7 +121,8 @@ function handle(msg: MainToWorker): void {
       }
       break;
     case 'setViewport':
-      viewport = { ...msg.viewport };
+      viewport = sanitizeViewport(msg.viewport);
+      streamer?.setViewport(viewport);
       break;
   }
 }

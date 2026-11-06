@@ -81,8 +81,9 @@ This is Factorio's core optimization, and it has to be there from day one:
 
 ## Rendering
 
-- Only chunks in the viewport, plus a one-chunk margin, are rendered.
-- Terrain: each chunk is baked into one RenderTexture and re-baked when it changes.
+- Only chunks in the viewport, plus a one-chunk margin, are rendered. Chunks that leave that window are destroyed together with their textures, so memory stays flat while panning.
+- Camera (`src/render/camera.ts`): world position at the screen center plus a zoom clamped to 0.25×–4× (one tile is 32 px at 1×). Middle-mouse drag or arrow keys pan, the wheel zooms towards the cursor. Camera math lives only in the render layer.
+- Terrain: each chunk is baked into one texture (`src/render/chunkBake.ts`) and re-baked when it changes. The placeholder art is made of whole-texel blocks, so it is baked at 8 texels per tile and sampled with nearest filtering: crisp at every zoom level, at 1/16 of the memory of 32 px per tile. Bakes are spread over frames (a few per frame).
 - Entities: separate Containers per layer (ground → items on belts → buildings → inserters → overlays), with pooled sprites.
 - Items on belts: the main thread computes their positions from the lane data in the snapshot, interpolating between ticks so motion looks smooth.
 - All textures are packed into atlases.
@@ -94,6 +95,7 @@ This is Factorio's core optimization, and it has to be there from day one:
 - The worker loop (`src/worker/loop.ts`) accumulates wall time and runs whole 60 Hz ticks, at most 5 per wake-up; any further backlog is dropped.
 - **One snapshot per wake-up, not per tick.** When the worker catches up several ticks at once, only the newest state is useful for rendering; the snapshot carries `ticksRun` so the renderer can tell. At full speed a wake-up runs one tick, so this is usually one snapshot per tick.
 - `stats` go out every 30 ticks; the main thread derives UPS from them and shows it in the debug overlay.
+- **Chunk streaming.** Each snapshot carries a `chunkWindow` (the chunks of the last viewport plus a one-chunk margin) and a `chunks` buffer with the chunks in that window the main thread doesn't have yet or that changed since they were sent (`encodeChunks` in `src/sim/snapshot.ts`). The main thread caches chunks and drops those outside each snapshot's `chunkWindow`; the worker (`src/worker/chunkStream.ts`) mirrors that cache, so a chunk that comes back into view is sent again. Snapshots are applied in order, so both sides always agree. At most 16 chunks go into one snapshot, nearest to the viewport center first. Unmodified chunks that leave the window are also released from the worker's `World`, since they can be regenerated from the seed.
 
 ### Snapshot transfer
 - v1: after each wake-up that ran a tick, the Worker writes the state visible in the viewport into a transferable `ArrayBuffer` and sends it to the main thread.
@@ -138,7 +140,7 @@ src/
     power/
     scenarios/    # scripted runs shared by tests (determinism)
     commands.ts   # Command union, validation, ordered queue
-    state.ts      # SimState, world slot, state hash
+    state.ts      # SimState (including the World), state hash
     tick.ts       # Sim: enqueue/step/hash, fixed system order
     fixed.ts      # fixed-point helpers (1/256 tile, 1/65536 progress)
     snapshot.ts   # render snapshot encoding

@@ -45,6 +45,57 @@ describe('World', () => {
     expect(() => world.getChunk(CHUNK_COORD_LIMIT - 1, -CHUNK_COORD_LIMIT)).not.toThrow();
   });
 
+  it('rejects out-of-range coordinates even when they would alias a cached chunk', () => {
+    const world = new World(1);
+    // 2^16 packs to the same key as 0, and -CHUNK_COORD_LIMIT - 1 to CHUNK_COORD_LIMIT - 1.
+    world.getChunk(0, 0);
+    world.getChunk(CHUNK_COORD_LIMIT - 1, 0);
+    expect(chunkKey(1 << 16, 0)).toBe(chunkKey(0, 0));
+    expect(() => world.getChunk(1 << 16, 0)).toThrow(RangeError);
+    expect(() => world.getChunk(0, 1 << 16)).toThrow(RangeError);
+    expect(() => world.getChunk(-CHUNK_COORD_LIMIT - 1, 0)).toThrow(RangeError);
+    expect(() => world.tileAt((1 << 16) * CHUNK_SIZE, 0)).toThrow(RangeError);
+    expect(world.peekChunk(1 << 16, 0)).toBeUndefined();
+    expect(world.peekChunk(-CHUNK_COORD_LIMIT - 1, 0)).toBeUndefined();
+    expect(world.chunkCount).toBe(2);
+  });
+
+  it('counts modifications per chunk', () => {
+    const world = new World(5);
+    const { x, y } = oreTile(5);
+    const cx = x >> 5;
+    const cy = y >> 5;
+    expect(world.chunkVersion(cx, cy)).toBe(0);
+    world.mine(x, y, 1);
+    world.mine(x, y, 1);
+    expect(world.chunkVersion(cx, cy)).toBe(2);
+    // Mining a tile without a resource is not a modification.
+    expect(world.resourceAt(0, 0)).toBe(ResourceId.None);
+    expect(world.mine(0, 0, 1)).toBe(0);
+    expect(world.chunkVersion(cx, cy)).toBe(2);
+    expect(world.chunkVersion(cx + 1, cy)).toBe(0);
+    expect(world.chunkVersion(1 << 16, 0)).toBe(0);
+  });
+
+  it('unloads unmodified chunks only, regenerating them identically', () => {
+    const world = new World(5);
+    const { x, y } = oreTile(5);
+    const original = world.getChunk(3, 3);
+    const terrain = original.terrain.slice();
+    expect(world.unloadChunk(3, 3)).toBe(true);
+    expect(world.peekChunk(3, 3)).toBeUndefined();
+    expect(world.unloadChunk(3, 3)).toBe(false);
+    const again = world.getChunk(3, 3);
+    expect(again).not.toBe(original);
+    expect(again.terrain).toEqual(terrain);
+
+    world.mine(x, y, 1);
+    const hash = world.hashInto();
+    expect(world.unloadChunk(x >> 5, y >> 5)).toBe(false);
+    expect(world.peekChunk(x >> 5, y >> 5)).toBeDefined();
+    expect(world.hashInto()).toBe(hash);
+  });
+
   it('addresses tiles across chunk boundaries, including negative coordinates', () => {
     const world = new World(9);
     for (const [x, y] of [

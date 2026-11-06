@@ -1,7 +1,11 @@
 /**
  * A small DOM overlay with simulation stats: tick count, updates per second
- * (measured on the main thread from `stats` messages), and mean tick time.
+ * (measured on the main thread from `stats` messages), and mean tick time,
+ * plus a readout of the tile under the mouse.
  */
+
+import { RESOURCES, type OreId } from '../data/resources';
+import { TILES } from '../data/tiles';
 
 export interface DebugStats {
   tick: number;
@@ -9,8 +13,36 @@ export interface DebugStats {
   tickMs: number;
 }
 
+/** The tile under the mouse, as shown in the overlay. */
+export interface TileReadout {
+  x: number;
+  y: number;
+  /** `null` while the tile's chunk hasn't been received from the worker yet. */
+  info: { terrain: number; resource: number; amount: number } | null;
+}
+
+/** Formats a tile readout line, e.g. `tile (12, -3) grass | iron-ore 1250`. */
+export function formatTile(tile: TileReadout | null): string {
+  if (!tile) {
+    return 'tile -';
+  }
+  const where = `tile (${String(tile.x)}, ${String(tile.y)})`;
+  if (!tile.info) {
+    return `${where} loading`;
+  }
+  const { terrain, resource, amount } = tile.info;
+  const ground = TILES[terrain]?.name ?? `tile#${String(terrain)}`;
+  if (resource === 0) {
+    return `${where} ${ground}`;
+  }
+  const ore = (RESOURCES[resource as OreId] as { name: string } | undefined)?.name;
+  return `${where} ${ground} | ${ore ?? `resource#${String(resource)}`} ${String(amount)}`;
+}
+
 export class DebugOverlay {
   readonly element: HTMLElement;
+  private readonly statsLine: HTMLElement;
+  private readonly tileLine: HTMLElement;
 
   constructor(parent: HTMLElement) {
     const el = document.createElement('div');
@@ -29,7 +61,12 @@ export class DebugOverlay {
       whiteSpace: 'pre',
       zIndex: '10',
     } satisfies Partial<CSSStyleDeclaration>);
-    el.textContent = 'tick - | UPS - | tick - ms';
+    this.statsLine = document.createElement('div');
+    this.statsLine.textContent = 'tick - | UPS - | tick - ms';
+    this.tileLine = document.createElement('div');
+    this.tileLine.className = 'tile-readout';
+    this.tileLine.textContent = formatTile(null);
+    el.append(this.statsLine, this.tileLine);
     parent.appendChild(el);
     this.element = el;
   }
@@ -37,8 +74,16 @@ export class DebugOverlay {
   update(stats: DebugStats): void {
     this.element.dataset.tick = String(stats.tick);
     this.element.dataset.ups = stats.ups.toFixed(1);
-    this.element.textContent =
+    this.statsLine.textContent =
       `tick ${String(stats.tick)} | UPS ${stats.ups.toFixed(1)} | ` +
       `tick ${stats.tickMs.toFixed(3)} ms`;
+  }
+
+  /** Shows the tile under the mouse; cheap to call every frame. */
+  updateTile(tile: TileReadout | null): void {
+    const text = formatTile(tile);
+    if (this.tileLine.textContent !== text) {
+      this.tileLine.textContent = text;
+    }
   }
 }
