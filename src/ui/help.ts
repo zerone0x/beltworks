@@ -21,7 +21,10 @@ export const CONTROLS: readonly ControlHelp[] = [
   { keys: 'Q', action: 'With nothing selected: pick the item of the entity under the cursor' },
   { keys: 'Left click / drag', action: 'Place the selected item (green ghost)' },
   { keys: 'R', action: 'Rotate the ghost, or the entity under the cursor' },
-  { keys: 'Left click', action: 'With nothing selected: open a chest, furnace, drill or inserter' },
+  {
+    keys: 'Left click',
+    action: 'With nothing selected: open a machine or chest; on a pole, its electric network',
+  },
   { keys: 'Click / shift-click', action: 'In a window: move a whole stack in or out' },
   { keys: 'Right click', action: 'In a window: move half a stack (rounded up)' },
   { keys: 'Ctrl-click / middle click', action: 'In a window: move one item' },

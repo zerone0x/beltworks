@@ -18,7 +18,8 @@ test('page loads, renders a canvas, and logs no errors', async ({ page }, testIn
   expect(response?.ok()).toBe(true);
   await expect(page).toHaveTitle('Beltworks');
 
-  const canvas = page.locator('canvas');
+  // The game canvas (UI panels may have canvases of their own, like the power panel's graph).
+  const canvas = page.locator('#app > canvas');
   await expect(canvas).toHaveCount(1);
   await expect(canvas).toBeVisible();
 

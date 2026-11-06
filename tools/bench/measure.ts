@@ -17,7 +17,9 @@
  */
 
 import { beltTable } from '../../src/sim/belts/belts';
+import { SAT_ONE } from '../../src/data/entities';
 import { MachineState } from '../../src/sim/entities/machine';
+import { powerGrid } from '../../src/sim/power/grid';
 import type { Sim } from '../../src/sim/tick';
 import type { BenchScene, BuiltScene } from './scene';
 
@@ -64,6 +66,12 @@ export interface SceneActivity {
   /** E.g. `{ 'burner-mining-drill': { Working: 45, Depleted: 3 } }`. */
   machineStates: Record<string, Record<string, number>>;
   activeBeltLanes: number;
+  /**
+   * Satisfaction of every electric network, in percent rounded down, in
+   * network id order (empty without poles): overloaded networks run their
+   * machines slower.
+   */
+  powerSatisfaction: number[];
 }
 
 const STATE_NAMES = new Map<number, string>(
@@ -82,7 +90,15 @@ export function sceneActivity(sim: Sim): SceneActivity {
     const byState = (machineStates[proto.name] ??= {});
     byState[state] = (byState[state] ?? 0) + 1;
   }
-  return { machineStates, activeBeltLanes: beltTable(entities)?.activeLanes ?? 0 };
+  const grid = powerGrid(entities);
+  const powerSatisfaction = (grid?.networkIds() ?? [])
+    .sort((a, b) => a - b)
+    .map((net) => Math.floor(((grid!.network(net)?.satisfaction ?? 0) * 100) / SAT_ONE));
+  return {
+    machineStates,
+    activeBeltLanes: beltTable(entities)?.activeLanes ?? 0,
+    powerSatisfaction,
+  };
 }
 
 /** Nearest-rank percentile `q` (in (0, 1]) of `sorted`, which must be sorted ascending. */

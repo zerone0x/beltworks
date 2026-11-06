@@ -2,7 +2,7 @@
 
 A factory-automation game for the browser, inspired by Factorio. All art and names are original.
 
-> Status: in development (M1, the core automation loop, is done). Live build: https://zerone0x.github.io/beltworks-play/
+> Status: in development (M1, the core automation loop, and M2, power, are done). Live build: https://zerone0x.github.io/beltworks-play/
 
 ## Playing
 
@@ -27,6 +27,8 @@ Press **H** in the game (or click the hint in the bottom-left corner) for a list
 - **Belts** move items towards the way they face. Belts in a row join up, a belt fed only from one side turns, and a belt pointing into the side of another feeds that side's lane. Removing a belt gives back the items on it.
 - **Small electric poles** wire themselves to every pole within 7 tiles, forming a network, and power electric machines that stand in the 5×5 area around them. While you hold a pole, the ghost shows its supply area, its wire reach and the wires it would get, and every placed pole's area shows faintly; with nothing selected, hovering a pole shows its area, reach and wires. The starting kit carries 10 poles, since the nearest trees for their wood are far from the spawn.
 - An **electric mining drill** (3×3) mines the 5×5 area around it, one unit every 2 s at full power, and an **electric inserter** swings there and back in 0.87 s; neither has a fuel slot. They run at the speed their network can power (half speed at half power) and draw energy only while they work, apart from an inserter's small idle drain. A red bolt marks one without power (no pole, or no fuelled boiler and steam engine on its network), a yellow bolt one running on low power. Their window shows the power they draw and how well their network is supplied.
+- A **boiler** burns fuel (coal, wood) for the **steam engines** lined up in front of it, up to two at 900 kW each, and only for the power they deliver. When a network asks for more than its engines give, every machine on it slows down in proportion; add generators to bring it back.
+- **Left click** on an electric pole with nothing selected opens its **network panel**: satisfaction, production and consumption, a graph of the last minute (demand, production and capacity), and the producers and consumers by type with their totals. **Esc** closes it.
 - **Right click** on an entity removes it and puts it back into the inventory, together with what it holds (refused if there is no room); elsewhere the right button mines as above.
 - **Middle-drag** or **arrow keys**: pan the camera freely; **F**: follow the player again.
 - **Mouse wheel**: zoom (towards the cursor with a free camera, around the player while following).
@@ -59,6 +61,8 @@ The debug overlay shows the tile under the mouse: its terrain, then a tree or th
 ![An electric mining drill without power, with its no-power icon and window](docs/screenshots/m2-electric-no-power.png)
 
 ![The same drill running on a boiler and steam engine, filling a chest, with its window](docs/screenshots/m2-electric.png)
+
+![Sixteen electric drills on two boilers and steam engines, with the network panel showing the overload and the recovery of the last minute](docs/screenshots/m2-power.png)
 
 ## Docs
 

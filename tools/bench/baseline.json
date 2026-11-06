@@ -1,13 +1,12 @@
 {
   "version": 1,
-  "createdAt": "2026-11-06T13:29:17.558Z",
-  "commit": "5ac8c9df5af6facaf0a4c1455ed35cb5f84dd0ab",
+  "createdAt": "2026-11-06T17:25:03.084Z",
   "environment": {
     "node": "v22.23.4",
     "platform": "linux",
     "arch": "x64",
-    "cpu": "AMD EPYC 9V45 96-Core Processor",
-    "cpus": 2
+    "cpu": "AMD EPYC 9475F 48-Core Processor",
+    "cpus": 4
   },
   "scenes": [
     {
@@ -27,46 +26,46 @@
       "measuredTicks": 3600,
       "warmupRuns": 3,
       "targetMeanMs": 1,
-      "meanMs": 0.010234405555554594,
-      "p50Ms": 0.007661999999982072,
-      "p99Ms": 0.020392000000128974,
-      "maxMs": 2.052804000000151,
-      "ticksPerSecond": 97709.63194411059,
+      "meanMs": 0.009716430000000066,
+      "p50Ms": 0.007300999999984015,
+      "p99Ms": 0.032090000000039254,
+      "maxMs": 0.690168999999969,
+      "ticksPerSecond": 102918.45873432868,
       "runs": [
         {
-          "meanMs": 0.011525845277778298,
-          "p50Ms": 0.007491999999956533,
-          "p99Ms": 0.019350000000031287,
-          "maxMs": 2.2305129999999735,
-          "ticksPerSecond": 86761.53252967822
+          "meanMs": 0.009716430000000066,
+          "p50Ms": 0.007300999999984015,
+          "p99Ms": 0.032090000000039254,
+          "maxMs": 0.690168999999969,
+          "ticksPerSecond": 102918.45873432868
         },
         {
-          "meanMs": 0.011708515833333183,
-          "p50Ms": 0.007732000000032713,
-          "p99Ms": 0.018749999999954525,
-          "maxMs": 2.5369040000000496,
-          "ticksPerSecond": 85407.92139966042
+          "meanMs": 0.01029199277777688,
+          "p50Ms": 0.007810999999946944,
+          "p99Ms": 0.04269099999999071,
+          "maxMs": 0.6589989999999943,
+          "ticksPerSecond": 97162.91311040007
         },
         {
-          "meanMs": 0.010234405555554594,
-          "p50Ms": 0.007661999999982072,
-          "p99Ms": 0.020392000000128974,
-          "maxMs": 2.052804000000151,
-          "ticksPerSecond": 97709.63194411059
+          "meanMs": 0.0076924136111106295,
+          "p50Ms": 0.006520000000023174,
+          "p99Ms": 0.022240000000010696,
+          "maxMs": 0.599256999999966,
+          "ticksPerSecond": 129998.2099968777
         },
         {
-          "meanMs": 0.008387988888888585,
-          "p50Ms": 0.007491999999956533,
-          "p99Ms": 0.01695700000004763,
-          "maxMs": 0.6171289999999772,
-          "ticksPerSecond": 119218.0882982191
+          "meanMs": 0.008370424722222682,
+          "p50Ms": 0.0069100000000617,
+          "p99Ms": 0.024659999999926185,
+          "maxMs": 0.5450070000000551,
+          "ticksPerSecond": 119468.25079796668
         },
         {
-          "meanMs": 0.009612267222221553,
-          "p50Ms": 0.007732000000032713,
-          "p99Ms": 0.02053200000000288,
-          "maxMs": 2.0975439999999708,
-          "ticksPerSecond": 104033.72865958294
+          "meanMs": 0.010418346666666656,
+          "p50Ms": 0.008459000000016204,
+          "p99Ms": 0.027240000000006148,
+          "maxMs": 2.0877669999999853,
+          "ticksPerSecond": 95984.51961667632
         }
       ],
       "activity": {
@@ -90,9 +89,97 @@
             "Working": 45
           }
         },
-        "activeBeltLanes": 18
+        "activeBeltLanes": 18,
+        "powerSatisfaction": []
       },
-      "hash": "0x17ef62e1"
+      "hash": "0x30b73bc1"
+    },
+    {
+      "name": "power",
+      "description": "Four electric districts (one per starting ore patch, each its own network; two overloaded): boilers and steam engines, a pole on every 5×5 block, electric drills into chests on the ore, and rings of electric inserters passing coal between chests",
+      "entities": 959,
+      "entityCounts": {
+        "wooden-chest": 406,
+        "electric-inserter": 383,
+        "small-electric-pole": 131,
+        "steam-engine": 10,
+        "boiler": 6,
+        "electric-mining-drill": 23
+      },
+      "beltItems": 0,
+      "setupTicks": 6537,
+      "warmupTicks": 600,
+      "measuredTicks": 3600,
+      "warmupRuns": 3,
+      "targetMeanMs": 1,
+      "meanMs": 0.030174431111115358,
+      "p50Ms": 0.02779999999984284,
+      "p99Ms": 0.08379100000001927,
+      "maxMs": 0.7434899999998379,
+      "ticksPerSecond": 33140.64137009131,
+      "runs": [
+        {
+          "meanMs": 0.031936375833333336,
+          "p50Ms": 0.028690000000096916,
+          "p99Ms": 0.09121099999993021,
+          "maxMs": 1.0783230000001822,
+          "ticksPerSecond": 31312.25675758293
+        },
+        {
+          "meanMs": 0.02786884916667052,
+          "p50Ms": 0.02555000000029395,
+          "p99Ms": 0.07719099999985701,
+          "maxMs": 1.0065919999997277,
+          "ticksPerSecond": 35882.35718021469
+        },
+        {
+          "meanMs": 0.030174431111115358,
+          "p50Ms": 0.02779999999984284,
+          "p99Ms": 0.08379100000001927,
+          "maxMs": 0.7434899999998379,
+          "ticksPerSecond": 33140.64137009131
+        },
+        {
+          "meanMs": 0.025899839444441568,
+          "p50Ms": 0.021940000000086002,
+          "p99Ms": 0.07957100000021455,
+          "maxMs": 0.6067490000000362,
+          "ticksPerSecond": 38610.277957325816
+        },
+        {
+          "meanMs": 0.03501097277777426,
+          "p50Ms": 0.028931000000284257,
+          "p99Ms": 0.09404099999983373,
+          "maxMs": 0.7921299999998155,
+          "ticksPerSecond": 28562.474009143272
+        }
+      ],
+      "activity": {
+        "machineStates": {
+          "wooden-chest": {
+            "Idle": 406
+          },
+          "electric-inserter": {
+            "Working": 374,
+            "WaitingForSource": 9
+          },
+          "small-electric-pole": {
+            "Idle": 131
+          },
+          "steam-engine": {
+            "Working": 10
+          },
+          "boiler": {
+            "Working": 6
+          },
+          "electric-mining-drill": {
+            "Working": 23
+          }
+        },
+        "activeBeltLanes": 0,
+        "powerSatisfaction": [50, 100, 45, 100]
+      },
+      "hash": "0xfa44608d"
     }
   ]
 }

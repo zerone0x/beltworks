@@ -489,6 +489,131 @@ export function decodePower(buffer: ArrayBuffer): PowerData {
   return out;
 }
 
+/** Field offsets of the header of {@link encodeNetworkDetail}; the groups follow it. */
+export const NetworkDetailField = {
+  /** The pole asked about, and its network. */
+  pole: 0,
+  network: 1,
+  poles: 2,
+  /** Joules per tick wanted by the consumers and the most the producers could deliver. */
+  demand: 3,
+  supply: 4,
+  /** In units of 1/`SAT_ONE`. */
+  satisfaction: 5,
+  /** Joules per tick delivered: `min(supply, demand)`. */
+  load: 6,
+  groupCount: 7,
+} as const;
+const NETWORK_DETAIL_HEADER = 8;
+/** Int32 fields per group in {@link encodeNetworkDetail}. */
+export const NETWORK_GROUP_STRIDE = 6;
+
+/**
+ * Encodes what the power panel shows about the network of pole `id` as
+ * int32s: the {@link NetworkDetailField} header (as of the latest tick,
+ * over the whole network, wherever its entities are), then one group per
+ * entity type on the network, ascending type ids: `[type, producer, count,
+ * demand, maxOutput, power]`, with `producer` 1 for generators, `power` what
+ * the group delivered (producers) or drew (consumers, `poweredEnergy` of
+ * each one's demand) on the latest tick. Joules are uint32s stored bit for
+ * bit. `null` when `id` isn't a pole.
+ *
+ * Read-only and computed on request (only while a power panel is open):
+ * the 60 s graph is sampled on the main thread from snapshots, not kept in
+ * the simulation.
+ */
+export function encodeNetworkDetail(state: SimState, id: number): Int32Array<ArrayBuffer> | null {
+  const { entities } = state;
+  const grid = powerGrid(entities);
+  if (!grid?.isPole(id)) return null;
+  const net = grid.networkOfPole(id);
+  const stats = grid.network(net);
+  const groups = new Map<number, number[]>();
+  const sat = stats?.satisfaction ?? 0;
+  for (const m of grid.membersOf(net)) {
+    const type = entities.store.type(m);
+    const member = grid.member(m)!;
+    const producer = entities.table(type)?.powerMaxOutput !== undefined;
+    let g = groups.get(type);
+    if (!g) groups.set(type, (g = [type, producer ? 1 : 0, 0, 0, 0, 0]));
+    g[2]! += 1;
+    g[3]! += member.demand;
+    g[4]! += member.maxOutput;
+    g[5]! += producer ? member.drawn : poweredEnergy(member.demand, sat);
+  }
+  const sorted = [...groups.values()].sort((a, b) => a[0]! - b[0]!);
+  const out = new Int32Array(NETWORK_DETAIL_HEADER + sorted.length * NETWORK_GROUP_STRIDE);
+  out[NetworkDetailField.pole] = id;
+  out[NetworkDetailField.network] = net;
+  out[NetworkDetailField.poles] = stats?.poles ?? 0;
+  out[NetworkDetailField.demand] = stats?.demand ?? 0;
+  out[NetworkDetailField.supply] = stats?.supply ?? 0;
+  out[NetworkDetailField.satisfaction] = sat;
+  out[NetworkDetailField.load] = stats?.load ?? 0;
+  out[NetworkDetailField.groupCount] = sorted.length;
+  sorted.forEach((g, i) => {
+    out.set(g, NETWORK_DETAIL_HEADER + i * NETWORK_GROUP_STRIDE);
+  });
+  return out;
+}
+
+/** The entities of one type on a network, as decoded on the main thread. */
+export interface NetworkGroupData {
+  type: number;
+  /** Generators (true) or consumers. */
+  producer: boolean;
+  count: number;
+  /** Joules per tick, as of the latest tick. */
+  demand: number;
+  maxOutput: number;
+  /** Delivered (producers) or drawn (consumers). */
+  power: number;
+}
+
+/** A network as the power panel shows it, decoded on the main thread. */
+export interface NetworkDetailData {
+  pole: number;
+  network: number;
+  poles: number;
+  demand: number;
+  supply: number;
+  satisfaction: number;
+  load: number;
+  groups: NetworkGroupData[];
+}
+
+/** Unpacks a buffer made by {@link encodeNetworkDetail}. */
+export function decodeNetworkDetail(buffer: ArrayBuffer): NetworkDetailData {
+  const v = new Int32Array(buffer);
+  const u = (i: number): number => (v[i] ?? 0) >>> 0;
+  const groups: NetworkGroupData[] = [];
+  const n = Math.min(
+    v[NetworkDetailField.groupCount] ?? 0,
+    Math.floor((v.length - NETWORK_DETAIL_HEADER) / NETWORK_GROUP_STRIDE),
+  );
+  for (let i = 0; i < n; i++) {
+    const o = NETWORK_DETAIL_HEADER + i * NETWORK_GROUP_STRIDE;
+    groups.push({
+      type: v[o]!,
+      producer: v[o + 1] === 1,
+      count: v[o + 2]!,
+      demand: u(o + 3),
+      maxOutput: u(o + 4),
+      power: u(o + 5),
+    });
+  }
+  return {
+    pole: u(NetworkDetailField.pole),
+    network: u(NetworkDetailField.network),
+    poles: v[NetworkDetailField.poles] ?? 0,
+    demand: u(NetworkDetailField.demand),
+    supply: u(NetworkDetailField.supply),
+    satisfaction: v[NetworkDetailField.satisfaction] ?? 0,
+    load: u(NetworkDetailField.load),
+    groups,
+  };
+}
+
 /** Field offsets of the header of {@link encodeEntityDetail}; `[item, count]` slot pairs follow it. */
 export const DetailField = {
   id: 0,

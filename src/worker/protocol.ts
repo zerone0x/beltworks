@@ -64,6 +64,12 @@ export interface InitMessage {
   type: 'init';
   /** World seed (uint32). Re-sending `init` restarts the simulation. */
   seed: number;
+  /**
+   * What the player starts with instead of the default starting kit. Only
+   * dev and test builds send it (a `?kit=` URL parameter, see
+   * src/testHook.ts), for end-to-end tests that need more than the kit has.
+   */
+  startingKit?: { item: number; count: number }[];
 }
 
 export interface CommandsMessage {
@@ -152,6 +158,12 @@ export interface SnapshotMessage {
    * longer exists.
    */
   entityDetail: ArrayBuffer | null;
+  /**
+   * The power panel's data when the `inspected` entity is an electric pole:
+   * its whole network (see `encodeNetworkDetail` in src/sim/snapshot.ts);
+   * `null` otherwise.
+   */
+  networkDetail: ArrayBuffer | null;
 }
 
 export interface StatsMessage {

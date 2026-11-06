@@ -18,6 +18,8 @@ import {
   FACTORY_1K_BUILDERS,
 } from '../../tools/bench/scenes/factory1k';
 import { SCENES } from '../../tools/bench/scenes/index';
+import { POWER_DISTRICTS, power, powerLayout } from '../../tools/bench/scenes/power';
+import { powerGrid } from '../../src/sim/power/grid';
 
 describe('tick statistics', () => {
   it('uses nearest-rank percentiles', () => {
@@ -53,7 +55,7 @@ function scene(name: string, meanMs: number, hash = '0x00000001'): SceneResult {
     maxMs: 3 * meanMs,
     ticksPerSecond: 1000 / meanMs,
     runs: [],
-    activity: { machineStates: {}, activeBeltLanes: 0 },
+    activity: { machineStates: {}, activeBeltLanes: 0, powerSatisfaction: [] },
     hash,
   };
 }
@@ -216,5 +218,54 @@ describe('1k scene', () => {
     expect(activeBeltLanes).toBeGreaterThanOrEqual(18);
     expect(result.meanMs).toBeGreaterThan(0);
     expect(result.hash).toMatch(/^0x[0-9a-f]{8}$/);
+  });
+});
+
+describe('power scene', () => {
+  it('builds four districts, each its own network, through commands', () => {
+    const built = power.build();
+    const { entities } = built.sim.state;
+    expect(built.entityCounts).toEqual({
+      'wooden-chest': 406,
+      'electric-inserter': 383,
+      'small-electric-pole': 131,
+      'steam-engine': 10,
+      boiler: 6,
+      'electric-mining-drill': 23,
+    });
+    expect(entities.count).toBe(959);
+    expect(built.sim.state.players.count).toBe(POWER_DISTRICTS);
+    const grid = powerGrid(entities)!;
+    expect(grid.networkCount).toBe(POWER_DISTRICTS);
+    // Every electric entity is on one of them.
+    expect(grid.networkIds().reduce((n, net) => n + grid.membersOf(net).length, 0)).toBe(
+      grid.memberCount,
+    );
+    const districts = powerLayout();
+    expect(districts.map((d) => d.plants)).toEqual([1, 2, 1, 2]);
+    expect(districts.every((d) => d.blocks.some((b) => b.kind === 'drill'))).toBe(true);
+  });
+
+  it('is deterministic', () => {
+    const a = power.build();
+    const b = power.build();
+    expect(a.setupTicks).toBe(b.setupTicks);
+    expect(a.sim.hash()).toBe(b.sim.hash());
+  });
+
+  it('keeps its drills and inserters busy, two networks overloaded', () => {
+    const result = measureScene(power, {
+      warmupTicks: 60,
+      measuredTicks: 60,
+      runs: 1,
+      warmupRuns: 0,
+    });
+    const { machineStates, powerSatisfaction } = result.activity;
+    expect(machineStates['electric-mining-drill']?.Working).toBe(23);
+    expect(machineStates['electric-inserter']?.Working).toBeGreaterThanOrEqual(350);
+    expect(machineStates['steam-engine']?.Working).toBe(10);
+    expect(powerSatisfaction).toHaveLength(4);
+    expect(powerSatisfaction.filter((s) => s === 100)).toHaveLength(2);
+    expect(powerSatisfaction.filter((s) => s < 60)).toHaveLength(2);
   });
 });

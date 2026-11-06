@@ -184,7 +184,7 @@ test('the debug overlay shows the tile under the mouse', async ({ page }) => {
   );
 
   // Leaving the canvas clears it.
-  await page.dispatchEvent('canvas', 'pointerleave');
+  await page.dispatchEvent('#app > canvas', 'pointerleave');
   await expect(readout).toHaveText('tile -');
   expect(errors).toEqual([]);
 });

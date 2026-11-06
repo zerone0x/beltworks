@@ -3,6 +3,7 @@
  * snapshots and stats to the main thread. See src/worker/protocol.ts.
  */
 
+import { MAX_STACK_SIZE, itemPrototype, type ItemStack, type RealItemId } from '../data/items';
 import { validateCommandInput } from '../sim/commands';
 import {
   encodeBelts,
@@ -12,6 +13,7 @@ import {
   encodeEntityDetail,
   encodeInserters,
   encodeInventory,
+  encodeNetworkDetail,
   encodePlayers,
   encodePower,
 } from '../sim/snapshot';
@@ -98,6 +100,7 @@ function sendSnapshot(ticksRun: number): void {
   const inserters = encodeInserters(sim.state, batch?.window ?? null);
   const power = encodePower(sim.state, batch?.window ?? null);
   const detail = inspected !== 0 ? encodeEntityDetail(sim.state, LOCAL_PLAYER_ID, inspected) : null;
+  const network = inspected !== 0 ? encodeNetworkDetail(sim.state, inspected) : null;
   const transfer: Transferable[] = [
     players.buffer,
     inventory.buffer,
@@ -109,6 +112,7 @@ function sendSnapshot(ticksRun: number): void {
   ];
   if (chunks) transfer.push(chunks);
   if (detail) transfer.push(detail.buffer);
+  if (network) transfer.push(network.buffer);
   post(
     {
       type: 'snapshot',
@@ -126,6 +130,7 @@ function sendSnapshot(ticksRun: number): void {
       chunks,
       inspected,
       entityDetail: detail?.buffer ?? null,
+      networkDetail: network?.buffer ?? null,
     },
     transfer,
   );
@@ -133,8 +138,9 @@ function sendSnapshot(ticksRun: number): void {
 
 function handle(msg: MainToWorker): void {
   switch (msg.type) {
-    case 'init':
-      sim = new Sim({ seed: msg.seed });
+    case 'init': {
+      const startingKit = validateKit(msg.startingKit);
+      sim = new Sim(startingKit ? { seed: msg.seed, startingKit } : { seed: msg.seed });
       // A fresh streamer resends every chunk in the window, replacing the main
       // thread's copies from the previous world.
       streamer = new ChunkStreamer(sim.state.world);
@@ -147,6 +153,7 @@ function handle(msg: MainToWorker): void {
       inspected = 0;
       schedule();
       break;
+    }
     case 'commands':
       if (!sim) {
         throw new Error('commands received before init');
@@ -171,6 +178,26 @@ function handle(msg: MainToWorker): void {
       streamer?.setViewport(viewport);
       break;
   }
+}
+
+/** Checks an `init` message's starting kit: known items, counts in [1, 65535]. */
+function validateKit(kit: unknown): ItemStack[] | undefined {
+  if (kit === undefined) return undefined;
+  if (!Array.isArray(kit)) throw new Error('invalid starting kit');
+  return kit.map((s: unknown) => {
+    const { item, count } = (s ?? {}) as { item?: unknown; count?: unknown };
+    if (
+      typeof item !== 'number' ||
+      itemPrototype(item) === undefined ||
+      typeof count !== 'number' ||
+      !Number.isInteger(count) ||
+      count < 1 ||
+      count > MAX_STACK_SIZE
+    ) {
+      throw new Error(`invalid starting kit entry: ${JSON.stringify(s)}`);
+    }
+    return { item: item as RealItemId, count };
+  });
 }
 
 self.onmessage = (event: MessageEvent<MainToWorker>) => {
