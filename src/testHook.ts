@@ -5,6 +5,7 @@
  * contain it.
  */
 
+import { EntityTypeId } from './data/entities';
 import type { BuildInput } from './render/buildInput';
 import { TILE_PX } from './render/camera';
 import type { GameView } from './render/gameView';
@@ -57,6 +58,17 @@ export interface EntityState {
   status: number;
 }
 
+/** A belt as known to the renderer, with the items on it. */
+export interface BeltState {
+  x: number;
+  y: number;
+  dir: number;
+  /** `BeltShape`: 0 straight, 1 and 2 curves. */
+  shape: number;
+  /** Items: lane (0 left, 1 right), distance from the belt's end edge in subtiles, item id. */
+  items: { lane: number; offset: number; item: number }[];
+}
+
 /** The ghost preview, as last drawn. */
 export interface GhostState {
   name: string;
@@ -97,6 +109,14 @@ export interface BeltworksTestHook {
   generatedTile(x: number, y: number): TileInfo;
   /** Entities around the view from the latest snapshot. */
   entities(): EntityState[];
+  /** Belts around the view and their items, from the latest snapshot. */
+  belts(): BeltState[];
+  /**
+   * Drops `count` of `item` from the local player's inventory onto the belt
+   * on tile `(x, y)` (an `Insert` command, as a hand would; at most one per
+   * lane goes on at a time). Returns false if the renderer knows no belt there.
+   */
+  dropOnBelt(x: number, y: number, item: number, count?: number): boolean;
   /** The ghost preview, or `null` when none is shown. */
   ghost(): GhostState | null;
   /** The hotbar slot selected for building, or `null`. */
@@ -193,6 +213,22 @@ export function installTestHook({
         dir: e.dir,
         status: e.status,
       })),
+    belts: () =>
+      view.belts.data.map((b) => ({
+        x: b.x,
+        y: b.y,
+        dir: b.dir,
+        shape: b.shape,
+        items: b.items.map(({ lane, offset, item }) => ({ lane, offset, item })),
+      })),
+    dropOnBelt: (x, y, item, count = 1) => {
+      const entity = view.entityIndex.at(x, y);
+      if (entity?.type !== EntityTypeId.TransportBelt) return false;
+      client.sendCommands([
+        { type: 'Insert', playerId: LOCAL_PLAYER_ID, entity: entity.id, item, count },
+      ]);
+      return true;
+    },
     ghost: () => {
       const g = build.ghost;
       return g && { name: g.proto.name, x: g.x, y: g.y, dir: g.dir, valid: g.valid };

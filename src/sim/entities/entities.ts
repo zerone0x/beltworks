@@ -43,6 +43,9 @@ export class Entities {
       this.byType.set(table.type, table);
     }
     this.tableList = tables.slice().sort((a, b) => a.type - b.type);
+    this.wake.onWatch = (target) => {
+      this.tableOf(target)?.watched?.(target, this);
+    };
   }
 
   /** Number of entities. */
@@ -134,6 +137,9 @@ export class Entities {
       this.occupancy.fill(id, after.x, after.y, after.w, after.h);
     }
     this.byType.get(this.store.type(id))?.rotated?.(id, this);
+    for (const table of this.tableList) {
+      table.entityRotated?.(id, this);
+    }
   }
 
   /** Machine state of entity `id` (Idle for types without one and for missing entities). */

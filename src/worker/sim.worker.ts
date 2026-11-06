@@ -5,6 +5,7 @@
 
 import { validateCommandInput } from '../sim/commands';
 import {
+  encodeBelts,
   encodeChunks,
   encodeCraftQueue,
   encodeEntities,
@@ -91,12 +92,14 @@ function sendSnapshot(ticksRun: number): void {
   const batch = streamer.collect();
   const chunks = batch && batch.chunks.length > 0 ? encodeChunks(batch.chunks) : null;
   const entities = encodeEntities(sim.state, batch?.window ?? null);
+  const belts = encodeBelts(sim.state, batch?.window ?? null);
   const detail = inspected !== 0 ? encodeEntityDetail(sim.state, LOCAL_PLAYER_ID, inspected) : null;
   const transfer: Transferable[] = [
     players.buffer,
     inventory.buffer,
     craftQueue.buffer,
     entities.buffer,
+    belts.buffer,
   ];
   if (chunks) transfer.push(chunks);
   if (detail) transfer.push(detail.buffer);
@@ -110,6 +113,7 @@ function sendSnapshot(ticksRun: number): void {
       inventory: inventory.buffer,
       craftQueue: craftQueue.buffer,
       entities: entities.buffer,
+      belts: belts.buffer,
       chunkWindow: batch?.window ?? null,
       chunks,
       inspected,

@@ -1,0 +1,81 @@
+/**
+ * Transport lines: runs of belts that continue each other (straight on, or
+ * through a curve), with two lanes of items each (see lane.ts and belts.ts).
+ */
+
+import { SUBTILES_PER_TILE } from '../fixed';
+import { Lane } from './lane';
+
+/** Lane indices, relative to the direction the belts move. */
+export const BeltLane = {
+  Left: 0,
+  Right: 1,
+} as const;
+
+export type BeltLane = (typeof BeltLane)[keyof typeof BeltLane];
+
+/** Length of one belt along its line, in subtiles. */
+export const BELT_LENGTH = SUBTILES_PER_TILE;
+
+/** A lane that knows its line, so the belt system can find where its items go. */
+export class LineLane extends Lane {
+  constructor(
+    readonly line: TransportLine,
+    readonly index: BeltLane,
+    spacing: number,
+  ) {
+    super(spacing);
+  }
+}
+
+export class TransportLine {
+  readonly lanes: readonly [LineLane, LineLane];
+  /**
+   * Where items leave the end of the line: the line they move onto, or
+   * `null` when they stop at the end.
+   */
+  out: TransportLine | null = null;
+  /**
+   * The lane of `out` they move onto: -1 when the next belt continues this
+   * line (each lane goes on as the same lane; only loops do this, as lines
+   * otherwise merge), or the near lane of a belt this line side-loads.
+   */
+  outLane = -1;
+  /** Distance from the end of `out` at which they enter it. */
+  outPos = 0;
+  /** Lines whose end feeds this one (their `out` is this line). */
+  readonly feeders: TransportLine[] = [];
+  /** Side-loading: the lane whose turn it is to move onto `out` when both are waiting. */
+  turn: BeltLane = BeltLane.Left;
+  /**
+   * Belts of this line that something subscribed to (see wake.ts), notified
+   * whenever a lane of the line changes. Entries whose subscriptions ended
+   * are dropped the next time they would be notified.
+   */
+  readonly watched: number[] = [];
+  /** Set once the line has been taken apart by a rebuild. */
+  dead = false;
+
+  constructor(
+    /** Line ids are handed out in increasing order and never reused. */
+    readonly id: number,
+    /** Entity ids of the belts, from the one at the end of the line (index 0) back to its start. */
+    readonly belts: readonly number[],
+    spacing: number,
+  ) {
+    this.lanes = [
+      new LineLane(this, BeltLane.Left, spacing),
+      new LineLane(this, BeltLane.Right, spacing),
+    ];
+  }
+
+  /** Length of the line in subtiles. */
+  get length(): number {
+    return this.belts.length * BELT_LENGTH;
+  }
+
+  /** Index of the belt holding distance `pos` from the end (clamped to the line). */
+  beltIndexAt(pos: number): number {
+    return Math.max(0, Math.min(this.belts.length - 1, Math.floor(pos / BELT_LENGTH)));
+  }
+}

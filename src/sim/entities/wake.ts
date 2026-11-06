@@ -18,6 +18,9 @@ export class WakeSubscriptions {
   /** Targets per watcher, so a removed watcher can be dropped everywhere. */
   private readonly byWatcher = new Map<number, number[]>();
 
+  /** Called with the target of every new subscription (`Entities` forwards it to the target's table). */
+  onWatch: ((target: number) => void) | null = null;
+
   /** Number of (watcher, target) pairs. */
   get size(): number {
     let n = 0;
@@ -36,12 +39,18 @@ export class WakeSubscriptions {
     const targets = this.byWatcher.get(watcher);
     if (targets) targets.push(target);
     else this.byWatcher.set(watcher, [target]);
+    this.onWatch?.(target);
   }
 
   /** Cancels one subscription. */
   unwatch(watcher: number, target: number): void {
     removeFrom(this.byTarget, target, watcher);
     removeFrom(this.byWatcher, watcher, target);
+  }
+
+  /** Whether anything is subscribed to `target`. */
+  isWatched(target: number): boolean {
+    return this.byTarget.has(target);
   }
 
   /** The watchers of `target`, in subscription order (a copy). */

@@ -147,10 +147,12 @@ describe('Insert and Take', () => {
     state.players.x[0] = tileCenter(-20);
     expect(insertIntoEntity(state, 0, id, ItemId.Coal, 1)).toBe(TransferResult.OutOfReach);
     expect(takeFromEntity(state, 0, id, 0, 1)).toBe(TransferResult.OutOfReach);
-    // Entities without slots take nothing.
+    // Belts take items onto their lanes (two at a time at most), but have no slots to take from.
     state.players.x[0] = tileCenter(0);
     placeEntity(state, 0, ItemId.TransportBelt, 3, 0, Direction.North);
     const belt = state.entities.at(3, 0);
+    expect(insertIntoEntity(state, 0, belt, ItemId.Coal, 5)).toBe(TransferResult.Ok);
+    expect(state.entities.contents(belt)).toEqual([{ item: ItemId.Coal, count: 2 }]);
     expect(insertIntoEntity(state, 0, belt, ItemId.Coal, 1)).toBe(TransferResult.NoRoom);
     expect(takeFromEntity(state, 0, belt, 0, 1)).toBe(TransferResult.NothingToMove);
   });

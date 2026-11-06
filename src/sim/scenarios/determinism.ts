@@ -6,8 +6,9 @@
  *
  * The script has two phases:
  * 1. Scripted (ticks `[0, DETERMINISM_SCRIPTED_TICKS)`): player 0 builds at
- *    the spawn (places, rotates and removes entities, fuels a furnace, plus
- *    build and transfer commands that must be ignored), then every player
+ *    the spawn (places, rotates and removes entities, fuels a furnace, lays a
+ *    belt line through a curve with a side-loading belt and drops coal on it,
+ *    plus build and transfer commands that must be ignored), then every player
  *    walks from the spawn to one of the starting ore patches and hand-mines
  *    it, including a re-target, mining that waits until the player is in
  *    reach, and walking out of reach while mining. Player 0 then builds a
@@ -46,7 +47,7 @@ const AXES: readonly Axis[] = [-1, 0, 1];
 /** Random `Place` and `Insert` commands use item ids in `[0, ITEM_ID_SPAN)`. */
 const ITEM_ID_SPAN = 16;
 /** Random `Insert` and `Take` commands target entity ids in `[0, ENTITY_ID_SPAN)`. */
-const ENTITY_ID_SPAN = 12;
+const ENTITY_ID_SPAN = 16;
 /** Random `Craft` commands use recipe ids in `[0, RECIPE_ID_SPAN)`. */
 const RECIPE_ID_SPAN = 11;
 
@@ -126,19 +127,43 @@ function buildPhase(): Command[] {
     { ...p, tick: 7, type: 'Rotate', x: -2, y: 2 },
     // The furnace (entity 2) gets coal in its fuel slot, and gives one back.
     { ...p, tick: 3, type: 'Insert', entity: 2, item: ItemId.Coal, count: 4 },
-    // Ignored: belts hold nothing; entity 1 is gone; iron plates neither burn nor smelt.
+    // One coal onto the belt (entity 3): it runs south to the end of the belt.
     { ...p, tick: 4, type: 'Insert', entity: 3, item: ItemId.Coal, count: 1 },
     { ...p, tick: 6, type: 'Take', entity: 2, slot: FurnaceSlot.Fuel, count: 1 },
+    // Ignored: entity 1 is gone; iron plates neither burn nor smelt.
     { ...p, tick: 7, type: 'Insert', entity: 1, item: ItemId.Coal, count: 1 },
     { ...p, tick: 7, type: 'Insert', entity: 2, item: ItemId.IronPlate, count: 1 },
+    // A belt line (entities 6–10) continuing the belt at (1, 2): south, a curve
+    // at (1, 4) turning east, then east to (3, 4). The belt at (2, 5) points
+    // north into its side and side-loads its right lane; it gets one coal (on its
+    // right lane), and the belt at (1, 2) joins the line now that (1, 3) continues it.
+    ...DETERMINISM_BELTS.map(([x, y, dir]): Command => ({
+      ...p,
+      tick: 7,
+      type: 'Place',
+      item: ItemId.TransportBelt,
+      x,
+      y,
+      dir,
+    })),
+    { ...p, tick: 7, type: 'Insert', entity: 10, item: ItemId.Coal, count: 1 },
   ];
 }
 
-/** Entities player 0 builds on its patch after mining it (ids follow the five built at the spawn). */
-export const DETERMINISM_PATCH_FURNACE = 6;
-export const DETERMINISM_PATCH_CHEST = 7;
-export const DETERMINISM_PATCH_DRILL = 8;
-export const DETERMINISM_DRILL_CHEST = 9;
+/** The belts player 0 lays at the spawn on its last build tick: `[x, y, dir]`. */
+export const DETERMINISM_BELTS: readonly (readonly [number, number, Direction])[] = [
+  [1, 3, Direction.South],
+  [1, 4, Direction.East],
+  [2, 4, Direction.East],
+  [3, 4, Direction.East],
+  [2, 5, Direction.North],
+];
+
+/** Entities player 0 builds on its patch after mining it (ids follow the ten built at the spawn). */
+export const DETERMINISM_PATCH_FURNACE = 11;
+export const DETERMINISM_PATCH_CHEST = 12;
+export const DETERMINISM_PATCH_DRILL = 13;
+export const DETERMINISM_DRILL_CHEST = 14;
 /** Ticks after the drill is fuelled until the chest in front of it is placed. */
 const DETERMINISM_DRILL_CHEST_DELAY = 300;
 

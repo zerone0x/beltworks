@@ -17,6 +17,7 @@ import { SUBTILES_PER_TILE } from '../sim/fixed';
 import { PLAYER_STRIDE, PlayerField } from '../sim/snapshot';
 import { isTileInMap } from '../sim/world/world';
 import { LOCAL_PLAYER_ID, type SnapshotMessage, type Viewport } from '../worker/protocol';
+import { BeltLayer } from './beltLayer';
 import { Camera, TILE_PX, type Point } from './camera';
 import { CameraInput } from './cameraInput';
 import { EntityIndex } from './entityIndex';
@@ -40,6 +41,8 @@ export class GameView {
   /** Entities around the view, from the latest snapshot. */
   readonly entityIndex = new EntityIndex();
   readonly entities = new EntityLayer();
+  /** Belts and the items on them, below the other entities. */
+  readonly belts = new BeltLayer();
   readonly ghost = new GhostLayer();
   /** Interpolated player positions from the snapshots. */
   readonly track = new PlayerTrack();
@@ -60,6 +63,8 @@ export class GameView {
   ) {
     this.world.addChild(
       this.terrain.container,
+      this.belts.container,
+      this.belts.itemContainer,
       this.entities.container,
       this.players.container,
       this.ghost.container,
@@ -77,6 +82,7 @@ export class GameView {
     this.terrain.applySnapshot(snapshot.chunkWindow, snapshot.chunks);
     this.track.push(new Int32Array(snapshot.players), snapshot.ticksRun, performance.now());
     this.entityIndex.apply(snapshot.entities);
+    this.belts.apply(snapshot.belts, snapshot.tick, performance.now());
   }
 
   /**
@@ -136,6 +142,7 @@ export class GameView {
     }
     this.applyCamera();
     this.terrain.update();
+    this.belts.draw(now);
     this.entities.draw(this.entityIndex);
     this.players.draw(this.track, now);
   }

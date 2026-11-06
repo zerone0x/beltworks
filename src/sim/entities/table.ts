@@ -11,7 +11,7 @@
  * Systems (drills, belts, inserters, machines in src/sim/tick.ts) walk their
  * table directly; nothing here runs per tick.
  *
- * Types that hold items (chests, furnaces, later drills and inserters) also
+ * Types that hold items (chests, furnaces, belts, later drills and inserters) also
  * implement the item hooks, which everything that moves items goes through:
  * the player's GUI commands (`Insert`/`Take`, src/sim/entities/transfer.ts),
  * and later drills dropping their output and inserters picking up and
@@ -70,11 +70,19 @@ export interface EntityTypeTable {
 
   /**
    * Called on every table, in type id order, after any entity was placed or
-   * before any entity is removed, so tables can relink neighbours (belts
-   * merging into lines, inserters finding their source and target).
+   * rotated or before any entity is removed, so tables can relink neighbours
+   * (inserters finding their source and target). The entity's own table gets
+   * `add`, `rotated` and `remove` first; belts relink their lines there.
    */
   entityPlaced?(id: number, entities: Entities): void;
+  entityRotated?(id: number, entities: Entities): void;
   entityRemoved?(id: number, entities: Entities): void;
+
+  /**
+   * Something subscribed to entity `id` of this type (see wake.ts). Belts
+   * keep a list of watched belts per line, so a moving lane can notify them.
+   */
+  watched?(id: number, entities: Entities): void;
 
   /**
    * Entity `id` of this type subscribed to an entity that changed (see

@@ -6,8 +6,8 @@
  * state hashes.
  *
  * Chests, furnaces and burner mining drills have their own tables and
- * behavior (src/sim/entities/); belts and inserters are still placeholders
- * that can only be placed, rotated and removed.
+ * behavior (src/sim/entities/), belts theirs in src/sim/belts/; inserters
+ * are still placeholders that can only be placed, rotated and removed.
  *
  * Energy is in integer joules; a burner entity burns `energyPerTick` joules on
  * every tick it works (60 ticks/s, so 1 500 J/tick is 90 kW).
@@ -51,7 +51,16 @@ export interface EntityPrototype {
   readonly slots?: number;
   /** Working ticks a mining drill takes per unit it mines. */
   readonly miningTicks?: number;
+  /** How far items on a belt move per tick, in subtiles (1/256 tile). */
+  readonly beltSpeed?: number;
 }
+
+/**
+ * Closest two items on one belt lane may be, in subtiles: a quarter tile, so
+ * a lane holds 4 items per belt and carries `60 * speed / spacing` items/s
+ * (7.5 at the yellow belt's 8 subtiles/tick, 15 per belt over both lanes).
+ */
+export const BELT_ITEM_SPACING = 64;
 
 /** Most units a stone furnace's output slot holds before it stops. */
 export const FURNACE_OUTPUT_LIMIT = 100;
@@ -105,6 +114,8 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     rotatable: true,
     item: ItemId.TransportBelt,
     color: 0xd9b23a,
+    // 1.875 tiles/s.
+    beltSpeed: 8,
   },
   [EntityTypeId.BurnerInserter]: {
     id: EntityTypeId.BurnerInserter,

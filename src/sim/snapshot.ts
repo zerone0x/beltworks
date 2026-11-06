@@ -3,6 +3,8 @@
  * typed arrays whose buffers can be transferred to the main thread.
  */
 
+import { EntityTypeId } from '../data/entities';
+import { beltTable } from './belts/belts';
 import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
 import { reaches } from './entities/build';
 import type { ChunkRange } from './entities/occupancy';
@@ -135,6 +137,86 @@ export function encodeEntities(state: SimState, range: ChunkRange | null): Int32
     out[o + EntityField.dir] = store.dir(id);
     out[o + EntityField.status] = entities.status(id);
   });
+  return out;
+}
+
+/** Int32 fields per belt record in {@link encodeBelts}, before its items. */
+export const BELT_RECORD_HEADER = 5;
+/** Int32 fields per item in {@link encodeBelts}. */
+export const BELT_ITEM_STRIDE = 4;
+
+/**
+ * Encodes the belts whose tile lies in the chunks of `range`, with the items
+ * on them, as int32s: `[beltCount]`, then per belt `[x, y, dir, shape,
+ * itemCount]` followed by `itemCount` records `[lane, offset, moved, item]`
+ * (`shape` a `BeltShape`; `offset` the item's distance from the belt's end
+ * edge in subtiles, 0..256; `moved` how far it moved on the last tick, for
+ * drawing it between ticks). Belts come in the order of `encodeEntities`.
+ */
+export function encodeBelts(state: SimState, range: ChunkRange | null): Int32Array<ArrayBuffer> {
+  const table = beltTable(state.entities);
+  if (range === null || !table) {
+    return new Int32Array(1);
+  }
+  const { store, occupancy } = state.entities;
+  const ids = occupancy
+    .originsIn(range)
+    .filter((id) => store.type(id) === EntityTypeId.TransportBelt);
+  // Walk each line once, picking out the items on the belts in range.
+  const items = new Map<number, number[]>();
+  const wanted = new Map<number, Map<number, number[]>>();
+  for (const id of ids) {
+    const list: number[] = [];
+    items.set(id, list);
+    const line = table.beltLine(id);
+    let byIndex = wanted.get(line);
+    if (!byIndex) wanted.set(line, (byIndex = new Map<number, number[]>()));
+    byIndex.set(table.beltIndex(id), list);
+  }
+  for (const [lineId, byIndex] of wanted) {
+    table.forEachItem(table.line(lineId)!, (k, lane, offset, moved, item) => {
+      byIndex.get(k)?.push(lane, offset, moved, item);
+    });
+  }
+  const out: number[] = [ids.length];
+  for (const id of ids) {
+    const list = items.get(id)!;
+    out.push(
+      store.x(id),
+      store.y(id),
+      store.dir(id),
+      table.shape(id),
+      list.length / BELT_ITEM_STRIDE,
+    );
+    for (const v of list) out.push(v);
+  }
+  return Int32Array.from(out);
+}
+
+/** A belt and its items as decoded on the main thread. */
+export interface BeltData {
+  x: number;
+  y: number;
+  dir: number;
+  shape: number;
+  items: { lane: number; offset: number; moved: number; item: number }[];
+}
+
+/** Unpacks a buffer made by {@link encodeBelts}. */
+export function decodeBelts(buffer: ArrayBuffer): BeltData[] {
+  const v = new Int32Array(buffer);
+  const out: BeltData[] = [];
+  let o = 1;
+  const count = v[0] ?? 0;
+  for (let b = 0; b < count && o + BELT_RECORD_HEADER <= v.length; b++) {
+    const n = v[o + 4]!;
+    const belt: BeltData = { x: v[o]!, y: v[o + 1]!, dir: v[o + 2]!, shape: v[o + 3]!, items: [] };
+    o += BELT_RECORD_HEADER;
+    for (let i = 0; i < n && o + BELT_ITEM_STRIDE <= v.length; i++, o += BELT_ITEM_STRIDE) {
+      belt.items.push({ lane: v[o]!, offset: v[o + 1]!, moved: v[o + 2]!, item: v[o + 3]! });
+    }
+    out.push(belt);
+  }
   return out;
 }
 
