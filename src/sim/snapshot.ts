@@ -3,13 +3,16 @@
  * typed arrays whose buffers can be transferred to the main thread.
  */
 
-import { EntityTypeId } from '../data/entities';
+import { EntityTypeId, SAT_ONE } from '../data/entities';
 import { beltTable } from './belts/belts';
 import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
 import { reaches } from './entities/build';
-import { InserterState, inserterTable } from './entities/inserter';
+import { electricInserterTable } from './entities/electricInserter';
+import { inserterTable, type InserterTableBase } from './entities/inserter';
+import { MachineState } from './entities/machine';
 import type { ChunkRange } from './entities/occupancy';
 import { powerGrid } from './power/grid';
+import { poweredEnergy } from './power/solver';
 import type { SimState } from './state';
 import { CHUNK_AREA } from './world/chunk';
 
@@ -102,6 +105,34 @@ export function decodeCraftQueue(buffer: ArrayBuffer): CraftQueueData {
   return { progress: view[0] ?? 0, entries };
 }
 
+/**
+ * The machine state the renderer and GUI show for entity `id`: its own
+ * state, except that a `Working` electric consumer on a network whose
+ * satisfaction is below 1 shows `LowPower` (it works, but slower).
+ */
+export function displayStatus(state: SimState, id: number): MachineState {
+  const { entities } = state;
+  const status = entities.status(id);
+  if (status !== MachineState.Working) return status;
+  if (entities.table(entities.store.type(id))?.powerDemand === undefined) return status;
+  const grid = powerGrid(entities);
+  if (!grid || grid.networkOf(id) === 0) return status;
+  return grid.satisfaction(id) < SAT_ONE ? MachineState.LowPower : status;
+}
+
+/**
+ * Joules electric consumer `id` drew on the latest tick: its demand times
+ * its network's satisfaction (`poweredEnergy`); 0 for anything else.
+ */
+function consumerDraw(state: SimState, id: number): number {
+  const { entities } = state;
+  if (entities.table(entities.store.type(id))?.powerDemand === undefined) return 0;
+  const grid = powerGrid(entities);
+  const member = grid?.member(id);
+  if (!grid || !member || member.network === 0) return 0;
+  return poweredEnergy(member.demand, grid.satisfaction(id));
+}
+
 /** Int32 fields per entity in {@link encodeEntities}. */
 export const ENTITY_STRIDE = 6;
 /** Field offsets within one entity record. */
@@ -137,7 +168,7 @@ export function encodeEntities(state: SimState, range: ChunkRange | null): Int32
     out[o + EntityField.x] = store.x(id);
     out[o + EntityField.y] = store.y(id);
     out[o + EntityField.dir] = store.dir(id);
-    out[o + EntityField.status] = entities.status(id);
+    out[o + EntityField.status] = displayStatus(state, id);
   });
   return out;
 }
@@ -223,51 +254,63 @@ export function decodeBelts(buffer: ArrayBuffer): BeltData[] {
 }
 
 /** Int32 fields per inserter in {@link encodeInserters}, after the count. */
-export const INSERTER_STRIDE = 6;
+export const INSERTER_STRIDE = 7;
 /** Field offsets within one inserter record. */
 export const InserterField = {
   x: 0,
   y: 1,
   dir: 2,
-  /** Arm position in ticks from the pickup end (0) to the drop end (`INSERTER_SWING_TICKS`). */
+  /**
+   * Arm position from the pickup end (0) to the drop end (`span`), in the
+   * inserter type's arm units: ticks for burner inserters, 1/`SAT_ONE` ticks
+   * for electric ones.
+   */
   arm: 3,
   /** The item in the hand, or 0. */
   held: 4,
-  /** How the arm moved on the last tick: +1 towards the drop end, -1 back, 0 not at all. */
+  /**
+   * How the arm moved on the last tick, in arm units: positive towards the
+   * drop end (+1 for a burner inserter), negative back, 0 not at all.
+   */
   swing: 5,
+  /** Arm position at the drop end (36 for burner inserters, 26 × `SAT_ONE` for electric). */
+  span: 6,
 } as const;
 
 /**
- * Encodes the inserters whose tile lies in the chunks of `range` as int32s:
- * `[count]`, then `INSERTER_STRIDE` fields per inserter (see
- * {@link InserterField}), in the order of `encodeEntities`. The renderer
- * draws the arm `swing × (1 − α)` ticks behind `arm` between ticks.
+ * Encodes the inserters (burner and electric) whose tile lies in the chunks
+ * of `range` as int32s: `[count]`, then `INSERTER_STRIDE` fields per inserter
+ * (see {@link InserterField}), in the order of `encodeEntities`. The
+ * renderer draws the arm `swing × (1 − α)` behind `arm` between ticks.
  */
 export function encodeInserters(
   state: SimState,
   range: ChunkRange | null,
 ): Int32Array<ArrayBuffer> {
-  const table = inserterTable(state.entities);
-  if (range === null || !table) {
+  if (range === null) {
     return new Int32Array(1);
   }
   const { entities } = state;
   const { store, occupancy } = entities;
-  const ids = occupancy
-    .originsIn(range)
-    .filter((id) => store.type(id) === EntityTypeId.BurnerInserter);
+  const tables = new Map<number, InserterTableBase>();
+  const burner = inserterTable(entities);
+  const electric = electricInserterTable(entities);
+  if (burner) tables.set(EntityTypeId.BurnerInserter, burner);
+  if (electric) tables.set(EntityTypeId.ElectricInserter, electric);
+  const ids = occupancy.originsIn(range).filter((id) => tables.has(store.type(id)));
   const out = new Int32Array(1 + ids.length * INSERTER_STRIDE);
   out[0] = ids.length;
   ids.forEach((id, i) => {
     const o = 1 + i * INSERTER_STRIDE;
+    const table = tables.get(store.type(id))!;
     const { held, arm } = table.hand(id);
-    const moving = entities.status(id) === InserterState.Swinging;
     out[o + InserterField.x] = store.x(id);
     out[o + InserterField.y] = store.y(id);
     out[o + InserterField.dir] = store.dir(id);
     out[o + InserterField.arm] = arm;
     out[o + InserterField.held] = held;
-    out[o + InserterField.swing] = moving ? (held !== 0 ? 1 : -1) : 0;
+    out[o + InserterField.swing] = table.lastSwing(id, entities);
+    out[o + InserterField.span] = table.armEnd;
   });
   return out;
 }
@@ -280,6 +323,7 @@ export interface InserterData {
   arm: number;
   held: number;
   swing: number;
+  span: number;
 }
 
 /** Unpacks a buffer made by {@link encodeInserters}. */
@@ -296,6 +340,7 @@ export function decodeInserters(buffer: ArrayBuffer): InserterData[] {
       arm: v[o + InserterField.arm]!,
       held: v[o + InserterField.held]!,
       swing: v[o + InserterField.swing]!,
+      span: v[o + InserterField.span]!,
     });
   }
   return out;
@@ -455,7 +500,10 @@ export const DetailField = {
   progress: 5,
   energy: 6,
   burning: 7,
-  /** Joules per tick of electric power delivered on the latest tick (generators, boilers). */
+  /**
+   * Joules per tick of electric power on the latest tick: delivered
+   * (generators, boilers) or drawn (electric consumers).
+   */
   power: 8,
   /** The electric network the entity belongs to (0: none, or not electric) and its satisfaction. */
   network: 9,
@@ -485,13 +533,13 @@ export function encodeEntityDetail(
   out[DetailField.id] = id;
   out[DetailField.type] = type;
   out[DetailField.reachable] = reaches(state, playerId, id) ? 1 : 0;
-  out[DetailField.status] = entities.status(id);
+  out[DetailField.status] = displayStatus(state, id);
   out[DetailField.recipe] = detail?.recipe ?? 0;
   out[DetailField.progress] = detail?.progress ?? 0;
   out[DetailField.energy] = detail?.energy ?? 0;
   out[DetailField.burning] = detail?.burning ?? 0;
-  out[DetailField.power] = detail?.power ?? 0;
   const grid = powerGrid(entities);
+  out[DetailField.power] = detail?.power ?? consumerDraw(state, id);
   out[DetailField.network] = grid?.networkOf(id) ?? 0;
   out[DetailField.satisfaction] = grid?.satisfaction(id) ?? 0;
   out[DetailField.slotCount] = slots.length;
@@ -512,7 +560,7 @@ export interface EntityDetailData {
   progress: number;
   energy: number;
   burning: number;
-  /** Joules per tick of electric power delivered on the latest tick. */
+  /** Joules per tick of electric power delivered (producers) or drawn (consumers) on the latest tick. */
   power: number;
   /** Electric network (0: none) and its satisfaction in units of 1/`SAT_ONE`. */
   network: number;

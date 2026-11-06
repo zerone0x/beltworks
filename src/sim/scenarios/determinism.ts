@@ -27,7 +27,11 @@
  *    that bridges them (a split into three networks), puts it back (a merge
  *    into the lowest id) and adds one just out of wire reach (squared
  *    distance 50) that stays a network of its own, and builds a fuelled
- *    boiler with two steam engines among them.
+ *    boiler with two steam engines among them, then an electric inserter
+ *    next to the boiler that sleeps on the steam power, drawing its drain. Player 2
+ *    puts an electric mining drill on the stone next to its chain, feeding
+ *    an electric inserter into a chest, with a pole over them on a network
+ *    of its own: with nothing producing power there they stay `NoPower`.
  *    Meanwhile the players hand-craft from the plates, wood and stone of
  *    `DETERMINISM_KIT`: crafts with auto-queued intermediates, crafts cut
  *    short by missing items, and cancels (of a craft, of an intermediate in
@@ -348,13 +352,16 @@ export const DETERMINISM_STEAM_TICK = 926;
 export const DETERMINISM_BOILER = 31;
 export const DETERMINISM_ENGINE_WEST = 32;
 export const DETERMINISM_ENGINE_EAST = 33;
+/** The electric inserter next to the boiler, the steam network's one consumer. */
+export const DETERMINISM_STEAM_INSERTER = 34;
 
 /**
  * Player 1's steam power, built while it stands on tile `(x, y)` among its
  * poles: a boiler facing north on `(x + 4..x + 5, y - 1..y + 1)` with two
  * engines side by side in front of it, covered by the bridge and east poles
- * (network 1). The boiler gets coal and gives one back; with no consumers
- * yet it waits (`NoDemand`) and burns nothing.
+ * (network 1). The boiler gets coal and gives one back. Then an electric
+ * inserter goes west of the boiler with nothing to pick up: the network's
+ * only consumer, its idle drain makes the boiler burn coal.
  */
 function steamPhase(x: number, y: number): Command[] {
   const p = { playerId: 1 };
@@ -366,6 +373,56 @@ function steamPhase(x: number, y: number): Command[] {
     { ...p, tick: t + 1, type: 'Place', item: ItemId.SteamEngine, x: x + 5, y: y - 6, dir: North },
     { ...p, tick: t + 2, type: 'Insert', entity: DETERMINISM_BOILER, item: ItemId.Coal, count: 3 },
     { ...p, tick: t + 3, type: 'Take', entity: DETERMINISM_BOILER, slot: 0, count: 1 },
+    // An electric inserter west of the boiler's top tile, under the bridge
+    // pole, with nothing to pick up: asleep, it draws its idle drain from
+    // the engines, so the boiler burns coal for it.
+    {
+      ...p,
+      tick: t + 4,
+      type: 'Place',
+      item: ItemId.ElectricInserter,
+      x: x + 3,
+      y: y - 1,
+      dir: Direction.East,
+    },
+  ];
+}
+
+/** Tick player 2 places its electric rig (after player 1's steam power, so those ids stay put). */
+export const DETERMINISM_ELECTRIC_TICK = 931;
+/** Entity ids of player 2's electric rig, in placement order. */
+export const DETERMINISM_ELECTRIC_POLE = 35;
+export const DETERMINISM_ELECTRIC_DRILL = 36;
+export const DETERMINISM_ELECTRIC_INSERTER = 37;
+export const DETERMINISM_ELECTRIC_CHEST = 38;
+
+/**
+ * Player 2's electric rig on the stone south-east of its chain (it stands on
+ * `(x + 6, y + 2)` of `DETERMINISM_CHAIN`): a pole, a 3×3 electric drill
+ * facing east that drops onto an electric inserter (which takes nothing, so
+ * the inserter would pick the unit up from the drill), and a chest in front
+ * of the inserter. Nothing produces power on that network, so it has demand
+ * and no supply.
+ */
+function electricPhase(): Command[] {
+  const p = { playerId: 2 };
+  const t = DETERMINISM_ELECTRIC_TICK;
+  const { x, y } = DETERMINISM_CHAIN;
+  const { East, North } = Direction;
+  const place = (item: number, dx: number, dy: number, dir: Direction): Command => ({
+    ...p,
+    tick: t,
+    type: 'Place',
+    item,
+    x: x + dx,
+    y: y + dy,
+    dir,
+  });
+  return [
+    place(ItemId.SmallElectricPole, 9, 2, North),
+    place(ItemId.ElectricMiningDrill, 5, 3, East), // drops onto (x + 8, y + 4)
+    place(ItemId.ElectricInserter, 8, 4, East),
+    place(ItemId.WoodenChest, 9, 4, North),
   ];
 }
 
@@ -460,7 +517,12 @@ function treePhase(commands: Command[], w: Walker): void {
 
 /** Phase 1: player 0 builds, then each player walks to a starting ore patch and mines it. */
 function scriptedPhase(): Command[] {
-  const commands: Command[] = [...buildPhase(), ...craftPhase(), ...chainPhase()];
+  const commands: Command[] = [
+    ...buildPhase(),
+    ...craftPhase(),
+    ...chainPhase(),
+    ...electricPhase(),
+  ];
   const patches = startingPatches(DETERMINISM_SEED);
   for (let id = 0; id < DETERMINISM_PLAYERS; id++) {
     const patch = patches[id]!;

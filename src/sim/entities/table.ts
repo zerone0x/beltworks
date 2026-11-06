@@ -40,7 +40,11 @@ export interface EntityDetail {
   /** Joules left in the burner's buffer, and the fuel item they came from (0 for none). */
   energy: number;
   burning: number;
-  /** Joules per tick of electric power it delivered on the latest tick (generators, boilers). */
+  /**
+   * Joules per tick of power on the latest tick: delivered (generators,
+   * boilers) or drawn (electric consumers; filled in by the snapshot from
+   * the grid when the table leaves it out).
+   */
   power?: number;
 }
 

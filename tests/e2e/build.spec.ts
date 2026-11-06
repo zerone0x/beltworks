@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ITEMS, ItemId } from '../../src/data/items';
 import { STARTING_KIT } from '../../src/data/start';
+import { HOTBAR_SLOTS } from '../../src/ui/inventory';
 import { TILE_PX } from '../../src/render/camera';
 import { Direction } from '../../src/sim/entities/direction';
 
@@ -56,8 +57,8 @@ test('place a chest and a furnace from the hotbar, rotate a belt, remove the che
     .toBeGreaterThan(1.9);
   await page.waitForFunction(() => window.__beltworks!.terrainReady());
 
-  // The starting kit is in the hotbar.
-  for (const [slot, stack] of STARTING_KIT.entries()) {
+  // The starting kit is in the hotbar (as far as it reaches; the rest follows in the inventory).
+  for (const [slot, stack] of STARTING_KIT.slice(0, HOTBAR_SLOTS).entries()) {
     const cell = hotbar.locator(`.slot[data-slot="${String(slot)}"]`);
     await expect(cell).toHaveAttribute('data-item', ITEMS[stack.item].name);
     await expect(cell).toHaveAttribute('data-count', String(stack.count));

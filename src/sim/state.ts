@@ -9,6 +9,7 @@ import { STARTING_KIT } from '../data/start';
 import { CraftingTable } from './crafting/queue';
 import { Entities } from './entities/entities';
 import { createEntityTables } from './entities/registry';
+import type { EntityTypeTable } from './entities/table';
 import { FNV1A32_OFFSET_BASIS, fnv1a32 } from './hash';
 import { PlayerTable } from './player';
 import { Rng } from './rng';
@@ -35,13 +36,18 @@ export interface SimOptions {
   players?: number;
   /** What every player starts with (default `STARTING_KIT` from src/data/start.ts). */
   startingKit?: readonly ItemStack[];
+  /**
+   * The per-type entity tables (default: a fresh `createEntityTables()`).
+   * Tests use it to add fake tables, such as power producers.
+   */
+  entityTables?: readonly EntityTypeTable[];
 }
 
 /**
  * Bump when the hashed layout changes, so stale expected hashes fail loudly
  * instead of matching by accident.
  */
-export const STATE_HASH_VERSION = 12;
+export const STATE_HASH_VERSION = 13;
 
 export function createSimState(options: SimOptions): SimState {
   const seed = options.seed >>> 0;
@@ -60,7 +66,7 @@ export function createSimState(options: SimOptions): SimState {
     players,
     crafting: new CraftingTable(players.count),
     world: new World(seed),
-    entities: new Entities(createEntityTables()),
+    entities: new Entities(options.entityTables ?? createEntityTables()),
   };
 }
 

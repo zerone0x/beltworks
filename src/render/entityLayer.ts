@@ -3,10 +3,12 @@
  * direction marker on rotatable ones, a firebox on furnaces and boilers that
  * glows while they work, a drill head on mining drills that lights up while they work,
  * a small platform for inserters, and a post with a crossbar for electric
- * poles) and the ghost preview of the entity
- * about to be placed. Placed belts are drawn by the belt layer (beltLayer.ts)
- * instead, inserter arms by the inserter layer (inserterLayer.ts), and steam
- * engine flywheels by the generator layer (generatorLayer.ts).
+ * poles), a power icon over electric consumers without enough power (red
+ * for no power, yellow for low power; in `iconContainer`, above the
+ * inserter arms and wires), and the ghost preview of the entity about to be
+ * placed. Placed belts are drawn by the belt layer (beltLayer.ts) instead,
+ * inserter arms by the inserter layer (inserterLayer.ts), and steam engine
+ * flywheels by the generator layer (generatorLayer.ts).
  */
 
 import { Container, Graphics } from 'pixi.js';
@@ -29,6 +31,10 @@ const FIREBOX_CORE = 0xffe08a;
 /** Drill head when idle, and while the drill mines. */
 const DRILL_HEAD_IDLE = 0x3a3c42;
 const DRILL_HEAD_WORKING = 0xd8d2bf;
+/** Power icons: no power at all, and low power (satisfaction below 1). */
+export const NO_POWER_COLOR = 0xe0473c;
+export const LOW_POWER_COLOR = 0xf2c230;
+const POWER_ICON_BACK = 0x1c1d21;
 
 /** Multiplies each channel of a 0xRRGGBB color by `f` (0..1). */
 function shade(rgb: number, f: number): number {
@@ -59,7 +65,9 @@ export function drawEntity(
   const { w, h } = proto ? footprintSize(proto, dir) : { w: 1, h: 1 };
   const color = proto?.color ?? MISSING_COLOR;
   // Inserters stand on a small platform, leaving room to see their arm swing.
-  const inset = proto?.id === EntityTypeId.BurnerInserter ? 7 : 2;
+  const inserter =
+    proto?.id === EntityTypeId.BurnerInserter || proto?.id === EntityTypeId.ElectricInserter;
+  const inset = inserter ? 7 : 2;
   const left = x * TILE_PX + inset;
   const top = y * TILE_PX + inset;
   const width = w * TILE_PX - 2 * inset;
@@ -84,10 +92,13 @@ export function drawEntity(
     const cy = top + height / 2 - uy * height * 0.3;
     drawFirebox(g, cx - w / 2, cy - h / 2, w, h, alpha, lit);
   }
-  if (proto?.id === EntityTypeId.BurnerMiningDrill) {
+  if (
+    proto?.id === EntityTypeId.BurnerMiningDrill ||
+    proto?.id === EntityTypeId.ElectricMiningDrill
+  ) {
     // A ring around the direction marker.
     const radius = Math.min(width, height) * 0.4;
-    const working = status === MachineState.Working;
+    const working = status === MachineState.Working || status === MachineState.LowPower;
     g.circle(left + width / 2, top + height / 2, radius).stroke({
       width: 3,
       color: working ? DRILL_HEAD_WORKING : DRILL_HEAD_IDLE,
@@ -111,6 +122,41 @@ export function drawEntity(
     cx + uy * r * 0.8 - ux * r * 0.3,
     cy - ux * r * 0.8 - uy * r * 0.3,
   ]).fill({ color: shade(color, 0.35), alpha });
+}
+
+/**
+ * The color of the power icon an entity in machine state `status` shows:
+ * red for `NoPower`, yellow for `LowPower`, `null` for none.
+ */
+export function powerIconColor(status: number): number | null {
+  if (status === MachineState.NoPower) return NO_POWER_COLOR;
+  if (status === MachineState.LowPower) return LOW_POWER_COLOR;
+  return null;
+}
+
+/**
+ * A power icon centered on `(cx, cy)` (world pixels): a lightning bolt in
+ * `color` on a dark rounded badge with a `color` rim.
+ */
+export function drawPowerIcon(g: Graphics, cx: number, cy: number, color: number): void {
+  const r = 8;
+  g.roundRect(cx - r, cy - r, 2 * r, 2 * r, 4)
+    .fill({ color: POWER_ICON_BACK, alpha: 0.85 })
+    .stroke({ width: 1.5, color });
+  g.poly([
+    cx + 1.5,
+    cy - 6,
+    cx - 4,
+    cy + 1,
+    cx - 0.5,
+    cy + 1,
+    cx - 1.5,
+    cy + 6,
+    cx + 4,
+    cy - 1,
+    cx + 0.5,
+    cy - 1,
+  ]).fill({ color });
 }
 
 /**
@@ -159,11 +205,21 @@ function drawFirebox(
 
 export class EntityLayer {
   readonly container = new Container({ label: 'entities' });
+  /** Power icons, above the inserter arms and the wires. */
+  readonly iconContainer = new Container({ label: 'entity-icons' });
   private readonly graphics = new Graphics({ label: 'buildings' });
+  private readonly icons = new Graphics({ label: 'power-icons' });
   private drawn = -1;
+  private iconCount = 0;
 
   constructor() {
     this.container.addChild(this.graphics);
+    this.iconContainer.addChild(this.icons);
+  }
+
+  /** Power icons drawn by the latest `draw`. */
+  get powerIcons(): number {
+    return this.iconCount;
   }
 
   /** Redraws the entities if they changed since the last call. */
@@ -174,7 +230,14 @@ export class EntityLayer {
     this.drawn = index.version;
     const g = this.graphics;
     g.clear();
+    this.icons.clear();
+    this.iconCount = 0;
     for (const e of index.entities) {
+      const icon = powerIconColor(e.status);
+      if (icon !== null) {
+        drawPowerIcon(this.icons, (e.x + e.w / 2) * TILE_PX, (e.y + e.h / 2) * TILE_PX, icon);
+        this.iconCount++;
+      }
       if (e.type === EntityTypeId.TransportBelt) continue;
       drawEntity(g, e.proto, e.x, e.y, e.dir, 1, e.status);
     }
@@ -182,6 +245,7 @@ export class EntityLayer {
 
   destroy(): void {
     this.container.destroy({ children: true });
+    this.iconContainer.destroy({ children: true });
   }
 }
 

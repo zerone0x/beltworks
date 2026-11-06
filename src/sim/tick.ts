@@ -11,6 +11,8 @@ import { CommandQueue, validateCommand, type Command } from './commands';
 import { updateCrafting } from './crafting/queue';
 import { placeEntity, removeEntity, rotateEntity } from './entities/build';
 import { drillTable } from './entities/drill';
+import { electricDrillTable } from './entities/electricDrill';
+import { electricInserterTable } from './entities/electricInserter';
 import { furnaceTable } from './entities/furnace';
 import { inserterTable } from './entities/inserter';
 import { insertIntoEntity, takeFromEntity } from './entities/transfer';
@@ -30,13 +32,21 @@ export const SYSTEMS: readonly System[] = [
   { name: 'commands', run: (sim, commands) => commands.forEach((c) => applyCommand(sim.state, c)) },
   { name: 'power', run: ({ state }) => powerGrid(state.entities)?.update(state.entities) },
   {
+    // Burner drills, then electric drills.
     name: 'drills',
-    run: ({ state }) => drillTable(state.entities)?.update(state.entities, state.world),
+    run: ({ state }) => {
+      drillTable(state.entities)?.update(state.entities, state.world);
+      electricDrillTable(state.entities)?.update(state.entities, state.world);
+    },
   },
   { name: 'belts', run: (sim) => beltTable(sim.state.entities)?.update() },
   {
+    // Burner inserters, then electric inserters.
     name: 'inserters',
-    run: (sim) => inserterTable(sim.state.entities)?.update(sim.state.entities),
+    run: ({ state }) => {
+      inserterTable(state.entities)?.update(state.entities);
+      electricInserterTable(state.entities)?.update(state.entities);
+    },
   },
   { name: 'machines', run: (sim) => furnaceTable(sim.state.entities)?.update(sim.state.entities) },
   {

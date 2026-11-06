@@ -3,11 +3,20 @@ import { ENTITIES, EntityTypeId } from '../../src/data/entities';
 import { ItemId } from '../../src/data/items';
 import { TILE_PX } from '../../src/render/camera';
 import type { EntityView } from '../../src/render/entityIndex';
+import { LOW_POWER_COLOR, NO_POWER_COLOR, powerIconColor } from '../../src/render/entityLayer';
 import { POLE_TOP, poleTop, powerFocus } from '../../src/render/powerLayer';
 import { BuildResult, placeEntity } from '../../src/sim/entities/build';
 import { Direction } from '../../src/sim/entities/direction';
+import { MachineState } from '../../src/sim/entities/machine';
 import { tileCenter } from '../../src/sim/fixed';
-import { decodePower, encodePower, type PowerData } from '../../src/sim/snapshot';
+import {
+  ENTITY_STRIDE,
+  EntityField,
+  decodePower,
+  encodeEntities,
+  encodePower,
+  type PowerData,
+} from '../../src/sim/snapshot';
 import { Sim } from '../../src/sim/tick';
 
 const POLE = ENTITIES[EntityTypeId.SmallElectricPole];
@@ -126,5 +135,38 @@ describe('powerFocus', () => {
       x: 2.5 * TILE_PX,
       y: (-0.5 - POLE_TOP) * TILE_PX,
     });
+  });
+});
+
+describe('power icons', () => {
+  it('are red for no power, yellow for low power, and absent otherwise', () => {
+    expect(powerIconColor(MachineState.NoPower)).toBe(NO_POWER_COLOR);
+    expect(powerIconColor(MachineState.LowPower)).toBe(LOW_POWER_COLOR);
+    expect(powerIconColor(MachineState.Working)).toBeNull();
+    expect(powerIconColor(MachineState.NoFuel)).toBeNull();
+  });
+
+  it('show on electric consumers without power, from the snapshot status', () => {
+    const sim = new Sim({
+      seed: 1,
+      startingKit: [
+        { item: ItemId.ElectricInserter, count: 2 },
+        { item: ItemId.SmallElectricPole, count: 1 },
+      ],
+    });
+    const { state } = sim;
+    state.players.x[0] = tileCenter(0);
+    state.players.y[0] = tileCenter(0);
+    // One not connected, one on a network with nothing producing.
+    expect(placeEntity(state, 0, ItemId.ElectricInserter, -3, 0, North)).toBe(BuildResult.Ok);
+    expect(placeEntity(state, 0, ItemId.ElectricInserter, 3, 0, North)).toBe(BuildResult.Ok);
+    expect(placeEntity(state, 0, ItemId.SmallElectricPole, 4, 1, North)).toBe(BuildResult.Ok);
+    sim.step();
+    const records = encodeEntities(state, { cx0: -1, cy0: -1, cx1: 0, cy1: 0 });
+    const statuses: number[] = [];
+    for (let o = 0; o < records.length; o += ENTITY_STRIDE) {
+      statuses.push(records[o + EntityField.status]!);
+    }
+    expect(statuses).toEqual([MachineState.NoPower, MachineState.NoPower, MachineState.Idle]);
   });
 });

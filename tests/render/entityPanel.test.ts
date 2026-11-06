@@ -38,7 +38,10 @@ describe('entity panel', () => {
     expect(hasEntityGui(EntityTypeId.StoneFurnace)).toBe(true);
     expect(hasEntityGui(EntityTypeId.BurnerMiningDrill)).toBe(true);
     expect(hasEntityGui(EntityTypeId.BurnerInserter)).toBe(true);
+    expect(hasEntityGui(EntityTypeId.ElectricMiningDrill)).toBe(true);
+    expect(hasEntityGui(EntityTypeId.ElectricInserter)).toBe(true);
     expect(hasEntityGui(EntityTypeId.TransportBelt)).toBe(false);
+    expect(hasEntityGui(EntityTypeId.SmallElectricPole)).toBe(false);
     expect(hasEntityGui(0)).toBe(false);
   });
 
@@ -66,6 +69,9 @@ describe('entity panel', () => {
       key: 'no-steam',
       text: 'No steam',
     });
+    expect(statusView(MachineState.Working, EntityTypeId.ElectricInserter).text).toBe('Swinging');
+    expect(statusView(MachineState.NoPower)).toEqual({ key: 'no-power', text: 'No power' });
+    expect(statusView(MachineState.LowPower)).toEqual({ key: 'low-power', text: 'Low power' });
     expect(statusView(MachineState.Idle).text).toBe('');
     expect(statusView(99).key).toBe('idle');
   });
@@ -131,5 +137,32 @@ describe('entity panel', () => {
     expect(engineSpeed(3_750, 15_000)).toBe(0.25);
     expect(engineSpeed(0, 15_000)).toBe(0);
     expect(engineSpeed(10, 0)).toBe(0);
+  });
+
+  it('measures electric drills and inserters against their own timing, with no fuel', () => {
+    expect(machineBars(detail({ type: EntityTypeId.ElectricMiningDrill, progress: 30 }))).toEqual({
+      progress: 0.25,
+      fuel: 0,
+    });
+    expect(
+      machineBars(detail({ type: EntityTypeId.ElectricInserter, progress: 13 })).progress,
+    ).toBe(0.5);
+  });
+
+  it("shows an electric consumer's draw out of its full-power draw and its network", () => {
+    const drill = detail({
+      type: EntityTypeId.ElectricMiningDrill,
+      power: 750,
+      network: 2,
+      satisfaction: 32_768,
+    });
+    expect(powerView(drill)).toEqual({
+      output: 0.5,
+      text: 'Power: 45 kW / 90 kW',
+      network: 'Network: 50% satisfied',
+    });
+    expect(powerView(detail({ type: EntityTypeId.ElectricInserter })).network).toBe(
+      'Not connected',
+    );
   });
 });

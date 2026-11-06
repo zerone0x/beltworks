@@ -34,6 +34,11 @@ import {
   DETERMINISM_POLE_BRIDGE,
   DETERMINISM_POLE_EAST,
   DETERMINISM_POLE_LONE,
+  DETERMINISM_ELECTRIC_CHEST,
+  DETERMINISM_ELECTRIC_DRILL,
+  DETERMINISM_ELECTRIC_INSERTER,
+  DETERMINISM_ELECTRIC_POLE,
+  DETERMINISM_ELECTRIC_TICK,
   DETERMINISM_POLE_REBRIDGE,
   DETERMINISM_POLE_SOUTH,
   DETERMINISM_POLE_WEST,
@@ -41,6 +46,7 @@ import {
   DETERMINISM_SEED,
   DETERMINISM_SPAWN_CHEST,
   DETERMINISM_SPAWN_INSERTER,
+  DETERMINISM_STEAM_INSERTER,
   DETERMINISM_STEAM_TICK,
   DETERMINISM_TICKS,
   DETERMINISM_TREE_CHESTS,
@@ -130,9 +136,10 @@ describe('determinism', () => {
         mined += entities.slots(furnace)[FurnaceSlot.Input]!.count + smelting + plates;
       }
       if (id === 1) {
-        // Player 1 mines coal and fuels its boiler with two (it burns none: no demand yet).
+        // Player 1 mines coal and fuels its boiler with two, which has burnt
+        // one of them for the electric inserter's drain.
         expect(item).toBe(ItemId.Coal);
-        mined += sim.state.entities.slots(DETERMINISM_BOILER)[BoilerSlot.Fuel]!.count;
+        mined += sim.state.entities.slots(DETERMINISM_BOILER)[BoilerSlot.Fuel]!.count + 1;
       }
       // 300 + 150 ticks of mining at 30 ticks per unit, on top of the starting kit.
       expect(mined).toBe(15);
@@ -391,10 +398,16 @@ describe('determinism', () => {
     script.forEach((c) => sim.enqueue(c));
     const { entities } = sim.state;
     const { x, y } = DETERMINISM_CHAIN;
-    // Player 2 sends no command after fuelling the chain, until the random phase.
+    // Player 2 sends no command after fuelling the chain, until the random
+    // phase, but for its electric rig off to the side.
     const last = Math.max(
       ...script
-        .filter((c) => c.playerId === 2 && c.tick < DETERMINISM_SCRIPTED_TICKS)
+        .filter(
+          (c) =>
+            c.playerId === 2 &&
+            c.tick < DETERMINISM_SCRIPTED_TICKS &&
+            c.tick !== DETERMINISM_ELECTRIC_TICK,
+        )
         .map((c) => c.tick),
     );
     expect(last).toBe(DETERMINISM_CHAIN_TICK + 2);
@@ -478,12 +491,13 @@ describe('determinism', () => {
     expect(net(DETERMINISM_POLE_LONE)).toBe(4);
     expect(grid.neighbours(DETERMINISM_POLE_LONE)).toEqual([]);
     while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
-    expect(grid.poleCount).toBe(5);
-    expect(grid.networkCount).toBe(2);
+    // Player 1's five, and the one over player 2's electric rig.
+    expect(grid.poleCount).toBe(6);
+    expect(grid.networkCount).toBe(3);
     expect(sim.state.players.inventory(1).count(ItemId.SmallElectricPole)).toBe(5);
   });
 
-  it("builds a boiler and two steam engines among player 1's poles, which wait for demand", () => {
+  it("builds a boiler and two steam engines among player 1's poles, powering an electric inserter", () => {
     const sim = createDeterminismSim();
     buildDeterminismScript().forEach((c) => sim.enqueue(c));
     const { entities } = sim.state;
@@ -503,12 +517,48 @@ describe('determinism', () => {
     ]);
     expect(engines.enginesOf(boiler)).toEqual([west, east]);
     expect([west, east].map((e) => grid.networkOf(e))).toEqual([1, 1]);
-    while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
     // No consumers yet: the engines could deliver 30 000 J/tick, nothing is drawn or burnt.
     expect(grid.network(1)).toMatchObject({ supply: 30_000, demand: 0, load: 0 });
-    expect(entities.slots(boiler)).toEqual([{ item: ItemId.Coal, count: 2 }]);
-    expect(boilers.detail(boiler).energy).toBe(0);
     for (const id of [boiler, west, east]) expect(entities.status(id)).toBe(MachineState.NoDemand);
+    expect(entities.slots(boiler)).toEqual([{ item: ItemId.Coal, count: 2 }]);
+    // The electric inserter next to the boiler, with nothing to pick up:
+    // 220 J on the tick it was placed (active), then its 7 J drain asleep.
+    const inserter = DETERMINISM_STEAM_INSERTER;
+    while (sim.tick <= DETERMINISM_STEAM_TICK + 4) sim.step();
+    expect(entities.store.type(inserter)).toBe(EntityTypeId.ElectricInserter);
+    expect(grid.networkOf(inserter)).toBe(1);
+    expect(grid.network(1)).toMatchObject({ demand: 220, load: 220 });
+    while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
+    expect(entities.status(inserter)).toBe(MachineState.WaitingForSource);
+    expect(grid.network(1)).toMatchObject({ supply: 30_000, demand: 7, load: 7 });
+    // The boiler burnt one coal for all of it, 100% efficiently.
+    const drawn = 220 + 7 * (DETERMINISM_SCRIPTED_TICKS - DETERMINISM_STEAM_TICK - 5);
+    expect(entities.slots(boiler)).toEqual([{ item: ItemId.Coal, count: 1 }]);
+    expect(boilers.detail(boiler).energy).toBe(4_000_000 - drawn);
+  });
+
+  it("puts player 2's electric drill and inserter on a network without power", () => {
+    const sim = createDeterminismSim();
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    const { entities } = sim.state;
+    const grid = powerGrid(entities)!;
+    while (sim.tick <= DETERMINISM_ELECTRIC_TICK + 1) sim.step();
+    const { x, y } = DETERMINISM_CHAIN;
+    const at = (dx: number, dy: number) => entities.at(x + dx, y + dy);
+    expect(at(9, 2)).toBe(DETERMINISM_ELECTRIC_POLE);
+    expect(at(5, 3)).toBe(DETERMINISM_ELECTRIC_DRILL);
+    expect(at(8, 4)).toBe(DETERMINISM_ELECTRIC_INSERTER);
+    expect(at(9, 4)).toBe(DETERMINISM_ELECTRIC_CHEST);
+    const drill = DETERMINISM_ELECTRIC_DRILL;
+    const inserter = DETERMINISM_ELECTRIC_INSERTER;
+    expect(entities.store.type(drill)).toBe(EntityTypeId.ElectricMiningDrill);
+    expect(entities.store.type(inserter)).toBe(EntityTypeId.ElectricInserter);
+    const net = grid.networkOfPole(DETERMINISM_ELECTRIC_POLE);
+    expect(grid.networkOf(drill)).toBe(net);
+    expect(grid.networkOf(inserter)).toBe(net);
+    expect(entities.status(drill)).toBe(MachineState.NoPower);
+    expect(entities.status(inserter)).toBe(MachineState.NoPower);
+    expect(grid.network(net)).toMatchObject({ demand: 1_500 + 220, supply: 0, satisfaction: 0 });
   });
 
   it('matches the expected hash shared with the Chromium test', () => {

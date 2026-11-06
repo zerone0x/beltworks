@@ -78,6 +78,7 @@ export class GameView {
       this.generators.container,
       this.inserters.container,
       this.power.container,
+      this.entities.iconContainer,
       this.players.container,
       this.power.overlayContainer,
       this.ghost.container,

@@ -1,9 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ITEMS, MINED_ITEM } from '../../src/data/items';
 import { ResourceId } from '../../src/data/resources';
+import { STARTING_KIT } from '../../src/data/start';
 import { TILE_PX } from '../../src/render/camera';
 import { SUBTILES_PER_TILE } from '../../src/sim/fixed';
 import { inMiningReach } from '../../src/sim/player';
+import { HOTBAR_SLOTS } from '../../src/ui/inventory';
 import { startingPatches } from '../../src/sim/world/generate';
 import { camera, player, walkNear, waitUntilStill } from './walk';
 
@@ -152,7 +154,9 @@ test('walk to an ore tile, mine it for 2 s, and find the ore in the inventory', 
   expect(mined).toBeGreaterThanOrEqual(3);
   expect(mined).toBeLessThanOrEqual(10);
   await expect(slots.first()).toHaveAttribute('title', new RegExp(`^${item.label} × \\d+$`));
-  await expect(hotbar.locator(`[data-item="${item.name}"]`)).toHaveCount(1);
+  // The ore lands in the first free slot: in the hotbar unless the starting kit fills it.
+  const inHotbar = STARTING_KIT.length < HOTBAR_SLOTS ? 1 : 0;
+  await expect(hotbar.locator(`[data-item="${item.name}"]`)).toHaveCount(inHotbar);
 
   const shot = testInfo.outputPath('m0-player.png');
   await page.screenshot({ path: shot });

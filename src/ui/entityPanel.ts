@@ -1,11 +1,13 @@
 /**
  * The entity GUI (plain DOM): opened by left-clicking a chest, furnace,
- * mining drill, inserter, boiler or steam engine with nothing to build in
- * hand. It shows the entity's slots (and, for a furnace, drill or inserter,
- * its state, smelting or mining progress or arm position, and remaining
- * fuel; for a boiler, its state, fuel and output; for a steam engine, its
- * state, output out of its maximum and its network's satisfaction) next to
- * the player's inventory:
+ * mining drill or inserter (burner or electric), boiler or steam engine with
+ * nothing to build in hand. It shows the entity's slots (and, for a furnace,
+ * drill or inserter, its state, smelting or mining progress or arm position,
+ * and remaining fuel for burner entities; for a boiler, its state, fuel and
+ * output; for a steam engine, its state, output out of its maximum and its
+ * network's satisfaction; for an electric drill or inserter, the power it
+ * draws out of its maximum and its network's satisfaction) next to the
+ * player's inventory:
  * - clicking an inventory stack inserts it into the entity (`Insert`; the
  *   simulation routes fuel to the fuel slot and ores to the input; a drill or
  *   inserter only takes fuel),
@@ -25,21 +27,29 @@
 import { ENTITIES, EntityTypeId, SAT_ONE, entityPrototype } from '../data/entities';
 import { fuelValue } from '../data/items';
 import { recipePrototype } from '../data/recipes';
-import { DRILL_MINING_TICKS, DrillSlot } from '../sim/entities/drill';
+import { DrillSlot } from '../sim/entities/drill';
+import { ElectricDrillSlot } from '../sim/entities/electricDrill';
+import { ElectricInserterSlot } from '../sim/entities/electricInserter';
 import { FurnaceSlot } from '../sim/entities/furnace';
-import { INSERTER_SWING_TICKS, InserterSlot } from '../sim/entities/inserter';
+import { InserterSlot } from '../sim/entities/inserter';
 import { MachineState } from '../sim/entities/machine';
 import { BoilerSlot } from '../sim/power/boiler';
 import type { EntityDetailData, SlotData } from '../sim/snapshot';
 import { INVENTORY_COLUMNS, SlotGrid, transferCount, type Transfer } from './inventory';
+
+const isDrill = (type: number | undefined): boolean =>
+  type === EntityTypeId.BurnerMiningDrill || type === EntityTypeId.ElectricMiningDrill;
+const isInserter = (type: number | undefined): boolean =>
+  type === EntityTypeId.BurnerInserter || type === EntityTypeId.ElectricInserter;
+const isElectric = (type: number): boolean => entityPrototype(type)?.energySource === 'electric';
 
 /** Entity types that have a GUI. */
 export function hasEntityGui(type: number): boolean {
   return (
     type === EntityTypeId.WoodenChest ||
     type === EntityTypeId.StoneFurnace ||
-    type === EntityTypeId.BurnerMiningDrill ||
-    type === EntityTypeId.BurnerInserter ||
+    isDrill(type) ||
+    isInserter(type) ||
     type === EntityTypeId.Boiler ||
     type === EntityTypeId.SteamEngine
   );
@@ -60,23 +70,27 @@ export function formatPower(joulesPerTick: number): string {
 /**
  * What the power section of a boiler's or steam engine's GUI shows: its
  * output this tick as a fraction of its maximum and as text, and (for an
- * engine) its network's satisfaction, or that it isn't connected.
+ * engine) its network's satisfaction, or that it isn't connected. For an
+ * electric drill or inserter: the power it drew this tick out of what it
+ * draws at full power, and its network's satisfaction.
  */
 export function powerView(detail: EntityDetailData): {
   output: number;
   text: string;
   network: string;
 } {
-  const max = entityPrototype(detail.type)?.maxOutputPerTick ?? 0;
+  const proto = entityPrototype(detail.type);
+  const consumer = proto?.energySource === 'electric';
+  const max = (consumer ? proto.energyPerTick : proto?.maxOutputPerTick) ?? 0;
   const network =
-    detail.type !== EntityTypeId.SteamEngine
+    detail.type !== EntityTypeId.SteamEngine && !consumer
       ? ''
       : detail.network === 0
         ? 'Not connected'
         : `Network: ${String(Math.floor((detail.satisfaction * 100) / SAT_ONE))}% satisfied`;
   return {
     output: max > 0 ? Math.min(1, detail.power / max) : 0,
-    text: `Output: ${formatPower(detail.power)} / ${formatPower(max)}`,
+    text: `${consumer ? 'Power' : 'Output'}: ${formatPower(detail.power)} / ${formatPower(max)}`,
     network,
   };
 }
@@ -92,7 +106,7 @@ const CHEST_COLUMNS = 8;
 export function statusView(status: number, type?: number): { key: string; text: string } {
   switch (status) {
     case MachineState.Working:
-      return type === EntityTypeId.BurnerInserter
+      return isInserter(type)
         ? { key: 'swinging', text: 'Swinging' }
         : { key: 'working', text: 'Working' };
     case MachineState.NoInput:
@@ -112,6 +126,10 @@ export function statusView(status: number, type?: number): { key: string; text: 
       return { key: 'waiting-for-target', text: 'Waiting for target' };
     case MachineState.NoDemand:
       return { key: 'no-demand', text: 'No demand' };
+    case MachineState.NoPower:
+      return { key: 'no-power', text: 'No power' };
+    case MachineState.LowPower:
+      return { key: 'low-power', text: 'Low power' };
     default:
       return { key: 'idle', text: '' };
   }
@@ -123,12 +141,12 @@ export function statusView(status: number, type?: number): { key: string; text: 
  * mined) or an inserter (the arm's position from its pickup to its drop tile).
  */
 export function machineBars(detail: EntityDetailData): { progress: number; fuel: number } {
-  const ticks =
-    detail.type === EntityTypeId.BurnerMiningDrill
-      ? DRILL_MINING_TICKS
-      : detail.type === EntityTypeId.BurnerInserter
-        ? INSERTER_SWING_TICKS
-        : (recipePrototype(detail.recipe)?.ticks ?? 0);
+  const proto = entityPrototype(detail.type);
+  const ticks = isDrill(detail.type)
+    ? (proto?.miningTicks ?? 0)
+    : isInserter(detail.type)
+      ? (proto?.swingTicks ?? 0)
+      : (recipePrototype(detail.recipe)?.ticks ?? 0);
   const value = fuelValue(detail.burning);
   return {
     progress: ticks > 0 ? Math.min(1, detail.progress / ticks) : 0,
@@ -195,9 +213,16 @@ export class EntityPanel {
   private inventory: readonly SlotData[] = [];
   private entitySlots: readonly SlotData[] = [];
   private chestGrid: SlotGrid | null = null;
-  /** A furnace's, drill's, inserter's or boiler's labeled slots and bars (a boiler has no progress). */
-  private machine: { slots: LabeledSlot[]; progress: Bar | null; fuel: Bar } | null = null;
-  /** A boiler's or steam engine's output bar and text, and an engine's network line. */
+  /**
+   * A furnace's, drill's, inserter's or boiler's labeled slots and bars (a
+   * boiler has no progress, electric drills and inserters no fuel).
+   */
+  private machine: { slots: LabeledSlot[]; progress: Bar | null; fuel: Bar | null } | null = null;
+  /**
+   * The power section: a boiler's or steam engine's output, or an electric
+   * drill's or inserter's draw, as a bar and text, and (engines and electric
+   * consumers) the network line.
+   */
   private power: {
     element: HTMLElement;
     output: Bar;
@@ -350,7 +375,7 @@ export class EntityPanel {
       }
       const bars = machineBars(detail);
       this.machine.progress?.set(bars.progress);
-      this.machine.fuel.set(bars.fuel);
+      this.machine.fuel?.set(bars.fuel);
     }
     if (this.power) {
       const view = powerView(detail);
@@ -391,9 +416,12 @@ export class EntityPanel {
     // output on the right. Drill: the same without an input (it mines what is
     // under it); the output holds the unit waiting to be dropped. Inserter:
     // fuel, the arm's position, and the item in its hand. Boiler: fuel and
-    // its fuel bar, then its output. Steam engine: its output only.
+    // its fuel bar, then its output. Steam engine: its output only. Electric
+    // drills and inserters have no fuel slot and no fuel bar, and show the
+    // power they draw below.
     const boiler = type === EntityTypeId.Boiler;
-    if (boiler || type === EntityTypeId.SteamEngine) {
+    const electric = isElectric(type);
+    if (boiler || electric || type === EntityTypeId.SteamEngine) {
       this.power = this.buildPower();
     }
     if (type === EntityTypeId.SteamEngine) {
@@ -420,18 +448,20 @@ export class EntityPanel {
       row.appendChild(box);
       return { grid, slot };
     };
-    const drill = type === EntityTypeId.BurnerMiningDrill;
-    const inserter = type === EntityTypeId.BurnerInserter;
+    const drill = isDrill(type);
+    const inserter = isInserter(type);
     const slots: LabeledSlot[] = [];
     if (!drill && !inserter && !boiler) slots.push(labeled(FurnaceSlot.Input, 'input', 'Input'));
-    const fuelSlot = boiler
-      ? BoilerSlot.Fuel
-      : inserter
-        ? InserterSlot.Fuel
-        : drill
-          ? DrillSlot.Fuel
-          : FurnaceSlot.Fuel;
-    slots.push(labeled(fuelSlot, 'fuel', 'Fuel'));
+    if (!electric) {
+      const fuelSlot = boiler
+        ? BoilerSlot.Fuel
+        : inserter
+          ? InserterSlot.Fuel
+          : drill
+            ? DrillSlot.Fuel
+            : FurnaceSlot.Fuel;
+      slots.push(labeled(fuelSlot, 'fuel', 'Fuel'));
+    }
     const middle = document.createElement('div');
     Object.assign(middle.style, {
       width: '96px',
@@ -441,9 +471,9 @@ export class EntityPanel {
       gap: '8px',
     } satisfies Partial<CSSStyleDeclaration>);
     const progress = boiler ? null : new Bar('progress', '#f2d36b');
-    const fuelBar = new Bar('fuel', '#ff9a2e');
+    const fuelBar = electric ? null : new Bar('fuel', '#ff9a2e');
     if (progress) middle.append(progress.element);
-    middle.append(fuelBar.element);
+    if (fuelBar) middle.append(fuelBar.element);
     row.appendChild(middle);
     if (boiler) {
       this.machine = { slots, progress, fuel: fuelBar };
@@ -451,15 +481,22 @@ export class EntityPanel {
       return;
     }
     if (inserter) {
-      slots.push(labeled(InserterSlot.Hand, 'hand', 'Hand'));
+      const hand = electric ? ElectricInserterSlot.Hand : InserterSlot.Hand;
+      slots.push(labeled(hand, 'hand', 'Hand'));
     } else {
-      slots.push(labeled(drill ? DrillSlot.Output : FurnaceSlot.Output, 'output', 'Output'));
+      const output = drill
+        ? electric
+          ? ElectricDrillSlot.Output
+          : DrillSlot.Output
+        : FurnaceSlot.Output;
+      slots.push(labeled(output, 'output', 'Output'));
     }
     this.machine = { slots, progress, fuel: fuelBar };
     this.body.appendChild(row);
+    if (this.power) this.body.appendChild(this.power.element);
   }
 
-  /** The output bar, the output text and the network line of a boiler or steam engine. */
+  /** The power bar, the power text and the network line of a boiler, steam engine or electric consumer. */
   private buildPower(): {
     element: HTMLElement;
     output: Bar;

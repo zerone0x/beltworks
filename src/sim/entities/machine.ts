@@ -1,6 +1,6 @@
 /**
  * Machine states shared by every entity type that works on its own (furnaces,
- * mining drills and inserters now; assemblers later). See docs/ARCHITECTURE.md,
+ * mining drills and inserters, burner and electric, now; assemblers later). See docs/ARCHITECTURE.md,
  * "Machine sleep": a machine that isn't `Working` leaves its system's active
  * list until something it waits on changes.
  *
@@ -27,6 +27,18 @@ export const MachineState = {
   WaitingForTarget: 7,
   /** A power producer (boiler, steam engine) that could deliver energy, but none is drawn. */
   NoDemand: 8,
+  /**
+   * An electric machine with work to do whose network gives it no power
+   * (not connected, or satisfaction 0). Unlike the other waiting states it
+   * stays on its system's active list: power can come back on any tick.
+   */
+  NoPower: 9,
+  /**
+   * Shown, never stored: a `Working` electric consumer on a network whose
+   * satisfaction is below 1 (it runs slower). The snapshot reports it in
+   * place of `Working` (`displayStatus` in src/sim/snapshot.ts).
+   */
+  LowPower: 10,
 } as const;
 
 export type MachineState = (typeof MachineState)[keyof typeof MachineState];
