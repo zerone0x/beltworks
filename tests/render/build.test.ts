@@ -4,14 +4,19 @@ import { ghostOrigin, hotbarSlotForKey } from '../../src/render/buildInput';
 import { TILE_PX } from '../../src/render/camera';
 import { EntityIndex } from '../../src/render/entityIndex';
 import { Direction } from '../../src/sim/entities/direction';
+import { MachineState } from '../../src/sim/entities/machine';
 import { ENTITY_STRIDE } from '../../src/sim/snapshot';
 
 const belt = ENTITIES[EntityTypeId.TransportBelt];
 const furnace = ENTITIES[EntityTypeId.StoneFurnace];
 
-/** Entity records `[id, type, x, y, dir]` as sent in a snapshot. */
-function records(...entities: [number, number, number, number, number][]): ArrayBuffer {
-  return Int32Array.from(entities.flat()).buffer;
+/** Entity records `[id, type, x, y, dir, status]` as sent in a snapshot (status defaults to 0). */
+function records(
+  ...entities: (
+    [number, number, number, number, number] | [number, number, number, number, number, number]
+  )[]
+): ArrayBuffer {
+  return Int32Array.from(entities.flatMap((e) => [...e.slice(0, 5), e[5] ?? 0])).buffer;
 }
 
 describe('hotbarSlotForKey', () => {
@@ -86,5 +91,16 @@ describe('EntityIndex', () => {
     index.apply(records([3, 200, 7, 7, 0]));
     expect(index.at(7, 7)).toMatchObject({ id: 3, type: 200, proto: undefined });
     expect(new Int32Array(records([3, 200, 7, 7, 0])).length).toBe(ENTITY_STRIDE);
+  });
+
+  it('carries the machine state and finds entities by id', () => {
+    const index = new EntityIndex();
+    index.apply(records([4, EntityTypeId.StoneFurnace, 0, 0, 0, MachineState.Working]));
+    expect(index.byId(4)).toMatchObject({ status: MachineState.Working, w: 2 });
+    expect(index.byId(5)).toBeNull();
+    // A state change alone is a change to redraw.
+    expect(index.apply(records([4, EntityTypeId.StoneFurnace, 0, 0, 0, MachineState.NoFuel]))).toBe(
+      true,
+    );
   });
 });

@@ -3,7 +3,8 @@
  * `Q` clears the selection); while the selected item places an entity, a
  * ghost preview follows the cursor, `R` rotates it, and the left mouse button
  * places it (holding it and dragging places along the way). Without a ghost,
- * `R` rotates the entity under the cursor.
+ * `R` rotates the entity under the cursor and a left click opens its GUI
+ * (`onOpenEntity`).
  *
  * Removing entities is on the right mouse button, together with mining (see
  * playerInput.ts).
@@ -66,6 +67,8 @@ export interface BuildInputOptions {
   canPlace: (proto: EntityPrototype, x: number, y: number, dir: Direction) => boolean;
   /** Called when the selected hotbar slot changes. */
   onSelect?: (slot: number | null) => void;
+  /** A left click with nothing to place landed on this entity: open its GUI. */
+  onOpenEntity?: (entity: EntityView) => void;
 }
 
 export class BuildInput {
@@ -113,7 +116,8 @@ export class BuildInput {
     const commands: CommandInput[] = [];
     const proto = this.selectedPrototype();
     const p = options.pointer();
-    const pressed = this.leftHeld || this.clickPending;
+    const clicked = this.clickPending;
+    const pressed = this.leftHeld || clicked;
     this.clickPending = false;
 
     if (this.rotateRequested) {
@@ -141,6 +145,11 @@ export class BuildInput {
       }
     } else {
       this.ghost = null;
+      if (clicked && p) {
+        const tile = options.tileAt(p.x, p.y);
+        const entity = options.entityAt(tile.x, tile.y);
+        if (entity) options.onOpenEntity?.(entity);
+      }
     }
 
     if (commands.length > 0) {

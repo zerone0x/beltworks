@@ -4,7 +4,13 @@
  */
 
 import { validateCommandInput } from '../sim/commands';
-import { encodeChunks, encodeEntities, encodeInventory, encodePlayers } from '../sim/snapshot';
+import {
+  encodeChunks,
+  encodeEntities,
+  encodeEntityDetail,
+  encodeInventory,
+  encodePlayers,
+} from '../sim/snapshot';
 import { Sim } from '../sim/tick';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
 import { FixedStepClock } from './loop';
@@ -22,6 +28,8 @@ const clock = new FixedStepClock(1000 / TICKS_PER_SECOND, MAX_CATCH_UP_TICKS);
 let sim: Sim | null = null;
 let streamer: ChunkStreamer | null = null;
 let viewport: Viewport | null = null;
+/** The entity whose GUI is open on the main thread, or 0. */
+let inspected = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
 // Stats accumulated since the last `stats` message.
@@ -81,8 +89,10 @@ function sendSnapshot(ticksRun: number): void {
   const batch = streamer.collect();
   const chunks = batch && batch.chunks.length > 0 ? encodeChunks(batch.chunks) : null;
   const entities = encodeEntities(sim.state, batch?.window ?? null);
+  const detail = inspected !== 0 ? encodeEntityDetail(sim.state, LOCAL_PLAYER_ID, inspected) : null;
   const transfer: Transferable[] = [players.buffer, inventory.buffer, entities.buffer];
   if (chunks) transfer.push(chunks);
+  if (detail) transfer.push(detail.buffer);
   post(
     {
       type: 'snapshot',
@@ -94,6 +104,8 @@ function sendSnapshot(ticksRun: number): void {
       entities: entities.buffer,
       chunkWindow: batch?.window ?? null,
       chunks,
+      inspected,
+      entityDetail: detail?.buffer ?? null,
     },
     transfer,
   );
@@ -112,6 +124,7 @@ function handle(msg: MainToWorker): void {
       clock.reset();
       clock.advance(performance.now());
       statTicks = statStepMs = statDropped = 0;
+      inspected = 0;
       schedule();
       break;
     case 'commands':
@@ -126,6 +139,12 @@ function handle(msg: MainToWorker): void {
         // Schedule on the next tick to run; ticks already run can't change.
         sim.enqueue({ ...input, tick: sim.tick });
       }
+      break;
+    case 'inspect':
+      if (!Number.isInteger(msg.entity) || msg.entity < 0 || msg.entity > 0xffff_ffff) {
+        throw new Error(`invalid entity to inspect: ${String(msg.entity)}`);
+      }
+      inspected = msg.entity;
       break;
     case 'setViewport':
       viewport = sanitizeViewport(msg.viewport);

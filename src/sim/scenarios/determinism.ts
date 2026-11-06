@@ -6,11 +6,13 @@
  *
  * The script has two phases:
  * 1. Scripted (ticks `[0, DETERMINISM_SCRIPTED_TICKS)`): player 0 builds at
- *    the spawn (places, rotates and removes entities, plus build commands that
- *    must be ignored), then every player walks from the spawn to one of the
- *    starting ore patches and hand-mines it, including a re-target, mining
- *    that waits until the player is in reach, and walking out of reach while
- *    mining.
+ *    the spawn (places, rotates and removes entities, fuels a furnace, plus
+ *    build and transfer commands that must be ignored), then every player
+ *    walks from the spawn to one of the starting ore patches and hand-mines
+ *    it, including a re-target, mining that waits until the player is in
+ *    reach, and walking out of reach while mining. Player 0 then builds a
+ *    furnace and a chest on its (iron) patch, smelts the ore it mined, and
+ *    moves plates into the chest; the furnace keeps smelting into phase 2.
  * 2. Random: a pseudo-random but fixed stream of every command type for the
  *    remaining ticks.
  */
@@ -18,7 +20,8 @@
 import { ItemId } from '../../data/items';
 import type { Axis, Command } from '../commands';
 import { Direction } from '../entities/direction';
-import { HALF_TILE, tileToFixed } from '../fixed';
+import { FurnaceSlot } from '../entities/furnace';
+import { HALF_TILE, fixedToTile, tileToFixed } from '../fixed';
 import { PLAYER_DIAGONAL_SPEED, PLAYER_SPEED } from '../player';
 import { Rng } from '../rng';
 import { Sim } from '../tick';
@@ -32,8 +35,10 @@ export const DETERMINISM_PLAYERS = 3;
 export const DETERMINISM_SCRIPTED_TICKS = 1_000;
 
 const AXES: readonly Axis[] = [-1, 0, 1];
-/** Random `Place` commands use item ids in `[0, ITEM_ID_SPAN)`. */
-const ITEM_ID_SPAN = 12;
+/** Random `Place` and `Insert` commands use item ids in `[0, ITEM_ID_SPAN)`. */
+const ITEM_ID_SPAN = 16;
+/** Random `Insert` and `Take` commands target entity ids in `[0, ENTITY_ID_SPAN)`. */
+const ENTITY_ID_SPAN = 12;
 
 interface Walker {
   readonly playerId: number;
@@ -101,6 +106,41 @@ function buildPhase(): Command[] {
     { ...p, tick: 5, type: 'Place', item: ItemId.BurnerMiningDrill, x: -3, y: 1, dir: West },
     { ...p, tick: 6, type: 'Place', item: ItemId.BurnerInserter, x: -1, y: 2, dir: East },
     { ...p, tick: 7, type: 'Rotate', x: -2, y: 2 },
+    // The furnace (entity 2) gets coal in its fuel slot, and gives one back.
+    { ...p, tick: 3, type: 'Insert', entity: 2, item: ItemId.Coal, count: 4 },
+    // Ignored: belts hold nothing; entity 1 is gone; the player has no iron plates.
+    { ...p, tick: 4, type: 'Insert', entity: 3, item: ItemId.Coal, count: 1 },
+    { ...p, tick: 6, type: 'Take', entity: 2, slot: FurnaceSlot.Fuel, count: 1 },
+    { ...p, tick: 7, type: 'Insert', entity: 1, item: ItemId.Coal, count: 1 },
+    { ...p, tick: 7, type: 'Insert', entity: 2, item: ItemId.IronPlate, count: 1 },
+  ];
+}
+
+/** Entities player 0 builds on its patch after mining it (ids follow the five built at the spawn). */
+export const DETERMINISM_PATCH_FURNACE = 6;
+export const DETERMINISM_PATCH_CHEST = 7;
+
+/**
+ * Player 0's work on its iron patch, starting on tick `tick` while it stands
+ * on `(x, y)`: a furnace two tiles east, fuelled and loaded with the mined
+ * ore; a chest two tiles west; then, near the end of the scripted phase, the
+ * plates so far go from the furnace into the chest and one comes back.
+ */
+function smeltPhase(tick: number, x: number, y: number): Command[] {
+  const p = { playerId: 0 };
+  const furnace = DETERMINISM_PATCH_FURNACE;
+  const chest = DETERMINISM_PATCH_CHEST;
+  const end = DETERMINISM_SCRIPTED_TICKS - 10;
+  return [
+    { ...p, tick, type: 'Place', item: ItemId.StoneFurnace, x: x + 2, y: y - 1, dir: 0 },
+    { ...p, tick: tick + 1, type: 'Insert', entity: furnace, item: ItemId.Coal, count: 3 },
+    { ...p, tick: tick + 1, type: 'Insert', entity: furnace, item: ItemId.IronOre, count: 50 },
+    { ...p, tick: tick + 2, type: 'Place', item: ItemId.WoodenChest, x: x - 2, y, dir: 0 },
+    // Ignored: the output is still empty.
+    { ...p, tick: tick + 3, type: 'Take', entity: furnace, slot: FurnaceSlot.Output, count: 5 },
+    { ...p, tick: end, type: 'Take', entity: furnace, slot: FurnaceSlot.Output, count: 100 },
+    { ...p, tick: end + 1, type: 'Insert', entity: chest, item: ItemId.IronPlate, count: 100 },
+    { ...p, tick: end + 2, type: 'Take', entity: chest, slot: 0, count: 1 },
   ];
 }
 
@@ -129,6 +169,9 @@ function scriptedPhase(): Command[] {
       commands.push({ tick: w.tick, playerId: id, type: 'Move', dx: 0, dy: 0 });
     }
     commands.push({ tick: w.tick, playerId: id, type: 'MineStop' });
+    if (id === 0) {
+      commands.push(...smeltPhase(w.tick, fixedToTile(w.x), fixedToTile(w.y)));
+    }
   }
   return commands;
 }
@@ -156,7 +199,7 @@ export function buildDeterminismScript(
     for (let i = 0; i < burst; i++) {
       // Player id DETERMINISM_PLAYERS is out of range on purpose: it must be ignored.
       const playerId = rng.nextInt(DETERMINISM_PLAYERS + 1);
-      const kind = rng.nextInt(14);
+      const kind = rng.nextInt(16);
       if (kind < 6) {
         commands.push({
           tick,
@@ -175,6 +218,16 @@ export function buildDeterminismScript(
         });
       } else if (kind < 9) {
         commands.push({ tick, playerId, type: 'MineStop' });
+      } else if (kind >= 14) {
+        // GUI transfers with any entity id (most don't exist or are out of reach).
+        const entity = rng.nextInt(ENTITY_ID_SPAN);
+        const count = 1 + rng.nextInt(60);
+        if (kind === 14) {
+          const item = rng.nextInt(ITEM_ID_SPAN);
+          commands.push({ tick, playerId, type: 'Insert', entity, item, count });
+        } else {
+          commands.push({ tick, playerId, type: 'Take', entity, slot: rng.nextInt(18), count });
+        }
       } else {
         // Build commands around the spawn and the starting patches, where the
         // players roam; most are out of reach or blocked and must be ignored.

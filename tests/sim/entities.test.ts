@@ -13,6 +13,7 @@ import { TileId } from '../../src/data/tiles';
 import { BuildResult, placeEntity, removeEntity, rotateEntity } from '../../src/sim/entities/build';
 import { Direction } from '../../src/sim/entities/direction';
 import { Entities } from '../../src/sim/entities/entities';
+import { MachineState } from '../../src/sim/entities/machine';
 import { Occupancy } from '../../src/sim/entities/occupancy';
 import { BUILD_REACH, inBuildReach } from '../../src/sim/entities/placement';
 import { SparseSet } from '../../src/sim/entities/sparseSet';
@@ -564,7 +565,9 @@ describe('encodeEntities', () => {
     // Chunks row by row: (-1, -1) first.
     expect(records[0]![EntityField.type]).toBe(EntityTypeId.StoneFurnace);
     expect(records[0]!.slice(EntityField.x, EntityField.dir + 1)).toEqual([-2, -2, North]);
-    expect(records[1]).toEqual([1, EntityTypeId.TransportBelt, 2, 0, South]);
+    // A fresh furnace waits for input; belts have no machine state.
+    expect(records[0]![EntityField.status]).toBe(MachineState.NoInput);
+    expect(records[1]).toEqual([1, EntityTypeId.TransportBelt, 2, 0, South, MachineState.Idle]);
     expect(encodeEntities(state, { cx0: 0, cy0: 0, cx1: 0, cy1: 0 }).length).toBe(ENTITY_STRIDE);
     expect(encodeEntities(state, null).length).toBe(0);
   });

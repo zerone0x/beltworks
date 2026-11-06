@@ -23,6 +23,8 @@ export interface EntityView {
   w: number;
   h: number;
   dir: Direction;
+  /** Machine state (`MachineState` in src/sim/entities/machine.ts). */
+  status: number;
 }
 
 /**
@@ -66,6 +68,7 @@ export class EntityIndex {
         w,
         h,
         dir,
+        status: records[o + EntityField.status]!,
       };
       this.list.push(entity);
       for (let ty = entity.y; ty < entity.y + h; ty++) {
@@ -76,6 +79,11 @@ export class EntityIndex {
     }
     this.version++;
     return true;
+  }
+
+  /** The entity with id `id`, or `null` if it isn't around the view. */
+  byId(id: number): EntityView | null {
+    return this.list.find((e) => e.id === id) ?? null;
   }
 
   /** The entity covering tile `(x, y)`, or `null`. */

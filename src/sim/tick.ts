@@ -8,6 +8,8 @@
 
 import { CommandQueue, validateCommand, type Command } from './commands';
 import { placeEntity, removeEntity, rotateEntity } from './entities/build';
+import { furnaceTable } from './entities/furnace';
+import { insertIntoEntity, takeFromEntity } from './entities/transfer';
 import { updatePlayers } from './player';
 import { createSimState, hashState, type SimOptions, type SimState } from './state';
 
@@ -25,15 +27,16 @@ export const SYSTEMS: readonly System[] = [
   stub('drills'),
   stub('belts'),
   stub('inserters'),
-  stub('machines'),
+  { name: 'machines', run: (sim) => furnaceTable(sim.state.entities)?.update(sim.state.entities) },
   { name: 'players', run: (sim) => updatePlayers(sim.state.players, sim.state.world) },
   // Snapshots are read by the worker after `step()` returns; events will be emitted here.
   stub('events'),
 ];
 
 /**
- * Applies one command. Commands for unknown players, and build commands that
- * don't apply (see src/sim/entities/build.ts), are ignored.
+ * Applies one command. Commands for unknown players, and build and transfer
+ * commands that don't apply (see src/sim/entities/build.ts and transfer.ts),
+ * are ignored.
  */
 export function applyCommand(state: SimState, cmd: Command): void {
   const { players } = state;
@@ -58,6 +61,12 @@ export function applyCommand(state: SimState, cmd: Command): void {
       break;
     case 'Rotate':
       rotateEntity(state, cmd.playerId, cmd.x, cmd.y);
+      break;
+    case 'Insert':
+      insertIntoEntity(state, cmd.playerId, cmd.entity, cmd.item, cmd.count);
+      break;
+    case 'Take':
+      takeFromEntity(state, cmd.playerId, cmd.entity, cmd.slot, cmd.count);
       break;
   }
 }

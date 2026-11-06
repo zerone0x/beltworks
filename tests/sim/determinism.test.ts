@@ -3,8 +3,12 @@ import { EntityTypeId } from '../../src/data/entities';
 import { ItemId, MINED_ITEM } from '../../src/data/items';
 import { STARTING_KIT } from '../../src/data/start';
 import { Direction } from '../../src/sim/entities/direction';
+import { FurnaceSlot } from '../../src/sim/entities/furnace';
+import { MachineState } from '../../src/sim/entities/machine';
 import {
   DETERMINISM_BUILD_TICKS,
+  DETERMINISM_PATCH_CHEST,
+  DETERMINISM_PATCH_FURNACE,
   DETERMINISM_PLAYERS,
   DETERMINISM_SCRIPTED_TICKS,
   DETERMINISM_SEED,
@@ -59,8 +63,21 @@ describe('determinism', () => {
       const inv = sim.state.players.inventory(id);
       const item = MINED_ITEM[patches[id]!.ore];
       const kit = STARTING_KIT.find((s) => s.item === item)?.count ?? 0;
+      let mined = inv.count(item) - kit;
+      if (id === 0) {
+        // Player 0's iron went into its furnace: count the ore still there,
+        // the one being smelted, and every plate made from the others.
+        const { entities } = sim.state;
+        const furnace = DETERMINISM_PATCH_FURNACE;
+        const plates =
+          entities.slots(furnace)[FurnaceSlot.Output]!.count +
+          entities.contents(DETERMINISM_PATCH_CHEST)[0]!.count +
+          inv.count(ItemId.IronPlate);
+        const smelting = entities.detail(furnace)!.recipe !== 0 ? 1 : 0;
+        mined += entities.slots(furnace)[FurnaceSlot.Input]!.count + smelting + plates;
+      }
       // 300 + 150 ticks of mining at 30 ticks per unit, on top of the starting kit.
-      expect(inv.count(item) - kit).toBe(15);
+      expect(mined).toBe(15);
     }
     // The mined patches show up in the world hash.
     expect(sim.state.world.chunkVersion(0, 0)).toBeGreaterThan(0);
@@ -92,6 +109,33 @@ describe('determinism', () => {
     expect(inv.count(ItemId.TransportBelt)).toBe(9);
     // The random phase builds too.
     expect(runDeterminismScenario().entities).toBeGreaterThan(4);
+    // The spawn furnace got 4 coal and gave 1 back; nothing else was moved.
+    expect(entities.slots(entities.at(3, 0))).toEqual([
+      { item: 0, count: 0 },
+      { item: ItemId.Coal, count: 3 },
+      { item: 0, count: 0 },
+    ]);
+    expect(inv.count(ItemId.Coal)).toBe(7);
+  });
+
+  it('smelts the mined iron on the patch and stores plates in a chest', () => {
+    const sim = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    for (let i = 0; i < DETERMINISM_SCRIPTED_TICKS; i++) {
+      sim.step();
+    }
+    const { entities } = sim.state;
+    const furnace = DETERMINISM_PATCH_FURNACE;
+    const chest = DETERMINISM_PATCH_CHEST;
+    expect(entities.store.type(furnace)).toBe(EntityTypeId.StoneFurnace);
+    expect(entities.store.type(chest)).toBe(EntityTypeId.WoodenChest);
+    expect(entities.status(furnace)).toBe(MachineState.Working);
+    // 15 ores went in; two plates were done by the time they were taken out.
+    const slots = entities.slots(furnace);
+    expect(slots[FurnaceSlot.Input]!.item).toBe(ItemId.IronOre);
+    expect(slots[FurnaceSlot.Input]!.count).toBeLessThan(13);
+    expect(entities.contents(chest)).toEqual([{ item: ItemId.IronPlate, count: 1 }]);
+    expect(sim.state.players.inventory(0).count(ItemId.IronPlate)).toBe(1);
   });
 
   it('matches the expected hash shared with the Chromium test', () => {

@@ -20,6 +20,10 @@ export const ItemId = {
   BurnerMiningDrill: 7,
   TransportBelt: 8,
   BurnerInserter: 9,
+  Wood: 10,
+  IronPlate: 11,
+  CopperPlate: 12,
+  StoneBrick: 13,
 } as const;
 
 export type ItemId = (typeof ItemId)[keyof typeof ItemId];
@@ -46,7 +50,12 @@ export interface ItemPrototype {
   readonly stackSize: number;
   /** Display color as 0xRRGGBB, used by the inventory and hotbar. */
   readonly color: number;
+  /** Energy released by burning one unit, in joules (integer); absent for items that aren't fuel. */
+  readonly fuelValue?: number;
 }
+
+/** Joules in one megajoule. */
+const MJ = 1_000_000;
 
 /** Item prototypes keyed by id. There is no entry for id 0 ("empty"). */
 export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
@@ -64,7 +73,14 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 50,
     color: 0xc0703e,
   },
-  [ItemId.Coal]: { id: ItemId.Coal, name: 'coal', label: 'Coal', stackSize: 50, color: 0x4a4a4a },
+  [ItemId.Coal]: {
+    id: ItemId.Coal,
+    name: 'coal',
+    label: 'Coal',
+    stackSize: 50,
+    color: 0x4a4a4a,
+    fuelValue: 4 * MJ,
+  },
   [ItemId.Stone]: {
     id: ItemId.Stone,
     name: 'stone',
@@ -108,6 +124,36 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 50,
     color: 0xb5562f,
   },
+  [ItemId.Wood]: {
+    id: ItemId.Wood,
+    name: 'wood',
+    label: 'Wood',
+    stackSize: 100,
+    color: 0x7a5530,
+    fuelValue: 2 * MJ,
+  },
+  // Smelting results (see src/data/recipes.ts).
+  [ItemId.IronPlate]: {
+    id: ItemId.IronPlate,
+    name: 'iron-plate',
+    label: 'Iron plate',
+    stackSize: 100,
+    color: 0xb4bcc4,
+  },
+  [ItemId.CopperPlate]: {
+    id: ItemId.CopperPlate,
+    name: 'copper-plate',
+    label: 'Copper plate',
+    stackSize: 100,
+    color: 0xd9844a,
+  },
+  [ItemId.StoneBrick]: {
+    id: ItemId.StoneBrick,
+    name: 'stone-brick',
+    label: 'Stone brick',
+    stackSize: 100,
+    color: 0xb09060,
+  },
 };
 
 /** Every real item id, in id order. */
@@ -121,11 +167,20 @@ export const ITEM_IDS: readonly RealItemId[] = [
   ItemId.BurnerMiningDrill,
   ItemId.TransportBelt,
   ItemId.BurnerInserter,
+  ItemId.Wood,
+  ItemId.IronPlate,
+  ItemId.CopperPlate,
+  ItemId.StoneBrick,
 ];
 
 /** The prototype of item `id`, or `undefined` for 0 and unknown ids. */
 export function itemPrototype(id: number): ItemPrototype | undefined {
   return (ITEMS as Readonly<Record<number, ItemPrototype | undefined>>)[id];
+}
+
+/** Joules released by burning one unit of `item`, or 0 if it isn't fuel (or unknown). */
+export function fuelValue(item: number): number {
+  return itemPrototype(item)?.fuelValue ?? 0;
 }
 
 /** The item a player gets for mining one unit of each resource. */

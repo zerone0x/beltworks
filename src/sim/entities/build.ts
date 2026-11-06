@@ -88,8 +88,8 @@ export function placeEntity(
   return BuildResult.Ok;
 }
 
-/** Whether `playerId` can reach entity `id`. */
-function reaches(state: SimState, playerId: number, id: number): boolean {
+/** Whether `playerId` can reach entity `id` (which must exist) to build on or use it. */
+export function reaches(state: SimState, playerId: number, id: number): boolean {
   const { x, y, w, h } = state.entities.footprint(id);
   const { players } = state;
   return inBuildReach(players.x[playerId]!, players.y[playerId]!, x, y, w, h);

@@ -49,6 +49,11 @@ export class SimClient {
     }
   }
 
+  /** Asks for the GUI data of entity `entity` in every snapshot (0 to stop). */
+  inspect(entity: number): void {
+    this.send({ type: 'inspect', entity });
+  }
+
   setViewport(viewport: Viewport): void {
     this.send({ type: 'setViewport', viewport });
   }
