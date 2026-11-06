@@ -140,7 +140,11 @@ test('an electric drill shows no power until a boiler and steam engine power it'
   /** Opens the window of the entity covering `r`, with nothing in hand. */
   const openAt = async (r: Rect, name: string) => {
     await page.keyboard.press('Escape');
-    await page.keyboard.press('q');
+    // Q only deselects with something selected; with nothing, it is the pipette.
+    if ((await page.evaluate(() => window.__beltworks!.selectedSlot())) !== null) {
+      await page.keyboard.press('q');
+      await expect.poll(() => page.evaluate(() => window.__beltworks!.selectedSlot())).toBeNull();
+    }
     const at = await tileScreen(page, r.x, r.y);
     await page.mouse.click(at.x, at.y);
     await expect(panel).toHaveAttribute('data-type', name);

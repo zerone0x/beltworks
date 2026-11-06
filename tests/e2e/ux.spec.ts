@@ -1,6 +1,7 @@
 /**
  * UX follow-ups from playing the M1 build (#36): splitting stacks in entity
- * windows, clickable hotbar slots, and item icons readable on belts at 1×.
+ * windows, clickable hotbar slots, and item icons readable on belts at 1×;
+ * and from M2 (#42): selecting items in the inventory window, and the pipette.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -163,6 +164,148 @@ test('hotbar slots select on click, and a right click or Q deselects', async ({ 
 
   expect(await entities(page)).toEqual([]);
   expect(await countOf(page, ItemId.TransportBelt)).toBe(STARTING_KIT[beltSlot]!.count);
+  expect(errors).toEqual([]);
+});
+
+test('an item past the hotbar is selected in the inventory and placed with the mouse', async ({
+  page,
+}, testInfo) => {
+  const errors = collectErrors(page);
+  await open(page);
+  const inventory = page.locator('#inventory-panel');
+  const hotbar = page.locator('#hotbar');
+  const invSlot = (item: string) => inventory.locator(`.slot[data-item="${item}"]`);
+  const kitSlot = STARTING_KIT.findIndex((s) => s.item === ItemId.ElectricInserter);
+  expect(kitSlot).toBeGreaterThanOrEqual(10);
+
+  await page.keyboard.press('e');
+  await expect(inventory).toBeVisible();
+  // Coal places nothing: a click on it selects nothing.
+  await invSlot('coal').click();
+  await page.waitForTimeout(200);
+  expect(await selected(page)).toBeNull();
+  // An electric inserter, past the hotbar: selected, highlighted in the
+  // inventory and not in the hotbar.
+  await invSlot('electric-inserter').click();
+  await expect.poll(() => selected(page)).toBe(kitSlot);
+  await expect(inventory).toHaveAttribute('data-selected', String(kitSlot));
+  await expect(invSlot('electric-inserter')).toHaveAttribute('data-selected', 'true');
+  await expect(hotbar).toHaveAttribute('data-selected', '');
+  // Again deselects, a right click too.
+  await invSlot('electric-inserter').click();
+  await expect.poll(() => selected(page)).toBeNull();
+  await invSlot('electric-inserter').click();
+  await expect.poll(() => selected(page)).toBe(kitSlot);
+  await invSlot('coal').click({ button: 'right' });
+  await expect.poll(() => selected(page)).toBeNull();
+  // A hotbar item clicked in the inventory selects its hotbar slot.
+  await invSlot('wooden-chest').click();
+  const chestSlot = STARTING_KIT.findIndex((s) => s.item === ItemId.WoodenChest);
+  await expect.poll(() => selected(page)).toBe(chestSlot);
+  await expect(hotbar).toHaveAttribute('data-selected', String(chestSlot));
+
+  await invSlot('electric-inserter').click();
+  await expect.poll(() => selected(page)).toBe(kitSlot);
+  // Its ghost follows the cursor over the game next to the window.
+  const first = await tileScreen(page, 2, 2);
+  await page.mouse.move(first.x, first.y);
+  await expect.poll(async () => (await ghost(page))?.name).toBe('electric-inserter');
+  const shot = testInfo.outputPath('ux-inventory-select.png');
+  await page.screenshot({ path: shot });
+  await testInfo.attach('an electric inserter selected in the inventory', {
+    path: shot,
+    contentType: 'image/png',
+  });
+  // The selection stays when the window closes.
+  await page.keyboard.press('e');
+  await expect(inventory).toBeHidden();
+  expect(await selected(page)).toBe(kitSlot);
+
+  // All four, east along y = 2: the selection is dropped with the last one.
+  const kitCount = STARTING_KIT[kitSlot]!.count;
+  for (let i = 0; i < kitCount; i++) {
+    const x = 2 + i;
+    const at = await tileScreen(page, x, 2);
+    await page.mouse.move(at.x, at.y);
+    await expect.poll(async () => (await ghost(page))?.name).toBe('electric-inserter');
+    for (let r = 0; r < 4 && (await ghost(page))?.dir !== Direction.East; r++) {
+      const before = (await ghost(page))?.dir;
+      await page.keyboard.press('r');
+      await expect.poll(async () => (await ghost(page))?.dir).not.toBe(before);
+    }
+    await expect.poll(() => ghost(page)).toMatchObject({ x, y: 2, valid: true });
+    await page.mouse.click(at.x, at.y);
+    await expect.poll(async () => (await entityAt(page, x, 2))?.name).toBe('electric-inserter');
+    await expect.poll(() => countOf(page, ItemId.ElectricInserter)).toBe(kitCount - i - 1);
+  }
+  await expect.poll(() => selected(page)).toBeNull();
+  await expect.poll(() => ghost(page)).toBeNull();
+  expect((await entityAt(page, 2, 2))?.dir).toBe(Direction.East);
+  expect(errors).toEqual([]);
+});
+
+test('Q with nothing selected picks the item of the entity under the cursor', async ({ page }) => {
+  const errors = collectErrors(page);
+  await open(page);
+  const beltSlot = STARTING_KIT.findIndex((s) => s.item === ItemId.TransportBelt);
+  const kitSlot = STARTING_KIT.findIndex((s) => s.item === ItemId.ElectricInserter);
+  // A belt facing east at (2, 2), and an electric inserter (from the inventory) at (3, 2).
+  const belt = await tileScreen(page, 2, 2);
+  await place(page, keyFor(ItemId.TransportBelt), belt, { x: 2, y: 2 }, Direction.East);
+  await page.keyboard.press('q');
+  await page.keyboard.press('e');
+  await page.locator('#inventory-panel .slot[data-item="electric-inserter"]').click();
+  await page.keyboard.press('e');
+  const ins = await tileScreen(page, 3, 2);
+  await page.mouse.move(ins.x, ins.y);
+  await expect.poll(() => ghost(page)).toMatchObject({ name: 'electric-inserter', valid: true });
+  await page.mouse.click(ins.x, ins.y);
+  await expect.poll(async () => (await entityAt(page, 3, 2))?.name).toBe('electric-inserter');
+  await page.keyboard.press('q');
+  await expect.poll(() => selected(page)).toBeNull();
+
+  // Over the belt: the belt's hotbar slot is selected, the ghost facing east.
+  await page.mouse.move(belt.x, belt.y);
+  await page.keyboard.press('q');
+  await expect.poll(() => selected(page)).toBe(beltSlot);
+  await expect
+    .poll(() => ghost(page))
+    .toMatchObject({ name: 'transport-belt', dir: Direction.East });
+  await page.keyboard.press('r');
+  await expect.poll(async () => (await ghost(page))?.dir).toBe(Direction.South);
+  // Q deselects; Q again picks it up again, facing the belt's way.
+  await page.keyboard.press('q');
+  await expect.poll(() => selected(page)).toBeNull();
+  await page.keyboard.press('q');
+  await expect
+    .poll(() => ghost(page))
+    .toMatchObject({ name: 'transport-belt', dir: Direction.East });
+  await page.keyboard.press('q');
+  await expect.poll(() => selected(page)).toBeNull();
+
+  // Over the inserter: the remaining ones, past the hotbar.
+  await page.mouse.move(ins.x, ins.y);
+  await page.keyboard.press('q');
+  await expect.poll(() => selected(page)).toBe(kitSlot);
+  await page.keyboard.press('q');
+  await expect.poll(() => selected(page)).toBeNull();
+  // Over empty ground: nothing.
+  const ground = await tileScreen(page, 2, 4);
+  await page.mouse.move(ground.x, ground.y);
+  await page.keyboard.press('q');
+  await page.waitForTimeout(200);
+  expect(await selected(page)).toBeNull();
+  // Over a chest with none left in the inventory: nothing either.
+  const chestKey = keyFor(ItemId.WoodenChest);
+  const chests = STARTING_KIT.find((s) => s.item === ItemId.WoodenChest)!.count;
+  for (let i = 0; i < chests; i++) {
+    await place(page, chestKey, await tileScreen(page, 2 + i, 4), { x: 2 + i, y: 4 });
+  }
+  await page.keyboard.press('q');
+  await expect.poll(() => selected(page)).toBeNull();
+  await page.keyboard.press('q');
+  await page.waitForTimeout(200);
+  expect(await selected(page)).toBeNull();
   expect(errors).toEqual([]);
 });
 

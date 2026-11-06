@@ -157,7 +157,7 @@ export interface BeltworksTestHook {
   powerFocus(): PowerFocusState | null;
   /** The ghost preview, or `null` when none is shown. */
   ghost(): GhostState | null;
-  /** The hotbar slot selected for building, or `null`. */
+  /** The inventory slot selected for building (0–9 are the hotbar), or `null`. */
   selectedSlot(): number | null;
   /** The entity whose GUI is open, or 0. */
   openEntity(): number;

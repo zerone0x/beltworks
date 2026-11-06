@@ -17,6 +17,8 @@ export const CONTROLS: readonly ControlHelp[] = [
   { keys: 'Hold right mouse', action: 'Mine the ore under the cursor (within reach)' },
   { keys: 'E', action: 'Inventory and crafting (click a recipe to craft)' },
   { keys: '1–0 / click', action: 'Select a hotbar item; again, right-click or Q to put it away' },
+  { keys: 'Click in inventory', action: 'Select any item to build from the inventory (E)' },
+  { keys: 'Q', action: 'With nothing selected: pick the item of the entity under the cursor' },
   { keys: 'Left click / drag', action: 'Place the selected item (green ghost)' },
   { keys: 'R', action: 'Rotate the ghost, or the entity under the cursor' },
   { keys: 'Left click', action: 'With nothing selected: open a chest, furnace, drill or inserter' },
