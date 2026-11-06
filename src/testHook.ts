@@ -8,6 +8,7 @@
 import { EntityTypeId } from './data/entities';
 import { ITEM_IDS, ITEMS, MAX_STACK_SIZE, type ItemStack } from './data/items';
 import type { BuildInput } from './render/buildInput';
+import { ghostInserterTiles } from './render/entityLayer';
 import { TILE_PX } from './render/camera';
 import type { GameView } from './render/gameView';
 import type { TerrainStats, TileInfo } from './render/terrainLayer';
@@ -90,6 +91,8 @@ export interface InserterView {
   swing: number;
   /** Arm position at the drop tile. */
   span: number;
+  /** Entity type id. */
+  type: number;
 }
 
 /** The power overlay, as last drawn. */
@@ -110,6 +113,9 @@ export interface GhostState {
   y: number;
   dir: number;
   valid: boolean;
+  /** For an inserter: the tiles it would pick up from and drop onto. */
+  pickup?: { x: number; y: number };
+  drop?: { x: number; y: number };
 }
 
 export interface BeltworksTestHook {
@@ -318,7 +324,9 @@ export function installTestHook({
     },
     ghost: () => {
       const g = build.ghost;
-      return g && { name: g.proto.name, x: g.x, y: g.y, dir: g.dir, valid: g.valid };
+      if (!g) return null;
+      const tiles = ghostInserterTiles(g);
+      return { name: g.proto.name, x: g.x, y: g.y, dir: g.dir, valid: g.valid, ...tiles };
     },
     selectedSlot: () => build.selected,
     openEntity: () => entityPanel.entity,

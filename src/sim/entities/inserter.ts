@@ -1,17 +1,22 @@
 /**
- * Inserters. `InserterTableBase` holds everything burner and electric
- * inserters share: the item in the hand, the arm position, the state, the
- * active list, and the pickup, drop and wake logic. Each kind adds its
+ * Inserters. `InserterTableBase` holds everything every inserter type
+ * shares: the item in the hand, the arm position, the state, the active
+ * list, and the pickup, drop and wake logic, with the timing (`swingTicks`)
+ * and reach (`reach`) taken from the type's prototype. Each kind adds its
  * energy source: the burner inserter (`InserterTable`, below) a burner (fuel
- * slot and energy buffer, see burner.ts), the electric inserter
- * (`ElectricInserterTable`, electricInserter.ts) its electric network. The
+ * slot and energy buffer, see burner.ts), the electric, fast and long-handed
+ * inserters (`ElectricInserterTable`, electricInserter.ts) their electric
+ * network. The
  * state machine is drawn in docs/ARCHITECTURE.md ("Burner inserter"); the
  * rest of this comment describes the burner inserter, and the electric one
  * differs only where electricInserter.ts says so.
  *
  * An inserter is 1×1. It faces the way it drops: it picks up from the tile
  * behind it (`inserterPickupTile`) and drops onto the tile in front of it
- * (`inserterDropTile`), through whatever entity covers those tiles, looked
+ * (`inserterDropTile`); a long-handed inserter (reach 2) skips the
+ * neighbouring tiles and uses the ones 2 tiles behind and in front of it,
+ * whatever stands in between. It reaches them through whatever entity
+ * covers those tiles, looked
  * up again on every pickup and drop, so no link can go stale when
  * neighbours are placed, rotated or removed:
  * - picking up: a chest's first slot holding something the target accepts,
@@ -68,6 +73,7 @@
 import {
   ENTITIES,
   EntityTypeId,
+  inserterReach,
   type EntityPrototype,
   type RealEntityTypeId,
 } from '../../data/entities';
@@ -113,20 +119,36 @@ export const INSERTER_SWING_TICKS = INSERTER.swingTicks ?? 1;
 /** Ticks of one pickup → drop → return cycle. */
 export const INSERTER_CYCLE_TICKS = 2 * INSERTER_SWING_TICKS;
 
-/** The tile an inserter on `(x, y)` facing `dir` picks up from: the one behind it. */
-export function inserterPickupTile(x: number, y: number, dir: Direction): { x: number; y: number } {
-  return { x: x - DIRECTION_DX[dir]!, y: y - DIRECTION_DY[dir]! };
+/**
+ * The tile an inserter on `(x, y)` facing `dir` with reach `reach` picks up
+ * from: `reach` tiles behind it.
+ */
+export function inserterPickupTile(
+  x: number,
+  y: number,
+  dir: Direction,
+  reach: number = 1,
+): { x: number; y: number } {
+  return { x: x - reach * DIRECTION_DX[dir]!, y: y - reach * DIRECTION_DY[dir]! };
 }
 
-/** The tile an inserter on `(x, y)` facing `dir` drops onto: the one in front of it. */
-export function inserterDropTile(x: number, y: number, dir: Direction): { x: number; y: number } {
-  return { x: x + DIRECTION_DX[dir]!, y: y + DIRECTION_DY[dir]! };
+/**
+ * The tile an inserter on `(x, y)` facing `dir` with reach `reach` drops
+ * onto: `reach` tiles in front of it.
+ */
+export function inserterDropTile(
+  x: number,
+  y: number,
+  dir: Direction,
+  reach: number = 1,
+): { x: number; y: number } {
+  return { x: x + reach * DIRECTION_DX[dir]!, y: y + reach * DIRECTION_DY[dir]! };
 }
 
 /**
  * The lane an inserter facing `dir` drops onto a belt facing `beltDir`: the
- * far one, as seen from the inserter. An inserter in line with the belt
- * (behind or in front of it) uses the right lane.
+ * far one, as seen from the inserter (whatever its reach). An inserter in
+ * line with the belt (behind or in front of it) uses the right lane.
  */
 export function farLane(dir: Direction, beltDir: Direction): BeltLane {
   // Dropping towards the belt's left side means reaching across to its left lane.
@@ -156,6 +178,8 @@ export abstract class InserterTableBase implements EntityTypeTable {
   readonly armScale: number;
   /** Arm position at the drop end: `swingTicks × armScale`. */
   readonly armEnd: number;
+  /** How many tiles behind and in front of it the inserter picks up and drops (1 or 2). */
+  readonly reach: number;
   /** The state an inserter without energy is in (`NoFuel`, `NoPower`). */
   protected abstract readonly noEnergyState: InserterState;
 
@@ -164,6 +188,7 @@ export abstract class InserterTableBase implements EntityTypeTable {
     this.proto = proto;
     this.armScale = armScale;
     this.armEnd = (proto.swingTicks ?? 1) * armScale;
+    this.reach = inserterReach(proto);
   }
 
   /** Number of inserters. */
@@ -392,8 +417,8 @@ export abstract class InserterTableBase implements EntityTypeTable {
   private pickUp(row: number, id: number, entities: Entities): InserterState {
     const { store } = entities;
     const dir = store.dir(id);
-    const from = inserterPickupTile(store.x(id), store.y(id), dir);
-    const to = inserterDropTile(store.x(id), store.y(id), dir);
+    const from = inserterPickupTile(store.x(id), store.y(id), dir, this.reach);
+    const to = inserterDropTile(store.x(id), store.y(id), dir, this.reach);
     const source = entities.at(from.x, from.y);
     const target = entities.at(to.x, to.y);
     this.beforePickUp?.(row, id, source, entities);
@@ -424,7 +449,7 @@ export abstract class InserterTableBase implements EntityTypeTable {
   private drop(row: number, id: number, entities: Entities): boolean {
     const { store } = entities;
     const dir = store.dir(id);
-    const to = inserterDropTile(store.x(id), store.y(id), dir);
+    const to = inserterDropTile(store.x(id), store.y(id), dir, this.reach);
     const target = entities.at(to.x, to.y);
     const item = this.held[row]!;
     let ok = false;
@@ -461,15 +486,15 @@ export abstract class InserterTableBase implements EntityTypeTable {
     const { x, y, w, h } = entities.footprint(id);
     for (let ty = y; ty < y + h; ty++) {
       for (let tx = x; tx < x + w; tx++) {
-        // An inserter reaching (tx, ty) stands on one of its four neighbours.
+        // An inserter of this type reaching (tx, ty) stands `reach` tiles away from it.
         for (let d = 0; d < 4; d++) {
-          const nx = tx + DIRECTION_DX[d]!;
-          const ny = ty + DIRECTION_DY[d]!;
+          const nx = tx + this.reach * DIRECTION_DX[d]!;
+          const ny = ty + this.reach * DIRECTION_DY[d]!;
           const ins = entities.at(nx, ny);
           if (ins === id || !this.set.has(ins)) continue;
           const dir = store.dir(ins);
-          const from = inserterPickupTile(nx, ny, dir);
-          const to = inserterDropTile(nx, ny, dir);
+          const from = inserterPickupTile(nx, ny, dir, this.reach);
+          const to = inserterDropTile(nx, ny, dir, this.reach);
           if ((from.x === tx && from.y === ty) || (to.x === tx && to.y === ty)) this.activate(ins);
         }
       }
@@ -613,6 +638,22 @@ export class InserterTable extends InserterTableBase {
   protected override hashRows(h: number, rows: number): number {
     return this.burner.hashInto(h, rows);
   }
+}
+
+/**
+ * Steps every inserter table of `entities` (burner, electric, fast,
+ * long-handed), in type id order: the inserter system.
+ */
+export function updateInserters(entities: Entities): void {
+  for (const table of entities.tables) {
+    if (table instanceof InserterTableBase) table.update(entities);
+  }
+}
+
+/** The inserter table of entity type `type`, if it is an inserter type with a table. */
+export function inserterTableOf(entities: Entities, type: number): InserterTableBase | undefined {
+  const table = entities.table(type);
+  return table instanceof InserterTableBase ? table : undefined;
 }
 
 /** The burner inserter table of `entities`, if one is registered. */

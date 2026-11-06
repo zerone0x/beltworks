@@ -34,6 +34,10 @@ export const ItemId = {
   ElectricInserter: 21,
   AssemblingMachine1: 22,
   AssemblingMachine2: 23,
+  // M3 logistics.
+  IronChest: 24,
+  FastInserter: 25,
+  LongHandedInserter: 26,
 } as const;
 
 export type ItemId = (typeof ItemId)[keyof typeof ItemId];
@@ -237,6 +241,28 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 50,
     color: 0x5f8a78,
   },
+  // Logistics (M3).
+  [ItemId.IronChest]: {
+    id: ItemId.IronChest,
+    name: 'iron-chest',
+    label: 'Iron chest',
+    stackSize: 50,
+    color: 0x8f97a3,
+  },
+  [ItemId.FastInserter]: {
+    id: ItemId.FastInserter,
+    name: 'fast-inserter',
+    label: 'Fast inserter',
+    stackSize: 50,
+    color: 0xc8443c,
+  },
+  [ItemId.LongHandedInserter]: {
+    id: ItemId.LongHandedInserter,
+    name: 'long-handed-inserter',
+    label: 'Long-handed inserter',
+    stackSize: 50,
+    color: 0x4f9a4a,
+  },
 };
 
 /** Every real item id, in id order. */
@@ -264,6 +290,9 @@ export const ITEM_IDS: readonly RealItemId[] = [
   ItemId.ElectricInserter,
   ItemId.AssemblingMachine1,
   ItemId.AssemblingMachine2,
+  ItemId.IronChest,
+  ItemId.FastInserter,
+  ItemId.LongHandedInserter,
 ];
 
 /** The prototype of item `id`, or `undefined` for 0 and unknown ids. */

@@ -33,5 +33,8 @@ export function createEntityTables(): EntityTypeTable[] {
     new ElectricInserterTable(),
     new AssemblerTable(ENTITIES[EntityTypeId.AssemblingMachine1]),
     new AssemblerTable(ENTITIES[EntityTypeId.AssemblingMachine2]),
+    new ChestTable(ENTITIES[EntityTypeId.IronChest]),
+    new ElectricInserterTable(ENTITIES[EntityTypeId.FastInserter]),
+    new ElectricInserterTable(ENTITIES[EntityTypeId.LongHandedInserter]),
   ];
 }

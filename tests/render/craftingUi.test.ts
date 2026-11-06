@@ -22,6 +22,9 @@ describe('crafting panel helpers', () => {
       'electric-inserter',
       'assembling-machine-1',
       'assembling-machine-2',
+      'iron-chest',
+      'fast-inserter',
+      'long-handed-inserter',
     ]);
     expect(recipeTitle(RECIPES[RecipeId.TransportBelt])).toBe(
       '2 × Transport belt ← 1 × Iron gear wheel, 1 × Iron plate (0.5 s)',

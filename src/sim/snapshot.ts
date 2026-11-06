@@ -8,8 +8,7 @@ import { RECIPE_IDS } from '../data/recipes';
 import { beltTable } from './belts/belts';
 import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
 import { reaches } from './entities/build';
-import { electricInserterTable } from './entities/electricInserter';
-import { inserterTable, type InserterTableBase } from './entities/inserter';
+import { inserterTableOf } from './entities/inserter';
 import { MachineState } from './entities/machine';
 import type { ChunkRange } from './entities/occupancy';
 import { powerGrid } from './power/grid';
@@ -261,7 +260,7 @@ export function decodeBelts(buffer: ArrayBuffer): BeltData[] {
 }
 
 /** Int32 fields per inserter in {@link encodeInserters}, after the count. */
-export const INSERTER_STRIDE = 7;
+export const INSERTER_STRIDE = 8;
 /** Field offsets within one inserter record. */
 export const InserterField = {
   x: 0,
@@ -282,10 +281,12 @@ export const InserterField = {
   swing: 5,
   /** Arm position at the drop end (36 for burner inserters, 26 × `SAT_ONE` for electric). */
   span: 6,
+  /** Entity type id (for the arm's length and color). */
+  type: 7,
 } as const;
 
 /**
- * Encodes the inserters (burner and electric) whose tile lies in the chunks
+ * Encodes the inserters (every inserter type) whose tile lies in the chunks
  * of `range` as int32s: `[count]`, then `INSERTER_STRIDE` fields per inserter
  * (see {@link InserterField}), in the order of `encodeEntities`. The
  * renderer draws the arm `swing × (1 − α)` behind `arm` between ticks.
@@ -299,17 +300,15 @@ export function encodeInserters(
   }
   const { entities } = state;
   const { store, occupancy } = entities;
-  const tables = new Map<number, InserterTableBase>();
-  const burner = inserterTable(entities);
-  const electric = electricInserterTable(entities);
-  if (burner) tables.set(EntityTypeId.BurnerInserter, burner);
-  if (electric) tables.set(EntityTypeId.ElectricInserter, electric);
-  const ids = occupancy.originsIn(range).filter((id) => tables.has(store.type(id)));
+  const ids = occupancy
+    .originsIn(range)
+    .filter((id) => inserterTableOf(entities, store.type(id)) !== undefined);
   const out = new Int32Array(1 + ids.length * INSERTER_STRIDE);
   out[0] = ids.length;
   ids.forEach((id, i) => {
     const o = 1 + i * INSERTER_STRIDE;
-    const table = tables.get(store.type(id))!;
+    const type = store.type(id);
+    const table = inserterTableOf(entities, type)!;
     const { held, arm } = table.hand(id);
     out[o + InserterField.x] = store.x(id);
     out[o + InserterField.y] = store.y(id);
@@ -318,6 +317,7 @@ export function encodeInserters(
     out[o + InserterField.held] = held;
     out[o + InserterField.swing] = table.lastSwing(id, entities);
     out[o + InserterField.span] = table.armEnd;
+    out[o + InserterField.type] = type;
   });
   return out;
 }
@@ -331,6 +331,7 @@ export interface InserterData {
   held: number;
   swing: number;
   span: number;
+  type: number;
 }
 
 /** Unpacks a buffer made by {@link encodeInserters}. */
@@ -348,6 +349,7 @@ export function decodeInserters(buffer: ArrayBuffer): InserterData[] {
       held: v[o + InserterField.held]!,
       swing: v[o + InserterField.swing]!,
       span: v[o + InserterField.span]!,
+      type: v[o + InserterField.type]!,
     });
   }
   return out;

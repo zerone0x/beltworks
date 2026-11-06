@@ -13,9 +13,8 @@ import { ASSEMBLER_TYPES, assemblerTable } from './entities/assembler';
 import { placeEntity, removeEntity, rotateEntity } from './entities/build';
 import { drillTable } from './entities/drill';
 import { electricDrillTable } from './entities/electricDrill';
-import { electricInserterTable } from './entities/electricInserter';
 import { furnaceTable } from './entities/furnace';
-import { inserterTable } from './entities/inserter';
+import { updateInserters } from './entities/inserter';
 import { insertIntoEntity, setEntityRecipe, takeFromEntity } from './entities/transfer';
 import { updatePlayers } from './player';
 import { powerGrid } from './power/grid';
@@ -42,12 +41,9 @@ export const SYSTEMS: readonly System[] = [
   },
   { name: 'belts', run: (sim) => beltTable(sim.state.entities)?.update() },
   {
-    // Burner inserters, then electric inserters.
+    // Burner, electric, fast, then long-handed inserters (type id order).
     name: 'inserters',
-    run: ({ state }) => {
-      inserterTable(state.entities)?.update(state.entities);
-      electricInserterTable(state.entities)?.update(state.entities);
-    },
+    run: ({ state }) => updateInserters(state.entities),
   },
   {
     // Furnaces, then assembling machines 1 and 2.

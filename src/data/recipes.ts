@@ -38,6 +38,10 @@ export const RecipeId = {
   // Hand recipes for production (M3).
   AssemblingMachine1: 17,
   AssemblingMachine2: 18,
+  // Hand recipes for logistics (M3).
+  IronChest: 19,
+  FastInserter: 20,
+  LongHandedInserter: 21,
 } as const;
 
 export type RecipeId = (typeof RecipeId)[keyof typeof RecipeId];
@@ -235,6 +239,35 @@ export const RECIPES: Readonly<Record<RealRecipeId, Recipe>> = {
     ticks: 30,
     category: 'hand',
   },
+  [RecipeId.IronChest]: {
+    id: RecipeId.IronChest,
+    inputs: [[ItemId.IronPlate, 8]],
+    outputs: [[ItemId.IronChest, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
+  [RecipeId.FastInserter]: {
+    id: RecipeId.FastInserter,
+    inputs: [
+      [ItemId.ElectricInserter, 1],
+      [ItemId.ElectronicCircuit, 2],
+      [ItemId.IronPlate, 2],
+    ],
+    outputs: [[ItemId.FastInserter, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
+  [RecipeId.LongHandedInserter]: {
+    id: RecipeId.LongHandedInserter,
+    inputs: [
+      [ItemId.ElectricInserter, 1],
+      [ItemId.IronGearWheel, 1],
+      [ItemId.IronPlate, 1],
+    ],
+    outputs: [[ItemId.LongHandedInserter, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
 };
 
 /** Every real recipe id, in id order. */
@@ -257,6 +290,9 @@ export const RECIPE_IDS: readonly RealRecipeId[] = [
   RecipeId.ElectricInserter,
   RecipeId.AssemblingMachine1,
   RecipeId.AssemblingMachine2,
+  RecipeId.IronChest,
+  RecipeId.FastInserter,
+  RecipeId.LongHandedInserter,
 ];
 
 /** The hand recipes, in id order (the order of the crafting panel). */

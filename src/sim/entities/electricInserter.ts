@@ -1,7 +1,14 @@
 /**
  * Electric inserters: the burner inserter's behavior (`InserterTableBase` in
  * inserter.ts: geometry, sources and targets, the state machine, sleep) with
- * the electric timing and energy numbers and no fuel slot.
+ * the electric timing and energy numbers and no fuel slot. The fast and
+ * long-handed inserters are electric inserters too: one
+ * `ElectricInserterTable` per type, built from its prototype, which sets the
+ * swing time, the working energy, the drain and the reach (see
+ * src/data/entities.ts). The numbers below are the electric inserter's; the
+ * fast inserter swings 13 ticks each way (a 26-tick cycle) for 770 J/tick
+ * with a 15 J drain, the long-handed one 25 ticks (a 50-tick cycle, reach 2)
+ * for 333 J/tick with a 7 J drain.
  *
  * Timing: the arm swings `ELECTRIC_INSERTER_SWING_TICKS` (26) ticks each way
  * at full power, so with a source and a target that are always ready it
@@ -16,10 +23,10 @@
  *
  * Energy (`powerDemand`, asked by the power step before the inserters run):
  * - an inserter on the active list (swinging, or woken to look again) asks
- *   for `ELECTRIC_INSERTER_ENERGY_PER_TICK` (220 J), and draws `220 × s /
- *   SAT_ONE` (the solver's `poweredEnergy`);
+ *   for its type's `energyPerTick` (220 J for the electric inserter), and
+ *   draws `220 × s / SAT_ONE` (the solver's `poweredEnergy`);
  * - a sleeping one (waiting for its source or target) asks for its idle
- *   drain, `ELECTRIC_INSERTER_DRAIN_PER_TICK` (7 J), every tick it is
+ *   drain, `drainPerTick` (7 J for the electric inserter), every tick it is
  *   connected: the power step asks every connected consumer each tick, so
  *   the drain costs no wake-ups. Not connected, it draws nothing.
  * The arm only moves on a tick its working energy was granted (see
@@ -31,7 +38,7 @@
  * Slots: just the hand. Nothing can be inserted (no fuel slot).
  */
 
-import { ENTITIES, EntityTypeId, SAT_ONE } from '../../data/entities';
+import { ENTITIES, EntityTypeId, SAT_ONE, type EntityPrototype } from '../../data/entities';
 import { powerGrid } from '../power/grid';
 import { PowerBudget } from '../power/consumer';
 import type { Entities } from './entities';
@@ -55,14 +62,38 @@ export const ELECTRIC_INSERTER_SWING_TICKS = ELECTRIC_INSERTER.swingTicks ?? 1;
 /** Ticks of one pickup → drop → return cycle at full power. */
 export const ELECTRIC_INSERTER_CYCLE_TICKS = 2 * ELECTRIC_INSERTER_SWING_TICKS;
 
+const FAST_INSERTER = ENTITIES[EntityTypeId.FastInserter];
+/** Ticks from the pickup end to the drop end (and back) of a fast inserter at full power. */
+export const FAST_INSERTER_SWING_TICKS = FAST_INSERTER.swingTicks ?? 1;
+/** Ticks of one fast inserter cycle at full power. */
+export const FAST_INSERTER_CYCLE_TICKS = 2 * FAST_INSERTER_SWING_TICKS;
+
+const LONG_HANDED_INSERTER = ENTITIES[EntityTypeId.LongHandedInserter];
+/** Ticks from the pickup end to the drop end (and back) of a long-handed inserter at full power. */
+export const LONG_HANDED_INSERTER_SWING_TICKS = LONG_HANDED_INSERTER.swingTicks ?? 1;
+/** Ticks of one long-handed inserter cycle at full power. */
+export const LONG_HANDED_INSERTER_CYCLE_TICKS = 2 * LONG_HANDED_INSERTER_SWING_TICKS;
+
+/** Entity types whose table is an `ElectricInserterTable`. */
+export type ElectricInserterType =
+  | typeof EntityTypeId.ElectricInserter
+  | typeof EntityTypeId.FastInserter
+  | typeof EntityTypeId.LongHandedInserter;
+
 export class ElectricInserterTable extends InserterTableBase {
   protected readonly noEnergyState = InserterState.NoPower;
+  /** Joules per tick asked for on the active list, at full power. */
+  readonly energyPerTick: number;
+  /** Joules per tick asked for while asleep and connected. */
+  readonly drainPerTick: number;
   private readonly budget = new PowerBudget();
   /** Whether the row being stepped was granted its energy this tick (latched by `beginStep`). */
   private granted = false;
 
-  constructor() {
-    super(ELECTRIC_INSERTER, SAT_ONE);
+  constructor(proto: EntityPrototype = ELECTRIC_INSERTER) {
+    super(proto, SAT_ONE);
+    this.energyPerTick = proto.energyPerTick ?? 0;
+    this.drainPerTick = proto.drainPerTick ?? 0;
   }
 
   /** `progress` is the arm position, in whole ticks (at full power) from the pickup end; no fuel. */
@@ -106,9 +137,7 @@ export class ElectricInserterTable extends InserterTableBase {
   /** Working energy on the active list, the idle drain while asleep (see the file comment). */
   powerDemand(id: number): number {
     const row = this.row(id);
-    return this.isActive(id)
-      ? this.budget.grant(row, ELECTRIC_INSERTER_ENERGY_PER_TICK)
-      : ELECTRIC_INSERTER_DRAIN_PER_TICK;
+    return this.isActive(id) ? this.budget.grant(row, this.energyPerTick) : this.drainPerTick;
   }
 
   protected override beginStep(row: number): void {
@@ -145,8 +174,15 @@ export class ElectricInserterTable extends InserterTableBase {
   }
 }
 
-/** The electric inserter table of `entities`, if one is registered. */
-export function electricInserterTable(entities: Entities): ElectricInserterTable | undefined {
-  const table = entities.table(EntityTypeId.ElectricInserter);
+/**
+ * The table of electric inserter type `type` (the electric inserter by
+ * default, or the fast or long-handed one) of `entities`, if one is
+ * registered.
+ */
+export function electricInserterTable(
+  entities: Entities,
+  type: ElectricInserterType = EntityTypeId.ElectricInserter,
+): ElectricInserterTable | undefined {
+  const table = entities.table(type);
   return table instanceof ElectricInserterTable ? table : undefined;
 }

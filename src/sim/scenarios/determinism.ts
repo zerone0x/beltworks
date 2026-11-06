@@ -28,7 +28,9 @@
  *    into the lowest id) and adds one just out of wire reach (squared
  *    distance 50) that stays a network of its own, and builds a fuelled
  *    boiler with two steam engines among them, then an electric inserter
- *    next to the boiler that sleeps on the steam power, drawing its drain. Player 2
+ *    next to the boiler that sleeps on the steam power, drawing its drain,
+ *    and a rig of iron chests, a long-handed and a fast inserter that move
+ *    coal on the same power. Player 2
  *    puts an electric mining drill on the stone next to its chain, feeding
  *    an electric inserter into a chest, with a pole over them on a network
  *    of its own: with nothing producing power there they stay `NoPower`.
@@ -68,11 +70,11 @@ export const DETERMINISM_SCRIPTED_TICKS = 1_000;
 
 const AXES: readonly Axis[] = [-1, 0, 1];
 /** Random `Place` and `Insert` commands use item ids in `[0, ITEM_ID_SPAN)` (the last two unknown). */
-const ITEM_ID_SPAN = 26;
+const ITEM_ID_SPAN = 29;
 /** Random `Insert` and `Take` commands target entity ids in `[0, ENTITY_ID_SPAN)`. */
 const ENTITY_ID_SPAN = 16;
 /** Random `Craft` and `SetRecipe` commands use recipe ids in `[0, RECIPE_ID_SPAN)` (the last one unknown). */
-const RECIPE_ID_SPAN = 20;
+const RECIPE_ID_SPAN = 23;
 /** Random `SetRecipe` commands target entity ids in `[0, RECIPE_ENTITY_SPAN)` (the assembler included). */
 const RECIPE_ENTITY_SPAN = 48;
 
@@ -87,6 +89,9 @@ export const DETERMINISM_KIT: readonly ItemStack[] = [
   { item: ItemId.Stone, count: 10 },
   { item: ItemId.AssemblingMachine1, count: 1 },
   { item: ItemId.CopperPlate, count: 10 },
+  { item: ItemId.IronChest, count: 3 },
+  { item: ItemId.FastInserter, count: 1 },
+  { item: ItemId.LongHandedInserter, count: 1 },
 ];
 
 interface Walker {
@@ -400,6 +405,53 @@ function steamPhase(x: number, y: number): Command[] {
   ];
 }
 
+/** Tick player 1 builds its logistics rig on the steam network (after its assembling machine). */
+export const DETERMINISM_LOGISTICS_TICK = 936;
+/** Entity ids of player 1's logistics rig, in placement order. */
+export const DETERMINISM_LOGISTICS_SOURCE = 40;
+export const DETERMINISM_LOGISTICS_LONG = 41;
+export const DETERMINISM_LOGISTICS_MIDDLE = 42;
+export const DETERMINISM_LOGISTICS_FAST = 43;
+export const DETERMINISM_LOGISTICS_TARGET = 44;
+
+/**
+ * Player 1's logistics rig, built while it stands on tile `(x, y)`, under
+ * the south pole (network 1, the steam network): an iron chest on
+ * `(x - 1, y + 3)` with coal in it, a long-handed inserter on `(x + 1, y +
+ * 3)` facing east that reaches over the tiles next to it into an iron chest
+ * on `(x + 3, y + 3)`, and a fast inserter north of that chest, facing north,
+ * that takes the coal on into a third iron chest on `(x + 3, y + 1)`.
+ */
+function logisticsPhase(x: number, y: number): Command[] {
+  const p = { playerId: 1 };
+  const t = DETERMINISM_LOGISTICS_TICK;
+  const { East, North } = Direction;
+  const place = (item: number, dx: number, dy: number, dir: Direction): Command => ({
+    ...p,
+    tick: t,
+    type: 'Place',
+    item,
+    x: x + dx,
+    y: y + dy,
+    dir,
+  });
+  return [
+    place(ItemId.IronChest, -1, 3, North),
+    place(ItemId.LongHandedInserter, 1, 3, East),
+    place(ItemId.IronChest, 3, 3, North),
+    place(ItemId.FastInserter, 3, 2, North),
+    place(ItemId.IronChest, 3, 1, North),
+    {
+      ...p,
+      tick: t + 1,
+      type: 'Insert',
+      entity: DETERMINISM_LOGISTICS_SOURCE,
+      item: ItemId.Coal,
+      count: 4,
+    },
+  ];
+}
+
 /** Tick player 2 places its electric rig (after player 1's steam power, so those ids stay put). */
 export const DETERMINISM_ELECTRIC_TICK = 931;
 /** Entity ids of player 2's electric rig, in placement order. */
@@ -627,6 +679,7 @@ function scriptedPhase(): Command[] {
       commands.push(...polePhase(fixedToTile(w.x), fixedToTile(w.y)));
       commands.push(...steamPhase(fixedToTile(w.x), fixedToTile(w.y)));
       commands.push(...assemblerPhase(fixedToTile(w.x), fixedToTile(w.y)));
+      commands.push(...logisticsPhase(fixedToTile(w.x), fixedToTile(w.y)));
     }
   }
   return commands;

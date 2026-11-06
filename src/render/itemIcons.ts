@@ -54,6 +54,9 @@ const ICONS: Readonly<Partial<Record<RealItemId, IconSpec>>> = {
   [ItemId.ElectricInserter]: { label: 'EI', shape: 'item' },
   [ItemId.AssemblingMachine1]: { label: 'A1', shape: 'item' },
   [ItemId.AssemblingMachine2]: { label: 'A2', shape: 'item' },
+  [ItemId.IronChest]: { label: 'IC', shape: 'item' },
+  [ItemId.FastInserter]: { label: 'FI', shape: 'item' },
+  [ItemId.LongHandedInserter]: { label: 'LI', shape: 'item' },
 };
 
 /** Color of unknown items, so bad data is obvious. */
