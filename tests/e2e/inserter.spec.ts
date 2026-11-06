@@ -105,8 +105,8 @@ test('an inserter fuels itself from a chest of coal and moves the rest into anot
   at = await tileScreen(page, -4, -2);
   await page.mouse.click(at.x, at.y);
   await expect(panel).toHaveAttribute('data-type', 'burner-inserter');
-  await expect(panel).toHaveAttribute('data-status', 'working');
-  await expect(panel.locator('.status')).toHaveText('Working');
+  await expect(panel).toHaveAttribute('data-status', 'swinging');
+  await expect(panel.locator('.status')).toHaveText('Swinging');
   await expect.poll(async () => (await entityAt(page, -4, -2))?.status).toBe(MachineState.Working);
 
   // Shot with the arm half way, holding coal (polled every frame).

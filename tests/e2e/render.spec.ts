@@ -39,8 +39,12 @@ test('initial view renders the terrain around the spawn', async ({ page }) => {
   const stats = await page.evaluate(() => window.__beltworks!.terrainStats());
   expect(stats.sprites).toBe(stats.windowChunks);
 
-  // The overlay shows changing tick counts; mask it so the image is stable.
-  const options = { mask: [page.locator('#debug-overlay')], maxDiffPixelRatio: 0.01 };
+  // The overlay shows changing tick counts; mask it (and the help hint's
+  // text, whose font differs between machines) so the image is stable.
+  const options = {
+    mask: [page.locator('#debug-overlay'), page.locator('#help-hint')],
+    maxDiffPixelRatio: 0.01,
+  };
   await expect(page).toHaveScreenshot('initial-view.png', options);
 
   // The spawn area is flattened to grass, so also pin down a zoomed-out view

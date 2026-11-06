@@ -671,6 +671,68 @@ describe('drills dropping onto belts', () => {
     expect(d.line.lanes[BeltLane.Right].gap(0)).toBe(0);
   });
 
+  it('saturate a belt end to end: more drills than it carries deliver exactly 15 items/s', () => {
+    // 80 drills along an 84-belt line running east on y = 0: 40 on the north
+    // side facing south, 40 on the south side facing north, each pair over two
+    // belts. Together they mine 80 / 240 = 1/3 unit per tick, a third more than
+    // the belt's 2 × 8 / 64 = 1/4 per tick, so the belt fills up and the drills
+    // take turns.
+    const DRILLS_PER_SIDE = 40;
+    const LENGTH = 2 * DRILLS_PER_SIDE + 4;
+    const sim = new Sim({ seed: 1 });
+    const { state } = sim;
+    const { entities } = state;
+    const drillProto = ENTITIES[EntityTypeId.BurnerMiningDrill];
+    for (let x = 0; x < LENGTH; x++) entities.add(BELT, x, 0, East);
+    const drills: number[] = [];
+    for (let k = 0; k < DRILLS_PER_SIDE; k++) {
+      const x = 2 * k;
+      for (const [y, dir] of [
+        [-2, South],
+        [1, North],
+      ] as const) {
+        for (let ty = y; ty < y + 2; ty++) {
+          for (let tx = x; tx < x + 2; tx++) {
+            const chunk = state.world.getChunk(tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
+            const i = tileIndex(tx & CHUNK_MASK, ty & CHUNK_MASK);
+            chunk.resource[i] = ResourceId.IronOre;
+            chunk.amount[i] = 1_000_000;
+          }
+        }
+        const drop = drillDropTile(x, y, dir);
+        expect(drop.y).toBe(0);
+        const drill = entities.add(drillProto, x, y, dir);
+        expect(entities.insert(drill, COAL, 50)).toBe(50);
+        drills.push(drill);
+      }
+    }
+    const table = beltTable(entities)!;
+    expect(table.lineCount).toBe(1);
+    const line = table.line(table.beltLine(entities.at(0, 0)))!;
+    expect(line.length).toBe(LENGTH * BELT_LENGTH);
+
+    // Every tick, whatever reached the end of the line is taken off it.
+    const counts = [0, 0];
+    const tick = (count: boolean) => {
+      sim.step();
+      for (const lane of [Left, Right]) {
+        if (table.peekEnd(line.id, lane) !== 0) {
+          expect(table.takeAt(line.id, lane, 0, 0)).toBe(ItemId.IronOre);
+          if (count) counts[lane]!++;
+        }
+      }
+    };
+    // Long enough for the line to fill from the far end: 84 belts at 32 ticks each.
+    for (let i = 0; i < 3_600; i++) tick(false);
+    for (let i = 0; i < 600; i++) tick(true);
+    // 600 ticks = 10 s: 7.5 items/s per lane, 15 per belt.
+    expect(counts).toEqual([75, 75]);
+    // The belt, not the drills, is the limit: some of them wait for room.
+    const blocked = drills.filter((d) => entities.status(d) === MachineState.OutputFull);
+    expect(blocked.length).toBeGreaterThan(0);
+    checkLanes(table);
+  });
+
   it('waits on a full belt and wakes once the lane moves and frees the drop point', () => {
     // A single belt: items stop at its end.
     const d = setup(1);

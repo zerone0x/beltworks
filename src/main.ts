@@ -13,6 +13,7 @@ import { PlayerInput } from './render/playerInput';
 import { CraftQueueStrip, CraftingPanel } from './ui/crafting';
 import { DebugOverlay } from './ui/debugOverlay';
 import { EntityPanel, hasEntityGui } from './ui/entityPanel';
+import { HelpPanel } from './ui/help';
 import { Hotbar, InventoryPanel } from './ui/inventory';
 import { SimClient } from './worker/client';
 import { LOCAL_PLAYER_ID } from './worker/protocol';
@@ -48,6 +49,7 @@ async function main(): Promise<void> {
   const craftingPanel = new CraftingPanel(crafting);
   inventoryPanel.addSection(craftingPanel.element);
   const craftQueue = new CraftQueueStrip(document.body, crafting);
+  new HelpPanel(document.body);
   client.onStats = (stats) => {
     overlay.update(stats);
   };
@@ -76,6 +78,12 @@ async function main(): Promise<void> {
     isMineable: (x, y) => (view.terrain.tileAt(x, y)?.resource ?? 0) !== 0,
     entityAt: (x, y) => view.entityIndex.at(x, y)?.id ?? 0,
     onToggleInventory: () => {
+      // Like Escape, E first closes an open entity window (which shows the
+      // inventory already) rather than opening a second inventory next to it.
+      if (entityPanel.isOpen) {
+        entityPanel.close();
+        return;
+      }
       inventoryPanel.toggle();
       const queue = client.latestSnapshot && decodeCraftQueue(client.latestSnapshot.craftQueue);
       craftingPanel.update(inventory, queue?.entries.length ?? 0);
@@ -102,7 +110,10 @@ async function main(): Promise<void> {
       hotbar.select(slot);
     },
     onOpenEntity: (entity) => {
-      if (hasEntityGui(entity.type)) entityPanel.open(entity.id, entity.type);
+      if (!hasEntityGui(entity.type)) return;
+      // The entity window shows the inventory too; one is enough.
+      inventoryPanel.close();
+      entityPanel.open(entity.id, entity.type);
     },
   });
   // Every snapshot must reach the view, in order, or its chunk cache drifts from

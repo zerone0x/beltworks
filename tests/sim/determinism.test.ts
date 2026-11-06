@@ -13,6 +13,13 @@ import { MachineState } from '../../src/sim/entities/machine';
 import {
   DETERMINISM_BELTS,
   DETERMINISM_BUILD_TICKS,
+  DETERMINISM_CHAIN,
+  DETERMINISM_CHAIN_CHEST,
+  DETERMINISM_CHAIN_DRILL,
+  DETERMINISM_CHAIN_FURNACE,
+  DETERMINISM_CHAIN_PICK,
+  DETERMINISM_CHAIN_PUT,
+  DETERMINISM_CHAIN_TICK,
   DETERMINISM_DRILL_CHEST,
   DETERMINISM_KIT,
   DETERMINISM_PATCH_CHEST,
@@ -33,6 +40,18 @@ import { startingPatches } from '../../src/sim/world/generate';
 import { DETERMINISM_EXPECTED_HASH } from './determinism.expected';
 
 const hex = (h: number): string => `0x${h.toString(16).padStart(8, '0')}`;
+
+/**
+ * The M1 chain on player 2's stone patch. Fuelled on tick 912, the drill
+ * drops a stone on the middle of the first belt on ticks 1151 and 1391; the
+ * second is on the inserter's belt 49 ticks later, in the furnace 36 ticks
+ * after that (1476), a brick 192 ticks later (1668), and in the chest after
+ * one more swing (1704). Then a brick every 480 ticks (two stones).
+ */
+const CHAIN_FIRST_BRICK_TICK = 1_704;
+const CHAIN_CHECK_TICK = 4_000;
+/** Bricks in the chest by `CHAIN_CHECK_TICK`: 1704, 2184, 2664, 3144, 3624. */
+const CHAIN_BRICKS = 5;
 
 /** Kit plates player 0 has left once its crafts are done (checked in the crafting test). */
 const KIT_PLATES_LEFT_0 = 4;
@@ -293,7 +312,71 @@ describe('determinism', () => {
     const inv1 = sim.state.players.inventory(1);
     expect(inv1.count(ItemId.IronGearWheel)).toBe(15);
     expect(inv1.count(ItemId.IronPlate)).toBe(0);
-    expect(sim.state.players.inventory(2).count(ItemId.BurnerInserter)).toBe(6);
+    // Player 2 crafted two inserters on top of the kit's four, and built two into its chain.
+    expect(sim.state.players.inventory(2).count(ItemId.BurnerInserter)).toBe(4);
+  });
+
+  it('runs the M1 automation chain on the stone patch with no further commands', () => {
+    const sim = createDeterminismSim();
+    const script = buildDeterminismScript();
+    script.forEach((c) => sim.enqueue(c));
+    const { entities } = sim.state;
+    const { x, y } = DETERMINISM_CHAIN;
+    // Player 2 sends no command after fuelling the chain, until the random phase.
+    const last = Math.max(
+      ...script
+        .filter((c) => c.playerId === 2 && c.tick < DETERMINISM_SCRIPTED_TICKS)
+        .map((c) => c.tick),
+    );
+    expect(last).toBe(DETERMINISM_CHAIN_TICK + 2);
+    while (sim.tick < DETERMINISM_CHAIN_TICK + 3) sim.step();
+    const at = (dx: number) => {
+      const id = entities.at(x + dx, y);
+      return [id, entities.store.type(id), entities.store.dir(id)];
+    };
+    const { BurnerMiningDrill, TransportBelt, BurnerInserter, StoneFurnace, WoodenChest } =
+      EntityTypeId;
+    expect([0, 2, 3, 4, 5, 6, 8, 9].map(at)).toEqual([
+      [DETERMINISM_CHAIN_DRILL, BurnerMiningDrill, Direction.East],
+      [18, TransportBelt, Direction.East],
+      [19, TransportBelt, Direction.East],
+      [20, TransportBelt, Direction.East],
+      [DETERMINISM_CHAIN_PICK, BurnerInserter, Direction.East],
+      [DETERMINISM_CHAIN_FURNACE, StoneFurnace, Direction.North],
+      [DETERMINISM_CHAIN_PUT, BurnerInserter, Direction.East],
+      [DETERMINISM_CHAIN_CHEST, WoodenChest, Direction.North],
+    ]);
+    // Every machine is fuelled and the belts form one line.
+    for (const id of [
+      DETERMINISM_CHAIN_DRILL,
+      DETERMINISM_CHAIN_FURNACE,
+      DETERMINISM_CHAIN_PICK,
+      DETERMINISM_CHAIN_PUT,
+    ]) {
+      const coal = entities.contents(id).find((c) => c.item === ItemId.Coal)?.count ?? 0;
+      expect(coal > 0 || entities.detail(id)!.burning === ItemId.Coal).toBe(true);
+    }
+    const belts = beltTable(entities)!;
+    expect(belts.line(belts.beltLine(18))!.belts).toEqual([20, 19, 18]);
+    expect(entities.status(DETERMINISM_CHAIN_DRILL)).toBe(MachineState.Working);
+
+    // Stone goes drill → belt → inserter → furnace (two per brick) → inserter
+    // → chest: a brick every 480 ticks.
+    const bricks = () =>
+      entities
+        .contents(DETERMINISM_CHAIN_CHEST)
+        .reduce((n, s) => n + (s.item === ItemId.StoneBrick ? s.count : 0), 0);
+    let first = 0;
+    while (sim.tick < CHAIN_CHECK_TICK) {
+      sim.step();
+      if (first === 0 && bricks() > 0) first = sim.tick;
+    }
+    expect(first).toBe(CHAIN_FIRST_BRICK_TICK);
+    expect(entities.contents(DETERMINISM_CHAIN_CHEST)).toEqual([
+      { item: ItemId.StoneBrick, count: CHAIN_BRICKS },
+    ]);
+    // Nothing but stone runs on the belt.
+    expect(belts.itemsOn(20).every((i) => i.item === ItemId.Stone)).toBe(true);
   });
 
   it('matches the expected hash shared with the Chromium test', () => {

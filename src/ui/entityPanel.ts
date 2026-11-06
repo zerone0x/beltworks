@@ -39,11 +39,17 @@ export function hasEntityGui(type: number): boolean {
 /** Columns of the chest grid. */
 const CHEST_COLUMNS = 8;
 
-/** Display text and a stable key (for tests and styling) per machine state. */
-export function statusView(status: number): { key: string; text: string } {
+/**
+ * Display text and a stable key (for tests and styling) per machine state of
+ * an entity of type `type`. A working inserter is swinging its arm
+ * (`InserterState.Swinging`), and says so.
+ */
+export function statusView(status: number, type?: number): { key: string; text: string } {
   switch (status) {
     case MachineState.Working:
-      return { key: 'working', text: 'Working' };
+      return type === EntityTypeId.BurnerInserter
+        ? { key: 'swinging', text: 'Swinging' }
+        : { key: 'working', text: 'Working' };
     case MachineState.NoInput:
       return { key: 'no-input', text: 'No input' };
     case MachineState.NoFuel:
@@ -130,6 +136,8 @@ export class EntityPanel {
   readonly element: HTMLElement;
   /** The entity shown, or 0 while closed. */
   private entityId = 0;
+  /** Its entity type. */
+  private type = 0;
   private readonly title: HTMLElement;
   private readonly status: HTMLElement;
   private readonly body: HTMLElement;
@@ -249,6 +257,7 @@ export class EntityPanel {
     this.element.dataset.type = entityPrototype(type)?.name ?? '';
     this.title.textContent = entityPrototype(type)?.label ?? '';
     this.element.setAttribute('aria-label', this.title.textContent);
+    this.type = type;
     this.buildBody(type);
     this.setStatus(MachineState.Idle);
     this.entitySlots = [];
@@ -300,7 +309,7 @@ export class EntityPanel {
   }
 
   private setStatus(status: number): void {
-    const view = statusView(status);
+    const view = statusView(status, this.type);
     this.element.dataset.status = view.key;
     this.status.textContent = view.text;
   }

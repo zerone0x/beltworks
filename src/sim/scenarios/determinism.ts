@@ -18,6 +18,9 @@
  *    moves plates into the chest; the furnace keeps smelting into phase 2.
  *    It also sets up a drill on the patch that mines into a chest placed in
  *    front of it once the first ore is waiting, and keeps mining into phase 2.
+ *    Player 2 builds the M1 automation chain on its stone patch (drill →
+ *    belt → inserter → furnace → inserter → chest), which keeps making
+ *    bricks into phase 2.
  *    Meanwhile the players hand-craft from the plates, wood and stone of
  *    `DETERMINISM_KIT`: crafts with auto-queued intermediates, crafts cut
  *    short by missing items, and cancels (of a craft, of an intermediate in
@@ -228,6 +231,66 @@ function smeltPhase(tick: number, x: number, y: number): Command[] {
 }
 
 /**
+ * Where player 2 builds the M1 automation chain on its (stone) patch, north of
+ * where it stands mining: a drill on `(x, y)..(x + 1, y + 1)` facing east,
+ * three belts east from its drop tile, an inserter, a furnace, an inserter
+ * and a chest, all on row `y`.
+ */
+export const DETERMINISM_CHAIN = { x: -18, y: -23 } as const;
+/** Tick player 2 starts building the chain, after player 0's last placement (DETERMINISM_DRILL_CHEST). */
+export const DETERMINISM_CHAIN_TICK = 910;
+/** Entity ids of the chain, in placement order (they follow the sixteen player 0 builds). */
+export const DETERMINISM_CHAIN_DRILL = 17;
+export const DETERMINISM_CHAIN_PICK = 21;
+export const DETERMINISM_CHAIN_FURNACE = 22;
+export const DETERMINISM_CHAIN_PUT = 23;
+export const DETERMINISM_CHAIN_CHEST = 24;
+
+/**
+ * Player 2 builds the M1 automation chain (drill → belt → inserter → furnace
+ * → inserter → chest) on its stone patch and fuels every machine once; from
+ * then on the chain turns mined stone into bricks in the chest with no more
+ * commands, into the random phase.
+ */
+function chainPhase(): Command[] {
+  const p = { playerId: 2 };
+  const t = DETERMINISM_CHAIN_TICK;
+  const { x, y } = DETERMINISM_CHAIN;
+  const { East, North } = Direction;
+  const place = (tick: number, item: number, dx: number, dir: Direction): Command => ({
+    ...p,
+    tick,
+    type: 'Place',
+    item,
+    x: x + dx,
+    y,
+    dir,
+  });
+  const fuel = (entity: number, count: number): Command => ({
+    ...p,
+    tick: t + 2,
+    type: 'Insert',
+    entity,
+    item: ItemId.Coal,
+    count,
+  });
+  return [
+    place(t, ItemId.BurnerMiningDrill, 0, East), // drops onto (x + 2, y)
+    place(t, ItemId.TransportBelt, 2, East),
+    place(t, ItemId.TransportBelt, 3, East),
+    place(t, ItemId.TransportBelt, 4, East),
+    place(t + 1, ItemId.BurnerInserter, 5, East),
+    place(t + 1, ItemId.StoneFurnace, 6, North),
+    place(t + 1, ItemId.BurnerInserter, 8, East),
+    place(t + 1, ItemId.WoodenChest, 9, North),
+    fuel(DETERMINISM_CHAIN_DRILL, 3),
+    fuel(DETERMINISM_CHAIN_FURNACE, 2),
+    fuel(DETERMINISM_CHAIN_PICK, 1),
+    fuel(DETERMINISM_CHAIN_PUT, 1),
+  ];
+}
+
+/**
  * Hand-crafting while the players walk and mine (it only uses
  * `DETERMINISM_KIT` items, so the mined ore stays untouched).
  */
@@ -274,7 +337,7 @@ function craftPhase(): Command[] {
 
 /** Phase 1: player 0 builds, then each player walks to a starting ore patch and mines it. */
 function scriptedPhase(): Command[] {
-  const commands: Command[] = [...buildPhase(), ...craftPhase()];
+  const commands: Command[] = [...buildPhase(), ...craftPhase(), ...chainPhase()];
   const patches = startingPatches(DETERMINISM_SEED);
   for (let id = 0; id < DETERMINISM_PLAYERS; id++) {
     const patch = patches[id]!;

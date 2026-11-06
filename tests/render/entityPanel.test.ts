@@ -31,6 +31,13 @@ describe('entity panel', () => {
 
   it('names every machine state', () => {
     expect(statusView(MachineState.Working)).toEqual({ key: 'working', text: 'Working' });
+    expect(statusView(MachineState.Working, EntityTypeId.StoneFurnace).text).toBe('Working');
+    // A working inserter is swinging its arm.
+    expect(statusView(MachineState.Working, EntityTypeId.BurnerInserter)).toEqual({
+      key: 'swinging',
+      text: 'Swinging',
+    });
+    expect(statusView(MachineState.NoFuel, EntityTypeId.BurnerInserter).text).toBe('No fuel');
     expect(statusView(MachineState.NoInput).text).toBe('No input');
     expect(statusView(MachineState.NoFuel).text).toBe('No fuel');
     expect(statusView(MachineState.OutputFull).text).toBe('Output full');
