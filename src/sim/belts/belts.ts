@@ -35,9 +35,9 @@
  * src/sim/entities/build.ts), and the removal is refused if they don't fit.
  *
  * Other systems move items with `insertAt`, `takeAt`, `peekAt` and `peekEnd`
- * on a line and lane, and `beltLine`/`beltOffset` find a belt's line and its
- * stretch of it. The generic item hooks put items onto the middle of a belt
- * (see `insert`). Notifications (`entities.notify`): every tick a lane of a
+ * on a line and lane, and `beltLine`/`beltOffset`/`beltEnd` find a belt's
+ * line and its stretch of it. The generic item hooks put items onto the
+ * middle of a belt (see `insert`). Notifications (`entities.notify`): every tick a lane of a
  * line changes (items move, arrive or leave), the line notifies those of its
  * watched belts, the ones something subscribed to (the `watched` hook keeps
  * that list per line), that the change could affect: the stretch of the lane
@@ -161,6 +161,19 @@ export class BeltTable implements EntityTypeTable {
   /** Distance from the end of belt `belt`'s line to the belt's end edge (it spans 256 from there). */
   beltOffset(belt: number): number {
     return this.beltIndex(belt) * BELT_LENGTH;
+  }
+
+  /**
+   * The farthest distance from the end of belt `belt`'s line that still
+   * counts as on the belt: `beltOffset + 255`, except for the belt at the
+   * line's start, which also holds everything at or past its start edge
+   * (`pos == line.length`, where a loop hands items on to its own start and
+   * `insertAt` may put them, or further back, where a rebuild may push them).
+   * That is where the renderer draws them too (`TransportLine.beltIndexAt`).
+   */
+  beltEnd(belt: number): number {
+    const row = this.row(belt);
+    return this.rowEnd(this.lineMap.get(this.lineCol[row]!), this.indexCol[row]!);
   }
 
   /** How belt `belt` is drawn. */
@@ -462,11 +475,20 @@ export class BeltTable implements EntityTypeTable {
     // Waking may subscribe again (appending to `list`); only the first `n` were there before.
     for (let i = 0; i < n; i++) {
       const belt = list[i]!;
-      const start = this.indexCol[this.row(belt)]! * BELT_LENGTH;
-      if (hi >= start - BELT_ITEM_SPACING && lo <= start + BELT_LENGTH + BELT_ITEM_SPACING) {
+      const index = this.indexCol[this.row(belt)]!;
+      const start = index * BELT_LENGTH;
+      const end = this.rowEnd(line, index);
+      if (hi >= start - BELT_ITEM_SPACING && lo <= end + 1 + BELT_ITEM_SPACING) {
         entities.notify(belt);
       }
     }
+  }
+
+  /** See `beltEnd`: the last distance the belt at `index` of `line` holds. */
+  private rowEnd(line: TransportLine | undefined, index: number): number {
+    return line && index === line.belts.length - 1
+      ? Number.MAX_SAFE_INTEGER
+      : index * BELT_LENGTH + BELT_LENGTH - 1;
   }
 
   private notifyBelt(belt: number): void {

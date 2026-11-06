@@ -11,7 +11,9 @@
  * - picking up: a chest's first slot holding something the target accepts,
  *   a furnace's output, a drill's held unit (the `outputSlot` hook), or the
  *   item closest to the end of the belt's left lane, else its right lane,
- *   within the belt's own tile (`BeltTable.takeAt`);
+ *   within the belt's own tile (`BeltTable.takeAt` from `beltOffset` to
+ *   `beltEnd`, which for the belt at a line's start includes items at or
+ *   past its start edge);
  * - dropping: the target's `insert` hook (a chest stores it, a furnace puts
  *   ores into its input and fuel into its fuel slot when the input doesn't
  *   take it, a drill or inserter only takes fuel), or the middle of the
@@ -374,14 +376,15 @@ export class InserterTable implements EntityTypeTable {
   /**
    * Takes one unit `accept` accepts out of entity `source`; returns its item
    * id, or 0 if there is none. Belts: the item closest to the end of the
-   * left lane, else of the right lane, on the belt's own tile.
+   * left lane, else of the right lane, on the belt's own tile (see
+   * `BeltTable.beltEnd`).
    */
   private takeFrom(source: number, accept: (item: number) => boolean, entities: Entities): number {
     const belts = beltTable(entities);
     if (belts && entities.store.type(source) === EntityTypeId.TransportBelt) {
       const line = belts.beltLine(source);
       const from = belts.beltOffset(source);
-      const to = from + BELT_LENGTH - 1;
+      const to = belts.beltEnd(source);
       for (let lane = 0; lane < 2; lane++) {
         const item = belts.peekAt(line, lane, from, to);
         if (item !== 0 && accept(item)) return belts.takeAt(line, lane, from, to);

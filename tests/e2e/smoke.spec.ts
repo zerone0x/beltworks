@@ -38,3 +38,26 @@ test('page loads, renders a canvas, and logs no errors', async ({ page }, testIn
   });
   expect(errors).toEqual([]);
 });
+
+test('H and the hint in the corner show the controls; Escape hides them', async ({ page }) => {
+  await page.goto('./');
+  const hint = page.locator('#help-hint');
+  const help = page.locator('#help-panel');
+  await expect(hint).toBeVisible();
+  await expect(hint).toHaveText('H: controls');
+  await expect(help).toBeHidden();
+
+  await page.keyboard.press('h');
+  await expect(help).toBeVisible();
+  for (const text of ['WASD', 'Hold right mouse', 'Left click / drag', 'R', 'Esc']) {
+    await expect(help.getByRole('cell', { name: text, exact: true })).toBeVisible();
+  }
+  await page.keyboard.press('h');
+  await expect(help).toBeHidden();
+
+  await hint.click();
+  await expect(help).toBeVisible();
+  // The hint gives the keyboard back to the game: Escape still reaches the windows.
+  await page.keyboard.press('Escape');
+  await expect(help).toBeHidden();
+});

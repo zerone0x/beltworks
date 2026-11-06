@@ -342,6 +342,34 @@ describe('burner inserter', () => {
     expect(s.entities.wake.watchersOf(belt)).toEqual([inserter]);
   });
 
+  it('picks up an item at the very start of a line (pos == line.length)', () => {
+    const s = setup();
+    // Two belts running east on (2..3, 2); the inserter south of the first
+    // one, the line's start, facing south into a chest.
+    const start = s.place(ItemId.TransportBelt, 2, 2, East);
+    s.place(ItemId.TransportBelt, 3, 2, East);
+    const inserter = s.place(ItemId.BurnerInserter, 2, 3, South);
+    const chest = s.place(ItemId.WoodenChest, 2, 4);
+    s.entities.insert(inserter, COAL, 1);
+    s.step();
+    expect(s.entities.status(inserter)).toBe(InserterState.WaitingForSource);
+    const belts = beltTable(s.entities)!;
+    const line = belts.line(belts.beltLine(start))!;
+    expect(belts.beltOffset(start)).toBe(BELT_LENGTH);
+    expect(belts.beltEnd(start)).toBeGreaterThanOrEqual(line.length);
+    expect(belts.beltEnd(s.entities.at(3, 2))).toBe(BELT_LENGTH - 1);
+    // An item put exactly on the start edge, where a loop hands items on to its
+    // own start: the inserter's next step (before the belt moves it) takes it.
+    expect(belts.insertAt(line.id, BeltLane.Left, line.length, ORE)).toBe(true);
+    expect(belts.itemsOn(start)).toEqual([
+      { lane: BeltLane.Left, offset: BELT_LENGTH, moved: 0, item: ORE },
+    ]);
+    s.table.update(s.entities);
+    expect(s.hand(inserter)).toEqual({ held: ORE, arm: 1 });
+    s.step(INSERTER_SWING_TICKS);
+    expect(s.count(chest, ORE)).toBe(1);
+  });
+
   it('takes plates out of a furnace into a chest as they are made', () => {
     const s = setup();
     const furnace = s.place(ItemId.StoneFurnace, 2, 1);
