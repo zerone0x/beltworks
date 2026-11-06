@@ -25,6 +25,7 @@ import { EntityLayer, GhostLayer, type Ghost } from './entityLayer';
 import { InserterLayer } from './inserterLayer';
 import { PlayerLayer } from './playerLayer';
 import { PlayerTrack } from './playerTrack';
+import { PowerLayer, powerFocus } from './powerLayer';
 import { TerrainLayer, type TileInfo } from './terrainLayer';
 
 export interface HoveredTile extends Point {
@@ -46,6 +47,8 @@ export class GameView {
   readonly belts = new BeltLayer();
   /** Inserter arms and what they hold, above the buildings. */
   readonly inserters = new InserterLayer();
+  /** Wires between poles, and the supply area / reach overlay of the pole in focus. */
+  readonly power = new PowerLayer();
   readonly ghost = new GhostLayer();
   /** Interpolated player positions from the snapshots. */
   readonly track = new PlayerTrack();
@@ -70,7 +73,9 @@ export class GameView {
       this.belts.itemContainer,
       this.entities.container,
       this.inserters.container,
+      this.power.container,
       this.players.container,
+      this.power.overlayContainer,
       this.ghost.container,
     );
     app.stage.addChild(this.world);
@@ -88,6 +93,7 @@ export class GameView {
     this.entityIndex.apply(snapshot.entities);
     this.belts.apply(snapshot.belts, snapshot.tick, performance.now());
     this.inserters.apply(snapshot.inserters, performance.now());
+    this.power.apply(snapshot.power);
   }
 
   /**
@@ -118,9 +124,15 @@ export class GameView {
     return checkPlacement(view, proto, x, y, dir, px, py) === Placement.Ok;
   }
 
-  /** Shows the ghost preview, or hides it for `null`. */
+  /**
+   * Shows the ghost preview, or hides it for `null`, together with the power
+   * overlay of a pole ghost or (with no ghost) of the pole under the pointer.
+   */
   drawGhost(ghost: Ghost | null): void {
     this.ghost.draw(ghost);
+    const tile = this.hoveredTile();
+    const hovered = tile && this.entityIndex.at(tile.x, tile.y);
+    this.power.drawOverlay(powerFocus(ghost, hovered, this.power.data));
   }
 
   /** Locks the camera onto the local player again. */
@@ -151,6 +163,7 @@ export class GameView {
     this.belts.draw(now);
     this.entities.draw(this.entityIndex);
     this.inserters.draw(now);
+    this.power.drawWires();
     this.players.draw(this.track, now);
   }
 

@@ -9,6 +9,7 @@ import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
 import { reaches } from './entities/build';
 import { InserterState, inserterTable } from './entities/inserter';
 import type { ChunkRange } from './entities/occupancy';
+import { powerGrid } from './power/grid';
 import type { SimState } from './state';
 import { CHUNK_AREA } from './world/chunk';
 
@@ -295,6 +296,114 @@ export function decodeInserters(buffer: ArrayBuffer): InserterData[] {
       arm: v[o + InserterField.arm]!,
       held: v[o + InserterField.held]!,
       swing: v[o + InserterField.swing]!,
+    });
+  }
+  return out;
+}
+
+/** Int32 fields per pole in {@link encodePower}. */
+export const POLE_STRIDE = 5;
+/** Int32 fields per network in {@link encodePower}. */
+export const NETWORK_STRIDE = 5;
+
+/**
+ * Encodes the electric grid around the view as int32s, in three sections:
+ * - `[poleCount]`, then per pole whose tile lies in the chunks of `range`
+ *   (in the order of `encodeEntities`) `[id, type, x, y, network]`;
+ * - `[wireCount]`, then per wire between two of those poles `[a, b]` (pole
+ *   ids, `a < b`, in pole order). Wires to poles outside the range are left
+ *   out: wires are at most 7 tiles long and the range has a one-chunk margin
+ *   around the viewport, so none of them would show;
+ * - `[networkCount]`, then per network of those poles (ascending ids) `[id,
+ *   poles, demand, supply, satisfaction]` as of the latest tick (joules are
+ *   uint32s stored bit for bit).
+ */
+export function encodePower(state: SimState, range: ChunkRange | null): Int32Array<ArrayBuffer> {
+  const grid = powerGrid(state.entities);
+  if (range === null || !grid) {
+    return new Int32Array(3);
+  }
+  const { store, occupancy } = state.entities;
+  const poles = occupancy.originsIn(range).filter((id) => grid.isPole(id));
+  const inRange = new Set(poles);
+  const out: number[] = [poles.length];
+  const nets = new Set<number>();
+  for (const id of poles) {
+    const net = grid.networkOfPole(id);
+    nets.add(net);
+    out.push(id, store.type(id), store.x(id), store.y(id), net);
+  }
+  const wires: number[] = [];
+  for (const id of poles) {
+    for (const n of grid.neighbours(id)) {
+      if (n > id && inRange.has(n)) wires.push(id, n);
+    }
+  }
+  out.push(wires.length / 2, ...wires);
+  const sorted = [...nets].sort((a, b) => a - b);
+  out.push(sorted.length);
+  for (const net of sorted) {
+    const n = grid.network(net)!;
+    out.push(net, n.poles, n.demand | 0, n.supply | 0, n.satisfaction);
+  }
+  return Int32Array.from(out);
+}
+
+/** A pole as decoded on the main thread. */
+export interface PoleData {
+  id: number;
+  /** Entity type id (a pole prototype). */
+  type: number;
+  x: number;
+  y: number;
+  network: number;
+}
+
+/** A network as decoded on the main thread. */
+export interface NetworkData {
+  id: number;
+  poles: number;
+  demand: number;
+  supply: number;
+  /** In units of 1/`SAT_ONE`. */
+  satisfaction: number;
+}
+
+/** The grid around the view as decoded on the main thread. */
+export interface PowerData {
+  poles: PoleData[];
+  /** Wired pole pairs `[a, b]` with `a < b`. */
+  wires: [number, number][];
+  networks: NetworkData[];
+}
+
+/** Unpacks a buffer made by {@link encodePower}. */
+export function decodePower(buffer: ArrayBuffer): PowerData {
+  const v = new Int32Array(buffer);
+  const out: PowerData = { poles: [], wires: [], networks: [] };
+  let o = 0;
+  const poleCount = v[o++] ?? 0;
+  for (let i = 0; i < poleCount && o + POLE_STRIDE <= v.length; i++, o += POLE_STRIDE) {
+    out.poles.push({
+      id: v[o]! >>> 0,
+      type: v[o + 1]!,
+      x: v[o + 2]!,
+      y: v[o + 3]!,
+      network: v[o + 4]! >>> 0,
+    });
+  }
+  const wireCount = v[o++] ?? 0;
+  for (let i = 0; i < wireCount && o + 2 <= v.length; i++, o += 2) {
+    out.wires.push([v[o]! >>> 0, v[o + 1]! >>> 0]);
+  }
+  const netCount = v[o++] ?? 0;
+  for (let i = 0; i < netCount && o + NETWORK_STRIDE <= v.length; i++, o += NETWORK_STRIDE) {
+    out.networks.push({
+      id: v[o]! >>> 0,
+      poles: v[o + 1]!,
+      demand: v[o + 2]! >>> 0,
+      supply: v[o + 3]! >>> 0,
+      satisfaction: v[o + 4]!,
     });
   }
   return out;

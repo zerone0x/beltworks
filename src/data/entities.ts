@@ -6,11 +6,12 @@
  * state hashes.
  *
  * Chests, furnaces, burner mining drills and burner inserters have their own
- * tables and behavior (src/sim/entities/), belts theirs in src/sim/belts/.
- * The power entities (small electric pole, boiler, steam engine, electric
- * mining drill, electric inserter) are prototype stubs for now: they carry
- * the shared M2 design numbers, but no table gives them behavior yet, so
- * they are plain placeholders when placed.
+ * tables and behavior (src/sim/entities/), belts theirs in src/sim/belts/,
+ * small electric poles theirs (the power grid) in src/sim/power/. The other
+ * power entities (boiler, steam engine, electric mining drill, electric
+ * inserter) are prototype stubs for now: they carry the shared M2 design
+ * numbers, but no table gives them behavior yet, so they are plain
+ * placeholders when placed.
  *
  * Energy is in integer joules; a burner entity burns `energyPerTick` joules on
  * every tick it works (60 ticks/s, so 1 500 J/tick is 90 kW). An electric

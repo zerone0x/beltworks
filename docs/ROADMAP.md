@@ -30,24 +30,28 @@ Met: `tests/e2e/player.spec.ts` and `render.spec.ts` (walking, zooming, hand-min
 
 Met: `tests/e2e/chain.spec.ts` builds that chain from a new game with real input, fuels it through the entity windows, and waits for plates in the chest ([screenshot](screenshots/m1-chain.png)); the determinism scenario runs the same chain on stone (bricks) in Node and Chromium; `tests/sim/belts.test.ts` measures exactly 7.5 items/s per lane and 15 per belt, also end to end with drills saturating a belt. Deviations from the plan are recorded in [DECISIONS.md](DECISIONS.md) (D10–D17).
 
-## M2 — Production chains and research
+## M2 — Power
+
+- [x] Small electric poles with union-find power networks and the power solver (satisfaction per network, producers deliver what is drawn)
+- [x] Power items and recipes; trees and wood
+- [ ] Boiler + steam engine
+- [ ] Electric mining drill, electric inserter
+- [ ] Machines slow down in proportion to missing power; power panel with a supply/demand graph
+
+**Done when:** machines visibly slow down when power runs short and recover once more generators are added.
+
+Power comes before production chains because assemblers and labs are electric ([DECISIONS.md](DECISIONS.md), D20).
+
+## M3 — Production chains and research
 
 - [ ] Assembler (with a recipe picker) and lab
 - [ ] Item and recipe tables (~30 items) with a craftability test
 - [ ] Tech tree UI and research progress
 - [ ] Red and green science
 - [ ] Underground belts, splitters, belt tiers
-- [ ] Iron chest and the other inserter types
+- [ ] Iron chest and the other inserter types (fast, long-handed; the electric inserter comes with M2)
 
 **Done when:** you can go from nothing to automated red and green science and finish researching it.
-
-## M3 — Power
-
-- [ ] Boiler + steam engine + poles, with union-find power networks
-- [ ] Electric mining drill, electric inserter
-- [ ] Machines slow down in proportion to missing power; power panel with a supply/demand graph
-
-**Done when:** machines visibly slow down when power runs short and recover once more generators are added.
 
 ## M4 — Performance
 

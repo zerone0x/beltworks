@@ -18,6 +18,7 @@ import {
   PlayerField,
   PLAYER_STRIDE,
   type CraftQueueData,
+  type PowerData,
   type SlotData,
 } from './sim/snapshot';
 import { World } from './sim/world/world';
@@ -82,6 +83,17 @@ export interface InserterView {
   swing: number;
 }
 
+/** The power overlay, as last drawn. */
+export interface PowerFocusState {
+  /** `ghost` for a pole about to be placed, `pole` for a placed pole under the pointer. */
+  kind: 'ghost' | 'pole';
+  name: string;
+  x: number;
+  y: number;
+  /** Poles it is (or would be) wired to. */
+  connects: number[];
+}
+
 /** The ghost preview, as last drawn. */
 export interface GhostState {
   name: string;
@@ -132,6 +144,10 @@ export interface BeltworksTestHook {
    * lane goes on at a time). Returns false if the renderer knows no belt there.
    */
   dropOnBelt(x: number, y: number, item: number, count?: number): boolean;
+  /** Electric poles around the view with their networks, the wires between them, and the networks. */
+  power(): PowerData;
+  /** The pole whose supply area and wire reach the overlay shows, or `null`. */
+  powerFocus(): PowerFocusState | null;
   /** The ghost preview, or `null` when none is shown. */
   ghost(): GhostState | null;
   /** The hotbar slot selected for building, or `null`. */
@@ -245,6 +261,13 @@ export function installTestHook({
         { type: 'Insert', playerId: LOCAL_PLAYER_ID, entity: entity.id, item, count },
       ]);
       return true;
+    },
+    power: () => structuredClone(view.power.data),
+    powerFocus: () => {
+      const f = view.power.focus;
+      return (
+        f && { kind: f.kind, name: f.proto.name, x: f.x, y: f.y, connects: f.connects.slice() }
+      );
     },
     ghost: () => {
       const g = build.ghost;

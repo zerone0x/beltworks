@@ -5,6 +5,7 @@
  */
 
 import { BeltTable } from '../belts/belts';
+import { PowerGrid } from '../power/grid';
 import { ChestTable } from './chest';
 import { DrillTable } from './drill';
 import { FurnaceTable } from './furnace';
@@ -19,5 +20,6 @@ export function createEntityTables(): EntityTypeTable[] {
     new DrillTable(),
     new BeltTable(),
     new InserterTable(),
+    new PowerGrid(),
   ];
 }

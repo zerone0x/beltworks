@@ -13,6 +13,7 @@ import {
   encodeInserters,
   encodeInventory,
   encodePlayers,
+  encodePower,
 } from '../sim/snapshot';
 import { Sim } from '../sim/tick';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
@@ -95,6 +96,7 @@ function sendSnapshot(ticksRun: number): void {
   const entities = encodeEntities(sim.state, batch?.window ?? null);
   const belts = encodeBelts(sim.state, batch?.window ?? null);
   const inserters = encodeInserters(sim.state, batch?.window ?? null);
+  const power = encodePower(sim.state, batch?.window ?? null);
   const detail = inspected !== 0 ? encodeEntityDetail(sim.state, LOCAL_PLAYER_ID, inspected) : null;
   const transfer: Transferable[] = [
     players.buffer,
@@ -103,6 +105,7 @@ function sendSnapshot(ticksRun: number): void {
     entities.buffer,
     belts.buffer,
     inserters.buffer,
+    power.buffer,
   ];
   if (chunks) transfer.push(chunks);
   if (detail) transfer.push(detail.buffer);
@@ -118,6 +121,7 @@ function sendSnapshot(ticksRun: number): void {
       entities: entities.buffer,
       belts: belts.buffer,
       inserters: inserters.buffer,
+      power: power.buffer,
       chunkWindow: batch?.window ?? null,
       chunks,
       inspected,

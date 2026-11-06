@@ -15,6 +15,7 @@ import { furnaceTable } from './entities/furnace';
 import { inserterTable } from './entities/inserter';
 import { insertIntoEntity, takeFromEntity } from './entities/transfer';
 import { updatePlayers } from './player';
+import { powerGrid } from './power/grid';
 import { createSimState, hashState, type SimOptions, type SimState } from './state';
 
 export interface System {
@@ -27,7 +28,7 @@ const stub = (name: string): System => ({ name, run: () => {} });
 /** Per-tick update order. Changing it changes the state hash. */
 export const SYSTEMS: readonly System[] = [
   { name: 'commands', run: (sim, commands) => commands.forEach((c) => applyCommand(sim.state, c)) },
-  stub('power'),
+  { name: 'power', run: ({ state }) => powerGrid(state.entities)?.update(state.entities) },
   {
     name: 'drills',
     run: ({ state }) => drillTable(state.entities)?.update(state.entities, state.world),
