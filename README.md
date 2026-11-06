@@ -55,8 +55,10 @@ Requires Node.js 22 (see `.nvmrc`).
 npm ci
 npm run dev        # start the Vite dev server
 npm run lint       # ESLint (including the src/sim purity rules) + Prettier check
-npm run typecheck  # tsc --noEmit
+npm run typecheck  # tsc --noEmit (app and tools/bench)
 npm test           # Vitest unit tests (tests/sim, tests/worker, tests/render)
+npm run test:bench # Vitest tests of the benchmark tooling (tests/bench)
+npm run bench      # headless tick-time benchmark (see docs/TOOLING.md, "Benchmarks")
 npm run build      # production build into dist/ (set BASE_PATH to change the base URL, default /)
 npm run preview    # serve dist/
 npm run test:e2e   # Playwright tests against a fresh test-mode build (Chromium)

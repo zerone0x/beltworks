@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "createdAt": "2026-11-06T13:29:17.558Z",
+  "commit": "5ac8c9df5af6facaf0a4c1455ed35cb5f84dd0ab",
+  "environment": {
+    "node": "v22.23.4",
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "AMD EPYC 9V45 96-Core Processor",
+    "cpus": 2
+  },
+  "scenes": [
+    {
+      "name": "1k",
+      "description": "1 000 entities: 48 drill → belt → inserter → furnace → inserter → chest cells on the 4 starting ore patches, and 18 belt loops with coal cycling through 56 inserter/chest exchange units",
+      "entities": 1000,
+      "entityCounts": {
+        "wooden-chest": 160,
+        "burner-inserter": 264,
+        "stone-furnace": 48,
+        "transport-belt": 480,
+        "burner-mining-drill": 48
+      },
+      "beltItems": 432,
+      "setupTicks": 4101,
+      "warmupTicks": 600,
+      "measuredTicks": 3600,
+      "warmupRuns": 3,
+      "targetMeanMs": 1,
+      "meanMs": 0.010234405555554594,
+      "p50Ms": 0.007661999999982072,
+      "p99Ms": 0.020392000000128974,
+      "maxMs": 2.052804000000151,
+      "ticksPerSecond": 97709.63194411059,
+      "runs": [
+        {
+          "meanMs": 0.011525845277778298,
+          "p50Ms": 0.007491999999956533,
+          "p99Ms": 0.019350000000031287,
+          "maxMs": 2.2305129999999735,
+          "ticksPerSecond": 86761.53252967822
+        },
+        {
+          "meanMs": 0.011708515833333183,
+          "p50Ms": 0.007732000000032713,
+          "p99Ms": 0.018749999999954525,
+          "maxMs": 2.5369040000000496,
+          "ticksPerSecond": 85407.92139966042
+        },
+        {
+          "meanMs": 0.010234405555554594,
+          "p50Ms": 0.007661999999982072,
+          "p99Ms": 0.020392000000128974,
+          "maxMs": 2.052804000000151,
+          "ticksPerSecond": 97709.63194411059
+        },
+        {
+          "meanMs": 0.008387988888888585,
+          "p50Ms": 0.007491999999956533,
+          "p99Ms": 0.01695700000004763,
+          "maxMs": 0.6171289999999772,
+          "ticksPerSecond": 119218.0882982191
+        },
+        {
+          "meanMs": 0.009612267222221553,
+          "p50Ms": 0.007732000000032713,
+          "p99Ms": 0.02053200000000288,
+          "maxMs": 2.0975439999999708,
+          "ticksPerSecond": 104033.72865958294
+        }
+      ],
+      "activity": {
+        "machineStates": {
+          "wooden-chest": {
+            "Idle": 160
+          },
+          "burner-inserter": {
+            "WaitingForSource": 93,
+            "Working": 171
+          },
+          "stone-furnace": {
+            "NoInput": 19,
+            "Working": 29
+          },
+          "transport-belt": {
+            "Idle": 480
+          },
+          "burner-mining-drill": {
+            "Depleted": 3,
+            "Working": 45
+          }
+        },
+        "activeBeltLanes": 18
+      },
+      "hash": "0x17ef62e1"
+    }
+  ]
+}

@@ -200,7 +200,7 @@ A wake-up only puts the inserter back on the active list; its next tick runs fro
   - The hash covers the tick counter, seed, PRNG state, every entity table (players, crafting queues, the generic entity table, occupancy, the per-type tables including belt lines and lanes, wake subscriptions), and the world (through its `hashInto` hook). Commands queued for future ticks are input, not state, and are not hashed.
 - **System unit tests:** belt throughput (exact items per second for each tier, `tests/sim/belts.test.ts`), inserter swing timing and energy (`tests/sim/inserter.test.ts`), assembler output rate.
 - **Replays:** Command logs are recorded and can be replayed to debug.
-- **Benchmarks:** fixed scenes (1k / 10k / 50k entities) measure mean and P99 tick time, and CI reports regressions.
+- **Benchmarks:** fixed scenes (1k / 10k / 50k entities) measure mean and P99 tick time, and CI reports regressions. The runner lives in `tools/bench/` and builds every scene through Commands only; the 1k scene exists so far (see docs/TOOLING.md, "Benchmarks").
 
 ## Multiplayer (v2+, reserved)
 
