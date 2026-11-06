@@ -7,7 +7,7 @@ import type { SimState } from './state';
 import { CHUNK_AREA } from './world/chunk';
 
 /** Int32 fields per player in {@link encodePlayers}. */
-export const PLAYER_STRIDE = 5;
+export const PLAYER_STRIDE = 6;
 /** Field offsets within one player record. */
 export const PlayerField = {
   x: 0,
@@ -15,11 +15,13 @@ export const PlayerField = {
   mining: 2,
   mineX: 3,
   mineY: 4,
+  mineProgress: 5,
 } as const;
 
 /**
  * Encodes every player as `PLAYER_STRIDE` int32s:
- * `[x, y, mining, mineX, mineY]` (positions in subtiles, mine target in tiles).
+ * `[x, y, mining, mineX, mineY, mineProgress]` (positions in subtiles, mine
+ * target in tiles, progress in ticks out of `HAND_MINING_TICKS`).
  */
 export function encodePlayers(state: SimState): Int32Array<ArrayBuffer> {
   const p = state.players;
@@ -30,6 +32,37 @@ export function encodePlayers(state: SimState): Int32Array<ArrayBuffer> {
     out[o + PlayerField.mining] = p.mining[i]!;
     out[o + PlayerField.mineX] = p.mineX[i]!;
     out[o + PlayerField.mineY] = p.mineY[i]!;
+    out[o + PlayerField.mineProgress] = p.mineProgress[i]!;
+  }
+  return out;
+}
+
+/**
+ * Encodes player `playerId`'s inventory as uint16 pairs `[item, count]`, one
+ * per slot (`PLAYER_INVENTORY_SLOTS` slots).
+ */
+export function encodeInventory(state: SimState, playerId: number): Uint16Array<ArrayBuffer> {
+  const inv = state.players.inventory(playerId);
+  const out = new Uint16Array(inv.slots * 2);
+  for (let i = 0; i < inv.slots; i++) {
+    out[2 * i] = inv.items[i]!;
+    out[2 * i + 1] = inv.counts[i]!;
+  }
+  return out;
+}
+
+/** One inventory slot as decoded on the main thread; `item` 0 is an empty slot. */
+export interface SlotData {
+  item: number;
+  count: number;
+}
+
+/** Unpacks a buffer made by {@link encodeInventory}. */
+export function decodeInventory(buffer: ArrayBuffer): SlotData[] {
+  const view = new Uint16Array(buffer, 0, (buffer.byteLength >> 2) << 1);
+  const out: SlotData[] = [];
+  for (let i = 0; i + 1 < view.length; i += 2) {
+    out.push({ item: view[i]!, count: view[i + 1]! });
   }
   return out;
 }

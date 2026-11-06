@@ -3,8 +3,9 @@
  */
 
 import { ResourceId } from '../../data/resources';
+import { isWalkable } from '../../data/tiles';
 import { FNV1A32_OFFSET_BASIS, fnv1a32 } from '../hash';
-import { CHUNK_MASK, CHUNK_SHIFT, type Chunk } from './chunk';
+import { CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, type Chunk } from './chunk';
 import { generateChunk } from './generate';
 
 /**
@@ -102,6 +103,24 @@ export class World {
     const key = chunkKey(cx, cy);
     if (this.dirty.has(key)) return false;
     return this.chunks.delete(key);
+  }
+
+  /**
+   * True if world tile `(x, y)` lies in the supported map range, i.e. its
+   * chunk can be generated. The tile accessors throw for tiles outside it.
+   */
+  isTileInRange(x: number, y: number): boolean {
+    return (
+      Number.isInteger(x) &&
+      Number.isInteger(y) &&
+      isChunkCoord(Math.floor(x / CHUNK_SIZE)) &&
+      isChunkCoord(Math.floor(y / CHUNK_SIZE))
+    );
+  }
+
+  /** Whether players can walk on tile `(x, y)`. Tiles outside the map range are not walkable. */
+  isWalkable(x: number, y: number): boolean {
+    return this.isTileInRange(x, y) && isWalkable(this.tileAt(x, y));
   }
 
   /** Tile id at world tile `(x, y)` (integers). */

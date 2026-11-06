@@ -57,6 +57,8 @@ test('wheel zooms towards the cursor, arrows and middle-drag pan, without errors
 }) => {
   const errors = collectErrors(page);
   await open(page);
+  // Free the camera from the player: only a free camera zooms towards the cursor.
+  await page.evaluate(() => window.__beltworks!.setCamera(0, 0, 1));
   const size = page.viewportSize()!;
   const worldAt = (cam: { x: number; y: number; zoom: number }, sx: number, sy: number) => ({
     x: cam.x + (sx - size.width / 2) / cam.zoom,

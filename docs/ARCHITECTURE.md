@@ -75,6 +75,12 @@ This is Factorio's core optimization, and it has to be there from day one:
 - Each tick, for each network: `satisfaction = min(1, supply / demand)` as an integer ratio, and machines slow down in proportion.
 - Generators produce only what is demanded and burn fuel in proportion.
 
+### Players
+- `PlayerTable` (`src/sim/player.ts`) holds every player as columns: position in subtiles, movement intent, mining target and progress, and a 40-slot inventory (`src/sim/inventory.ts`, item id and count per slot as `Uint16Array`s; stack sizes come from `src/data/items.ts`).
+- Movement: a constant integer speed (38 subtiles/tick, 27 per axis diagonally). The player is a 0.4-tile box that can't overlap a non-walkable tile (water); each axis is resolved separately, so pushing diagonally into a shore slides along it.
+- Hand-mining: `MineStart {x, y}` sets a target tile. While the tile's center is within 2.5 tiles of the player (an exact integer comparison of squared distances), one unit is mined every 30 ticks, taken out of the world (`World.mine`) and added to the inventory. Out of reach, mining pauses with its progress reset and resumes once the player is back; a depleted tile, a tile without a resource, or an inventory with no room for the item ends it. `MineStop` cancels.
+- On the main thread, WASD and the right mouse button become commands only when they change (`src/render/playerInput.ts`). The renderer draws players between ticks by gliding from where they are drawn to each new snapshot position (`src/render/playerTrack.ts`), and the camera follows the local player until the user pans.
+
 ### Prototypes and data
 - Every prototype (item, entity, recipe, technology) is defined in `src/data/*.ts` and compiled at startup into numeric-id tables.
 - The data is validated, and a test checks that every item can be crafted from raw resources.
@@ -90,7 +96,7 @@ This is Factorio's core optimization, and it has to be there from day one:
 - Zooming out past a threshold switches to a "map mode" of flat colors.
 
 ### Worker protocol
-- Messages are typed in `src/worker/protocol.ts`. Main → worker: `init {seed}`, `commands [...]`, `setViewport {x, y, w, h}` (tiles). Worker → main: `snapshot`, `stats {tick, tickMs, droppedTicks}`, `error`.
+- Messages are typed in `src/worker/protocol.ts`. Main → worker: `init {seed}`, `commands [...]`, `setViewport {x, y, w, h}` (tiles). Worker → main: `snapshot`, `stats {tick, tickMs, droppedTicks}`, `error`. Each snapshot carries every player (`encodePlayers`) and the inventory of the local player (`encodeInventory`; the main thread is player `LOCAL_PLAYER_ID` = 0).
 - The main thread sends commands without a tick; the worker stamps each one with the next tick it will run, so a command can never land on a tick that already ran.
 - The worker loop (`src/worker/loop.ts`) accumulates wall time and runs whole 60 Hz ticks, at most 5 per wake-up; any further backlog is dropped.
 - **One snapshot per wake-up, not per tick.** When the worker catches up several ticks at once, only the newest state is useful for rendering; the snapshot carries `ticksRun` so the renderer can tell. At full speed a wake-up runs one tick, so this is usually one snapshot per tick.
