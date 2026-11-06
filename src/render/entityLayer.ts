@@ -1,9 +1,10 @@
 /**
  * Draws the entities (placeholder shapes in each prototype's color, with a
  * direction marker on rotatable ones, a firebox on furnaces that glows while
- * they work, and a drill head on mining drills that lights up while they
- * work) and the ghost preview of the entity about to be placed.
- * Placed belts are drawn by the belt layer (beltLayer.ts) instead.
+ * they work, a drill head on mining drills that lights up while they work,
+ * and a small platform for inserters) and the ghost preview of the entity
+ * about to be placed. Placed belts are drawn by the belt layer (beltLayer.ts)
+ * instead, and inserter arms by the inserter layer (inserterLayer.ts).
  */
 
 import { Container, Graphics } from 'pixi.js';
@@ -50,7 +51,8 @@ export function drawEntity(
 ): void {
   const { w, h } = proto ? footprintSize(proto, dir) : { w: 1, h: 1 };
   const color = proto?.color ?? MISSING_COLOR;
-  const inset = 2;
+  // Inserters stand on a small platform, leaving room to see their arm swing.
+  const inset = proto?.id === EntityTypeId.BurnerInserter ? 7 : 2;
   const left = x * TILE_PX + inset;
   const top = y * TILE_PX + inset;
   const width = w * TILE_PX - 2 * inset;

@@ -13,8 +13,9 @@ Controls so far:
 - **1–0**: select a hotbar slot (press it again, or **Q**, to deselect). A new game starts with a kit of belts, inserters, drills, furnaces, chests and coal.
 - With a buildable item selected, a **ghost** follows the cursor: green where it can be placed, red where it can't (water, another entity, the player, or out of build reach, 10 tiles). **R** rotates it, **left click** places it (hold and drag to place a row).
 - **R** with nothing selected rotates the entity under the cursor.
-- **Left click** on a chest, furnace or mining drill with nothing to build selected opens its window: click a stack in your inventory to put it in (coal and wood go to a furnace's or drill's fuel slot, ores and stone to a furnace's input), **right-click** it to put in half, click one of its slots to take the contents. **Esc** closes it. A furnace smelts iron ore, copper ore, or two stone into a plate or brick every 3.2 s while it has fuel; its firebox glows while it works.
+- **Left click** on a chest, furnace, mining drill or inserter with nothing to build selected opens its window: click a stack in your inventory to put it in (coal and wood go to a furnace's or drill's fuel slot, ores and stone to a furnace's input), **right-click** it to put in half, click one of its slots to take the contents. **Esc** closes it. A furnace smelts iron ore, copper ore, or two stone into a plate or brick every 3.2 s while it has fuel; its firebox glows while it works.
 - A **burner mining drill** placed on ore mines one unit every 4 s while it has fuel, from the four tiles under it in turn, and puts it into the entity in front of it (the arrow shows which way it faces; a chest stores it, a furnace smelts it). With nothing there, or no room, it holds the unit and waits. Its ring lights up while it works; its window shows its fuel and whether it is working, out of fuel, blocked, or depleted.
+- A **burner inserter** takes one item at a time from the tile behind it and puts it onto the tile in front of it (the way its arrow points): out of a chest, a furnace's output, a drill or a belt, into a chest, a furnace (ores to the input, coal to the fuel), a drill (fuel only) or onto the far lane of a belt. A swing there and back takes 1.2 s and burns fuel only while the arm moves. With an empty fuel slot it takes one unit of coal from its source for itself, so an inserter next to coal starts on its own. Its window shows its fuel, the arm's position, the item in its hand, and whether it is working, out of fuel, or waiting for its source or target.
 - **Belts** move items towards the way they face. Belts in a row join up, a belt fed only from one side turns, and a belt pointing into the side of another feeds that side's lane. Removing a belt gives back the items on it.
 - **Right click** on an entity removes it and puts it back into the inventory, together with what it holds (refused if there is no room); elsewhere the right button mines as above.
 - **Middle-drag** or **arrow keys**: pan the camera freely; **F**: follow the player again.
@@ -33,6 +34,8 @@ The debug overlay shows the tile under the mouse.
 ![Hand-crafting stone furnaces from mined stone, with the queue above the hotbar](docs/screenshots/m1-crafting.png)
 
 ![Coal on a belt line with a curve and a side-loading belt](docs/screenshots/m1-belts.png)
+
+![A burner inserter swinging coal from one chest to another, with its window](docs/screenshots/m1-inserter.png)
 
 ## Docs
 

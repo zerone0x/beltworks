@@ -22,6 +22,7 @@ import { Camera, TILE_PX, type Point } from './camera';
 import { CameraInput } from './cameraInput';
 import { EntityIndex } from './entityIndex';
 import { EntityLayer, GhostLayer, type Ghost } from './entityLayer';
+import { InserterLayer } from './inserterLayer';
 import { PlayerLayer } from './playerLayer';
 import { PlayerTrack } from './playerTrack';
 import { TerrainLayer, type TileInfo } from './terrainLayer';
@@ -43,6 +44,8 @@ export class GameView {
   readonly entities = new EntityLayer();
   /** Belts and the items on them, below the other entities. */
   readonly belts = new BeltLayer();
+  /** Inserter arms and what they hold, above the buildings. */
+  readonly inserters = new InserterLayer();
   readonly ghost = new GhostLayer();
   /** Interpolated player positions from the snapshots. */
   readonly track = new PlayerTrack();
@@ -66,6 +69,7 @@ export class GameView {
       this.belts.container,
       this.belts.itemContainer,
       this.entities.container,
+      this.inserters.container,
       this.players.container,
       this.ghost.container,
     );
@@ -83,6 +87,7 @@ export class GameView {
     this.track.push(new Int32Array(snapshot.players), snapshot.ticksRun, performance.now());
     this.entityIndex.apply(snapshot.entities);
     this.belts.apply(snapshot.belts, snapshot.tick, performance.now());
+    this.inserters.apply(snapshot.inserters, performance.now());
   }
 
   /**
@@ -144,6 +149,7 @@ export class GameView {
     this.terrain.update();
     this.belts.draw(now);
     this.entities.draw(this.entityIndex);
+    this.inserters.draw(now);
     this.players.draw(this.track, now);
   }
 

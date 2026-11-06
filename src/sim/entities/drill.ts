@@ -20,9 +20,9 @@
  * Output: the unit goes to the drop tile, the tile just in front of the drill
  * (see `drillDropTile`), through the item hooks of whatever entity covers it
  * (`entities.insert`: a chest stores it, a furnace smelts ores and burns
- * coal, another drill burns coal). This is the drill's one output hook: a
- * type that implements `insert` (transport belts, once they exist) takes
- * drill output with no change here. With nothing there, or no room, the drill
+ * coal, another drill or an inserter burns coal, a transport belt puts it on
+ * the middle of its tile). This is the drill's one output hook: any type that
+ * implements `insert` takes drill output with no change here. With nothing there, or no room, the drill
  * holds the unit and stops (`OutputFull`). Mined coal never goes into the
  * drill's own fuel slot: drills are fuelled through the GUI or by inserters.
  *
@@ -36,7 +36,7 @@
  */
 
 import { ENTITIES, EntityTypeId } from '../../data/entities';
-import { minedItem, type ItemStack, type RealItemId } from '../../data/items';
+import { fuelValue, minedItem, type ItemStack, type RealItemId } from '../../data/items';
 import { fnv1a32 } from '../hash';
 import type { World } from '../world/world';
 import { BurnerColumns } from './burner';
@@ -196,6 +196,10 @@ export class DrillTable implements EntityTypeTable {
   }
 
   /** Only fuel goes in. */
+  accepts(_id: number, item: number): boolean {
+    return fuelValue(item) > 0;
+  }
+
   insertable(id: number, item: number): number {
     return this.burner.insertable(this.row(id), item);
   }
@@ -219,8 +223,9 @@ export class DrillTable implements EntityTypeTable {
     return n;
   }
 
-  outputSlot(id: number): number {
-    return this.held[this.row(id)] !== 0 ? DrillSlot.Output : -1;
+  outputSlot(id: number, accept?: (item: number) => boolean): number {
+    const held = this.held[this.row(id)]!;
+    return held !== 0 && (!accept || accept(held)) ? DrillSlot.Output : -1;
   }
 
   /** The drill system: steps every active drill by one tick. */

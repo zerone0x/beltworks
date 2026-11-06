@@ -38,10 +38,14 @@
  * on a line and lane, and `beltLine`/`beltOffset` find a belt's line and its
  * stretch of it. The generic item hooks put items onto the middle of a belt
  * (see `insert`). Notifications (`entities.notify`): every tick a lane of a
- * line changes (items move, arrive or leave), the line notifies its watched
- * belts, the ones something subscribed to (the `watched` hook keeps that list
- * per line). So a drill blocked on a full belt, or an inserter waiting for an
- * item, sleeps while the lanes there sleep and is woken while they move;
+ * line changes (items move, arrive or leave), the line notifies those of its
+ * watched belts, the ones something subscribed to (the `watched` hook keeps
+ * that list per line), that the change could affect: the stretch of the lane
+ * that changed (from the first item that moved to where the last one was,
+ * O(1) to find, or the position of an item put on or taken off) must come
+ * within `BELT_ITEM_SPACING` of the belt. So a drill blocked on a full belt,
+ * or an inserter waiting for an item, sleeps while the lanes there sleep or
+ * only move elsewhere on the line, and is woken while items move near it;
  * lines nobody watches pay nothing for it.
  */
 
@@ -203,6 +207,11 @@ export class BeltTable implements EntityTypeTable {
     return out;
   }
 
+  /** A belt carries any item. */
+  accepts(_id: number, item: number): boolean {
+    return itemPrototype(item) !== undefined;
+  }
+
   /**
    * How many units of `item` `insert` would put on the belt now: one per
    * lane with room at the middle of the belt.
@@ -278,7 +287,7 @@ export class BeltTable implements EntityTypeTable {
     const l = line.lanes[lane];
     if (!l.insert(pos, item)) return false;
     this.wakeLane(l);
-    this.notifyWatchers(line);
+    this.notifyWatchers(line, pos, pos);
     return true;
   }
 
@@ -296,7 +305,7 @@ export class BeltTable implements EntityTypeTable {
     const item = l.removeAt(i);
     this.wakeLane(l);
     this.wakeFeeders(line, lane);
-    this.notifyWatchers(line);
+    this.notifyWatchers(line, from, to);
     return item;
   }
 
@@ -376,17 +385,22 @@ export class BeltTable implements EntityTypeTable {
     const { line } = lane;
     let busy = false;
     let changed = false;
+    // The stretch of the lane that changed, as distances from the end.
+    let lo = 0;
+    let hi = 0;
     if (line.out && lane.gap(0) === 0) {
       const r = this.output(line, lane);
       busy = r !== Output.Blocked;
       changed = r === Output.Moved;
     }
     if (lane.move(BELT_SPEED) > 0) {
+      if (!changed) lo = lane.firstMovedPosition();
+      hi = lane.total + lane.movedAll + lane.movedRest;
       busy = changed = true;
     }
     if (changed) {
       this.wakeFeeders(line, lane.index);
-      this.notifyWatchers(line);
+      this.notifyWatchers(line, lo, hi);
     }
     return busy;
   }
@@ -407,7 +421,7 @@ export class BeltTable implements EntityTypeTable {
     target.insert(line.outPos, item);
     line.turn = (1 - lane.index) as BeltLane;
     this.wakeLane(target);
-    this.notifyWatchers(out);
+    this.notifyWatchers(out, line.outPos, line.outPos);
     return Output.Moved;
   }
 
@@ -429,16 +443,30 @@ export class BeltTable implements EntityTypeTable {
     }
   }
 
-  /** Notifies the watched belts of `line`, dropping those nothing watches any more. */
-  private notifyWatchers(line: TransportLine): void {
+  /**
+   * Lane items of `line` changed between distances `lo` and `hi` from its
+   * end: notifies the watched belts that come within `BELT_ITEM_SPACING` of
+   * that stretch (what an inserter picks up from, or whether something fits
+   * on the belt, can only have changed there), dropping those nothing
+   * watches any more.
+   */
+  private notifyWatchers(line: TransportLine, lo: number, hi: number): void {
     const list = line.watched;
     if (list.length === 0) return;
     const entities = this.entities!;
-    const keep = list.filter((belt) => entities.wake.isWatched(belt));
-    list.length = 0;
-    list.push(...keep);
-    // Waking may subscribe again (appending to `list`); notify the ones kept.
-    for (const belt of keep) entities.notify(belt);
+    let n = 0;
+    for (const belt of list) {
+      if (entities.wake.isWatched(belt)) list[n++] = belt;
+    }
+    list.length = n;
+    // Waking may subscribe again (appending to `list`); only the first `n` were there before.
+    for (let i = 0; i < n; i++) {
+      const belt = list[i]!;
+      const start = this.indexCol[this.row(belt)]! * BELT_LENGTH;
+      if (hi >= start - BELT_ITEM_SPACING && lo <= start + BELT_LENGTH + BELT_ITEM_SPACING) {
+        entities.notify(belt);
+      }
+    }
   }
 
   private notifyBelt(belt: number): void {

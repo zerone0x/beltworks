@@ -7,6 +7,7 @@ import { EntityTypeId } from '../data/entities';
 import { beltTable } from './belts/belts';
 import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
 import { reaches } from './entities/build';
+import { InserterState, inserterTable } from './entities/inserter';
 import type { ChunkRange } from './entities/occupancy';
 import type { SimState } from './state';
 import { CHUNK_AREA } from './world/chunk';
@@ -216,6 +217,85 @@ export function decodeBelts(buffer: ArrayBuffer): BeltData[] {
       belt.items.push({ lane: v[o]!, offset: v[o + 1]!, moved: v[o + 2]!, item: v[o + 3]! });
     }
     out.push(belt);
+  }
+  return out;
+}
+
+/** Int32 fields per inserter in {@link encodeInserters}, after the count. */
+export const INSERTER_STRIDE = 6;
+/** Field offsets within one inserter record. */
+export const InserterField = {
+  x: 0,
+  y: 1,
+  dir: 2,
+  /** Arm position in ticks from the pickup end (0) to the drop end (`INSERTER_SWING_TICKS`). */
+  arm: 3,
+  /** The item in the hand, or 0. */
+  held: 4,
+  /** How the arm moved on the last tick: +1 towards the drop end, -1 back, 0 not at all. */
+  swing: 5,
+} as const;
+
+/**
+ * Encodes the inserters whose tile lies in the chunks of `range` as int32s:
+ * `[count]`, then `INSERTER_STRIDE` fields per inserter (see
+ * {@link InserterField}), in the order of `encodeEntities`. The renderer
+ * draws the arm `swing × (1 − α)` ticks behind `arm` between ticks.
+ */
+export function encodeInserters(
+  state: SimState,
+  range: ChunkRange | null,
+): Int32Array<ArrayBuffer> {
+  const table = inserterTable(state.entities);
+  if (range === null || !table) {
+    return new Int32Array(1);
+  }
+  const { entities } = state;
+  const { store, occupancy } = entities;
+  const ids = occupancy
+    .originsIn(range)
+    .filter((id) => store.type(id) === EntityTypeId.BurnerInserter);
+  const out = new Int32Array(1 + ids.length * INSERTER_STRIDE);
+  out[0] = ids.length;
+  ids.forEach((id, i) => {
+    const o = 1 + i * INSERTER_STRIDE;
+    const { held, arm } = table.hand(id);
+    const moving = entities.status(id) === InserterState.Swinging;
+    out[o + InserterField.x] = store.x(id);
+    out[o + InserterField.y] = store.y(id);
+    out[o + InserterField.dir] = store.dir(id);
+    out[o + InserterField.arm] = arm;
+    out[o + InserterField.held] = held;
+    out[o + InserterField.swing] = moving ? (held !== 0 ? 1 : -1) : 0;
+  });
+  return out;
+}
+
+/** An inserter as decoded on the main thread. */
+export interface InserterData {
+  x: number;
+  y: number;
+  dir: number;
+  arm: number;
+  held: number;
+  swing: number;
+}
+
+/** Unpacks a buffer made by {@link encodeInserters}. */
+export function decodeInserters(buffer: ArrayBuffer): InserterData[] {
+  const v = new Int32Array(buffer);
+  const count = Math.min(v[0] ?? 0, Math.floor((v.length - 1) / INSERTER_STRIDE));
+  const out: InserterData[] = [];
+  for (let i = 0; i < count; i++) {
+    const o = 1 + i * INSERTER_STRIDE;
+    out.push({
+      x: v[o + InserterField.x]!,
+      y: v[o + InserterField.y]!,
+      dir: v[o + InserterField.dir]!,
+      arm: v[o + InserterField.arm]!,
+      held: v[o + InserterField.held]!,
+      swing: v[o + InserterField.swing]!,
+    });
   }
   return out;
 }

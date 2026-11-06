@@ -5,9 +5,8 @@
  * means "no entity". They must stay stable: changing an id breaks saves and
  * state hashes.
  *
- * Chests, furnaces and burner mining drills have their own tables and
- * behavior (src/sim/entities/), belts theirs in src/sim/belts/; inserters
- * are still placeholders that can only be placed, rotated and removed.
+ * Chests, furnaces, burner mining drills and burner inserters have their own
+ * tables and behavior (src/sim/entities/), belts theirs in src/sim/belts/.
  *
  * Energy is in integer joules; a burner entity burns `energyPerTick` joules on
  * every tick it works (60 ticks/s, so 1 500 J/tick is 90 kW).
@@ -53,6 +52,11 @@ export interface EntityPrototype {
   readonly miningTicks?: number;
   /** How far items on a belt move per tick, in subtiles (1/256 tile). */
   readonly beltSpeed?: number;
+  /**
+   * Ticks an inserter's arm takes to swing from its pickup tile to its drop
+   * tile (and as many to swing back).
+   */
+  readonly swingTicks?: number;
 }
 
 /**
@@ -128,6 +132,8 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     color: 0xb5562f,
     // 100 kW (100 000 / 60 ≈ 1 667 J/tick), only while moving.
     energyPerTick: 1_667,
+    // One pickup → drop → return cycle takes 2 × 36 = 72 ticks (1.2 s).
+    swingTicks: 36,
   },
 };
 

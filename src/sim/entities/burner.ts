@@ -1,6 +1,6 @@
 /**
  * The burner energy source, a component shared by every fuel-burning entity
- * type (stone furnaces now; burner mining drills and burner inserters later).
+ * type (stone furnaces, burner mining drills and burner inserters).
  *
  * A burner has one fuel slot (a stack of a single fuel item) and an energy
  * buffer: the joules left of the fuel unit currently burning. `consume` takes

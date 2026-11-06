@@ -162,6 +162,11 @@ export class Entities {
     return this.tableOf(id)?.insertable?.(id, item) ?? 0;
   }
 
+  /** Whether entity `id` takes `item` at all, however full it is (see `EntityTypeTable.accepts`). */
+  accepts(id: number, item: number): boolean {
+    return this.tableOf(id)?.accepts?.(id, item) ?? false;
+  }
+
   /** Inserts up to `count` units of `item` into entity `id`; returns how many went in. */
   insert(id: number, item: number, count: number): number {
     const table = this.tableOf(id);
@@ -175,8 +180,8 @@ export class Entities {
   }
 
   /** The slot an inserter would pick up from, or -1 (see `EntityTypeTable.outputSlot`). */
-  outputSlot(id: number): number {
-    return this.tableOf(id)?.outputSlot?.(id) ?? -1;
+  outputSlot(id: number, accept?: (item: number) => boolean): number {
+    return this.tableOf(id)?.outputSlot?.(id, accept) ?? -1;
   }
 
   /** Entity `target` changed: wakes every entity subscribed to it (see wake.ts). */

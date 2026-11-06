@@ -8,7 +8,9 @@
  * 1. Scripted (ticks `[0, DETERMINISM_SCRIPTED_TICKS)`): player 0 builds at
  *    the spawn (places, rotates and removes entities, fuels a furnace, lays a
  *    belt line through a curve with a side-loading belt and drops coal on it,
- *    plus build and transfer commands that must be ignored), then every player
+ *    with an unfuelled inserter at its end that refuels itself from the coal
+ *    and moves the rest into a chest, plus build and transfer commands that
+ *    must be ignored), then every player
  *    walks from the spawn to one of the starting ore patches and hand-mines
  *    it, including a re-target, mining that waits until the player is in
  *    reach, and walking out of reach while mining. Player 0 then builds a
@@ -147,8 +149,17 @@ function buildPhase(): Command[] {
       dir,
     })),
     { ...p, tick: 7, type: 'Insert', entity: 10, item: ItemId.Coal, count: 1 },
+    // An inserter (entity 11) at the end of the line, without fuel, taking from
+    // the belt at (3, 4) into a chest (entity 12): it fuels itself with the
+    // first coal that arrives and moves the second into the chest.
+    { ...p, tick: 7, type: 'Place', item: ItemId.BurnerInserter, x: 4, y: 4, dir: East },
+    { ...p, tick: 7, type: 'Place', item: ItemId.WoodenChest, x: 5, y: 4, dir: North },
   ];
 }
+
+/** The inserter and chest at the end of the spawn belt line. */
+export const DETERMINISM_SPAWN_INSERTER = 11;
+export const DETERMINISM_SPAWN_CHEST = 12;
 
 /** The belts player 0 lays at the spawn on its last build tick: `[x, y, dir]`. */
 export const DETERMINISM_BELTS: readonly (readonly [number, number, Direction])[] = [
@@ -159,11 +170,11 @@ export const DETERMINISM_BELTS: readonly (readonly [number, number, Direction])[
   [2, 5, Direction.North],
 ];
 
-/** Entities player 0 builds on its patch after mining it (ids follow the ten built at the spawn). */
-export const DETERMINISM_PATCH_FURNACE = 11;
-export const DETERMINISM_PATCH_CHEST = 12;
-export const DETERMINISM_PATCH_DRILL = 13;
-export const DETERMINISM_DRILL_CHEST = 14;
+/** Entities player 0 builds on its patch after mining it (ids follow the twelve built at the spawn). */
+export const DETERMINISM_PATCH_FURNACE = 13;
+export const DETERMINISM_PATCH_CHEST = 14;
+export const DETERMINISM_PATCH_DRILL = 15;
+export const DETERMINISM_DRILL_CHEST = 16;
 /** Ticks after the drill is fuelled until the chest in front of it is placed. */
 const DETERMINISM_DRILL_CHEST_DELAY = 300;
 

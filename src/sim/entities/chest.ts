@@ -80,6 +80,11 @@ export class ChestTable implements EntityTypeTable {
     return itemPrototype(item) ? this.inventory(id).spaceFor(item) : 0;
   }
 
+  /** Anything goes into a chest. */
+  accepts(_id: number, item: number): boolean {
+    return itemPrototype(item) !== undefined;
+  }
+
   insert(id: number, item: number, count: number, entities: Entities): number {
     if (!itemPrototype(item)) return 0;
     const n = this.inventory(id).add(item, count);
@@ -99,10 +104,11 @@ export class ChestTable implements EntityTypeTable {
     return n;
   }
 
-  outputSlot(id: number): number {
+  outputSlot(id: number, accept?: (item: number) => boolean): number {
     const from = this.row(id) * this.slotsPerChest;
     for (let slot = 0; slot < this.slotsPerChest; slot++) {
-      if (this.counts[from + slot]! > 0) return slot;
+      const i = from + slot;
+      if (this.counts[i]! > 0 && (!accept || accept(this.items[i]!))) return slot;
     }
     return -1;
   }

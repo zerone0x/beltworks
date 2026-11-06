@@ -8,10 +8,16 @@ import { BeltTable } from '../belts/belts';
 import { ChestTable } from './chest';
 import { DrillTable } from './drill';
 import { FurnaceTable } from './furnace';
+import { InserterTable } from './inserter';
 import type { EntityTypeTable } from './table';
 
 /** Creates a fresh set of per-type tables for a new `SimState`. */
 export function createEntityTables(): EntityTypeTable[] {
-  // The inserter table arrives with its behavior in a later issue.
-  return [new ChestTable(), new FurnaceTable(), new DrillTable(), new BeltTable()];
+  return [
+    new ChestTable(),
+    new FurnaceTable(),
+    new DrillTable(),
+    new BeltTable(),
+    new InserterTable(),
+  ];
 }

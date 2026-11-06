@@ -421,24 +421,34 @@ describe('transport lines', () => {
     expect(w.table.itemsOn(feeder)).toEqual([]);
   });
 
-  it('notify watched belts of a line while its lanes change, and not while they sleep', () => {
+  it('notify watched belts of a line while its lanes change near them, and not while they sleep', () => {
     const w = world();
     const [a, b] = w.run(0, 0, East, 2);
     const woken: number[] = [];
     const table = w.table as BeltTable & { wake?: (id: number) => void };
     table.wake = (id) => woken.push(id);
-    // Belt a watches belt b (a stand-in for a drill or an inserter).
+    // Belt a watches belt b, which spans [0, 256) from the end, and b watches
+    // a, which spans [256, 512) (stand-ins for drills or inserters).
     w.entities.wake.watch(a!, b!);
+    w.entities.wake.watch(b!, a!);
+    // An item put on at the start of the line is within reach of a only.
     w.table.insertAt(w.table.beltLine(a!), Left, 512, IRON);
-    expect(woken).toEqual([a]);
-    // Every tick the item moves; 64 ticks take it to the end.
+    expect(woken).toEqual([b]);
+    woken.length = 0;
+    // Every tick the item moves 8 (64 ticks take it to the end). Each belt is
+    // notified while the stretch it moved over, from its new position back to
+    // its old one, comes within the item spacing (64) of the belt: b from the
+    // tick it gets to 320, a until it has left 192 behind.
     w.step(64);
-    expect(woken.length).toBe(65);
+    const ticksNear = (watcher: number) => woken.filter((id) => id === watcher).length;
+    expect(ticksNear(a!)).toBe(64 - (512 - 320) / 8 + 1);
+    expect(ticksNear(b!)).toBe((512 - 192) / 8 + 1);
     woken.length = 0;
     w.step(10);
     expect(woken).toEqual([]);
     // Unsubscribed belts are dropped from the line's list.
     w.entities.wake.unwatchAll(a!);
+    w.entities.wake.unwatchAll(b!);
     w.table.takeAt(w.table.beltLine(a!), Left, 0, 0);
     expect(woken).toEqual([]);
     expect(w.lineOf(a!).watched).toEqual([]);

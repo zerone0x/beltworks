@@ -10,6 +10,7 @@ import {
   encodeCraftQueue,
   encodeEntities,
   encodeEntityDetail,
+  encodeInserters,
   encodeInventory,
   encodePlayers,
 } from '../sim/snapshot';
@@ -93,6 +94,7 @@ function sendSnapshot(ticksRun: number): void {
   const chunks = batch && batch.chunks.length > 0 ? encodeChunks(batch.chunks) : null;
   const entities = encodeEntities(sim.state, batch?.window ?? null);
   const belts = encodeBelts(sim.state, batch?.window ?? null);
+  const inserters = encodeInserters(sim.state, batch?.window ?? null);
   const detail = inspected !== 0 ? encodeEntityDetail(sim.state, LOCAL_PLAYER_ID, inspected) : null;
   const transfer: Transferable[] = [
     players.buffer,
@@ -100,6 +102,7 @@ function sendSnapshot(ticksRun: number): void {
     craftQueue.buffer,
     entities.buffer,
     belts.buffer,
+    inserters.buffer,
   ];
   if (chunks) transfer.push(chunks);
   if (detail) transfer.push(detail.buffer);
@@ -114,6 +117,7 @@ function sendSnapshot(ticksRun: number): void {
       craftQueue: craftQueue.buffer,
       entities: entities.buffer,
       belts: belts.buffer,
+      inserters: inserters.buffer,
       chunkWindow: batch?.window ?? null,
       chunks,
       inspected,
