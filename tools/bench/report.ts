@@ -43,7 +43,7 @@ export function reportMarkdown(report: BenchReport): string {
     }),
     '',
     `${String(report.scenes[0]?.warmupTicks ?? 0)} warm-up + ${String(report.scenes[0]?.measuredTicks ?? 0)} measured ticks per run, ` +
-      `median of ${String(report.scenes[0]?.runs.length ?? 0)} runs (by mean); ` +
+      `median of ${String(report.scenes[0]?.runs.length ?? 0)} runs by mean, after ${String(report.scenes[0]?.warmupRuns ?? 0)} untimed runs; ` +
       `Node ${env.node} on ${env.cpu} (${String(env.cpus)} CPUs, ${env.platform}/${env.arch}).`,
   ];
   return lines.join('\n');

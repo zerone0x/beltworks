@@ -45,6 +45,7 @@ function scene(name: string, meanMs: number, hash = '0x00000001'): SceneResult {
     setupTicks: 0,
     warmupTicks: 600,
     measuredTicks: 3600,
+    warmupRuns: 3,
     targetMeanMs: 1,
     meanMs,
     p50Ms: meanMs,
@@ -186,9 +187,15 @@ describe('1k scene', () => {
   });
 
   it('keeps its drills, furnaces and belts busy', () => {
-    const result = measureScene(factory1k, { warmupTicks: 60, measuredTicks: 60, runs: 3 });
+    const result = measureScene(factory1k, {
+      warmupTicks: 60,
+      measuredTicks: 60,
+      runs: 3,
+      warmupRuns: 1,
+    });
     expect(result.entities).toBe(FACTORY_1K_ENTITIES);
     expect(result.measuredTicks).toBe(60);
+    expect(result.warmupRuns).toBe(1);
     // The reported run is the one with the median mean.
     expect(result.runs).toHaveLength(3);
     expect(result.runs.map((r) => r.meanMs).sort((a, b) => a - b)[1]).toBe(result.meanMs);

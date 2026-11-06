@@ -8,6 +8,7 @@
  *   --warmup <ticks>       warm-up ticks per run (default 600)
  *   --ticks <ticks>        measured ticks per run (default 3600)
  *   --runs <n>             runs per scene; the median run is reported (default 5)
+ *   --warmup-runs <n>      untimed runs per scene before those (default 3)
  *   --json <file>          write the report as JSON
  *   --md <file>            write the report as a Markdown table
  *   --baseline <file>      compare against a baseline report (e.g. tools/bench/baseline.json)
@@ -24,7 +25,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { cpus, arch, platform } from 'node:os';
 import { dirname } from 'node:path';
 import { parseArgs } from 'node:util';
-import { MEASURED_TICKS, RUNS, WARMUP_TICKS, measureScene } from './measure';
+import { MEASURED_TICKS, RUNS, WARMUP_RUNS, WARMUP_TICKS, measureScene } from './measure';
 import {
   DEFAULT_REGRESSION_THRESHOLD,
   REPORT_VERSION,
@@ -56,6 +57,7 @@ function main(): void {
       warmup: { type: 'string' },
       ticks: { type: 'string' },
       runs: { type: 'string' },
+      'warmup-runs': { type: 'string' },
       json: { type: 'string' },
       md: { type: 'string' },
       baseline: { type: 'string' },
@@ -76,6 +78,7 @@ function main(): void {
   const warmupTicks = positiveInt(values.warmup, WARMUP_TICKS, 'warmup');
   const measuredTicks = positiveInt(values.ticks, MEASURED_TICKS, 'ticks');
   const runs = Math.max(1, positiveInt(values.runs, RUNS, 'runs'));
+  const warmupRuns = positiveInt(values['warmup-runs'], WARMUP_RUNS, 'warmup-runs');
   const threshold =
     values.threshold === undefined ? DEFAULT_REGRESSION_THRESHOLD : Number(values.threshold);
   if (!Number.isFinite(threshold) || threshold < 0) {
@@ -98,7 +101,7 @@ function main(): void {
   };
   for (const scene of SCENES.filter((s) => names.includes(s.name))) {
     process.stderr.write(`bench: ${scene.name}: building and running...\n`);
-    report.scenes.push(measureScene(scene, { warmupTicks, measuredTicks, runs }));
+    report.scenes.push(measureScene(scene, { warmupTicks, measuredTicks, runs, warmupRuns }));
   }
 
   const markdown = reportMarkdown(report);

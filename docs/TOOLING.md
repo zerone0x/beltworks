@@ -39,7 +39,7 @@
 
 `npm run bench` is a headless tick-time benchmark of the simulation in Node. It bundles `tools/bench/run.ts` with Vite (so the simulation is compiled the way the game ships it) into `node_modules/.cache/beltworks-bench/`, then runs it with `node --expose-gc`.
 
-For every scene, one run builds the scene from scratch, runs 600 untimed warm-up ticks, collects garbage, then times 3 600 ticks one by one. Each scene gets 5 runs; the report shows the mean, p50, p99 and max tick time and the ticks per second (`1000 / mean`) of the run with the median mean (a 1k tick takes microseconds, so a single run swings by ±25% with one GC pause), as a Markdown table on stdout and optionally as JSON with every run's numbers.
+For every scene, one run builds the scene from scratch, runs 600 untimed warm-up ticks, collects garbage, then times 3 600 ticks one by one. Each scene gets 3 untimed runs (V8 keeps optimizing for a while; on a 2-core CI runner the first run was up to 4× slower than the fifth), then 5 measured runs; the report shows the mean, p50, p99 and max tick time and the ticks per second (`1000 / mean`) of the run with the median mean (a 1k tick takes microseconds, so a single run swings by ±25% with one GC pause), as a Markdown table on stdout and optionally as JSON with every run's numbers.
 
 ```sh
 npm run bench                                   # all scenes, Markdown table on stdout
@@ -48,7 +48,7 @@ npm run bench -- --baseline tools/bench/baseline.json                    # compa
 npm run bench -- --baseline tools/bench/baseline.json --update-baseline  # overwrite the baseline
 ```
 
-Other options: `--warmup <ticks>`, `--ticks <ticks>`, `--runs <n>`, `--threshold <ratio>` (default `0.2`), `--compare-md <file>`, `--fail-on-regression`. `npm run test:bench` runs the tests of the tooling itself (`tests/bench/`).
+Other options: `--warmup <ticks>`, `--ticks <ticks>`, `--runs <n>`, `--warmup-runs <n>`, `--threshold <ratio>` (default `0.2`), `--compare-md <file>`, `--fail-on-regression`. `npm run test:bench` runs the tests of the tooling itself (`tests/bench/`).
 
 **Scenes** (`tools/bench/scenes/`):
 

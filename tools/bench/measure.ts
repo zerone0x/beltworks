@@ -9,6 +9,11 @@
  * The scene is therefore run `runs` times (default `RUNS`), and the reported
  * statistics are those of the run with the median mean; every run's numbers
  * are kept in `runs` of the result.
+ *
+ * Before those, `warmupRuns` (default `WARMUP_RUNS`) whole runs are thrown
+ * away: on a 2-core CI runner V8 keeps optimizing the simulation for the
+ * first few runs (the first run measured up to 4× slower than the fifth), and
+ * 600 warm-up ticks of a microsecond-scale scene are too short for that.
  */
 
 import { beltTable } from '../../src/sim/belts/belts';
@@ -20,6 +25,8 @@ export const WARMUP_TICKS = 600;
 export const MEASURED_TICKS = 3_600;
 /** Independent runs per scene; the median one is reported. */
 export const RUNS = 5;
+/** Untimed runs per scene before the measured ones (JIT warm-up). */
+export const WARMUP_RUNS = 3;
 
 export interface TickStats {
   meanMs: number;
@@ -38,6 +45,8 @@ export interface SceneResult extends TickStats {
   setupTicks: number;
   warmupTicks: number;
   measuredTicks: number;
+  /** Untimed whole runs before the measured ones. */
+  warmupRuns: number;
   targetMeanMs: number;
   /** Every run's statistics, in run order (the reported ones are the median run's). */
   runs: TickStats[];
@@ -102,6 +111,7 @@ export interface MeasureOptions {
   warmupTicks?: number;
   measuredTicks?: number;
   runs?: number;
+  warmupRuns?: number;
 }
 
 /** One run: build, warm up, time every measured tick. */
@@ -138,6 +148,8 @@ export function measureScene(scene: BenchScene, options: MeasureOptions = {}): S
   if (!Number.isSafeInteger(count) || count < 1) {
     throw new RangeError(`runs must be a positive integer, got ${String(count)}`);
   }
+  const warmupRuns = options.warmupRuns ?? WARMUP_RUNS;
+  for (let i = 0; i < warmupRuns; i++) runOnce(scene, warmupTicks, measuredTicks);
   const runs = Array.from({ length: count }, () => runOnce(scene, warmupTicks, measuredTicks));
   const hashes = new Set(runs.map((r) => r.hash));
   if (hashes.size !== 1) {
@@ -156,6 +168,7 @@ export function measureScene(scene: BenchScene, options: MeasureOptions = {}): S
     setupTicks: built.setupTicks,
     warmupTicks,
     measuredTicks,
+    warmupRuns,
     targetMeanMs: scene.targetMeanMs,
     ...median.stats,
     runs: runs.map((r) => r.stats),
