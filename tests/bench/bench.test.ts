@@ -81,6 +81,19 @@ describe('baseline comparison', () => {
     expect(md).toContain('[!WARNING]');
   });
 
+  it('notes a different CPU than the baseline', () => {
+    const other = {
+      ...report(scene('a', 1)),
+      environment: { ...report().environment, cpu: 'other' },
+    };
+    const comparison = compareReports(other, report(scene('a', 1)));
+    expect(comparison.baselineCpu).toBe('other');
+    expect(comparisonMarkdown(comparison)).toContain('differs from the baseline');
+    expect(
+      compareReports(report(scene('a', 1)), report(scene('a', 1))).baselineCpu,
+    ).toBeUndefined();
+  });
+
   it('honours a custom threshold', () => {
     const comparison = compareReports(report(scene('a', 1)), report(scene('a', 1.1)), 0.05);
     expect(comparison.regressions).toHaveLength(1);

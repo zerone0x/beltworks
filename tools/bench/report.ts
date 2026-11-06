@@ -66,6 +66,13 @@ export interface Comparison {
   threshold: number;
   scenes: SceneComparison[];
   regressions: SceneComparison[];
+  /**
+   * The baseline's CPU model, when it differs from this run's. GitHub's
+   * `ubuntu-latest` pool mixes CPU models, and that alone can move the
+   * microsecond-scale tick times by more than the threshold.
+   */
+  baselineCpu?: string;
+  cpu: string;
 }
 
 const change = (current: number, baseline: number): number | undefined =>
@@ -101,7 +108,16 @@ export function compareReports(
     if (p99Change !== undefined) result.p99Change = p99Change;
     return result;
   });
-  return { threshold, scenes, regressions: scenes.filter((s) => s.regressed) };
+  const result: Comparison = {
+    threshold,
+    scenes,
+    regressions: scenes.filter((s) => s.regressed),
+    cpu: current.environment.cpu,
+  };
+  if (baseline.environment.cpu !== current.environment.cpu) {
+    result.baselineCpu = baseline.environment.cpu;
+  }
+  return result;
 }
 
 const pct = (v: number | undefined): string =>
@@ -141,5 +157,11 @@ export function comparisonMarkdown(comparison: Comparison): string {
     }
     return out;
   });
+  if (comparison.baselineCpu !== undefined) {
+    notes.push(
+      `This run's CPU (${comparison.cpu}) differs from the baseline's (${comparison.baselineCpu}): ` +
+        'differences of this size can come from the hardware alone.',
+    );
+  }
   return [...lines, ...(notes.length > 0 ? ['', notes.join('\n\n')] : [])].join('\n');
 }

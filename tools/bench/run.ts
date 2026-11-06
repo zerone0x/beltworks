@@ -120,7 +120,7 @@ function main(): void {
     process.stdout.write(`\nCompared with ${values.baseline}:\n\n${md}\n`);
     if (values['compare-md']) writeFile(values['compare-md'], `${md}\n`);
     for (const s of comparison.regressions) {
-      const message = `Benchmark scene ${s.name}: mean tick ${s.current.meanMs.toFixed(4)} ms vs baseline ${s.baseline?.meanMs.toFixed(4) ?? 'n/a'} ms (${((s.meanChange ?? 0) * 100).toFixed(1)}% slower)`;
+      const message = `Benchmark scene ${s.name}: mean tick ${s.current.meanMs.toFixed(4)} ms vs baseline ${s.baseline?.meanMs.toFixed(4) ?? 'n/a'} ms (${((s.meanChange ?? 0) * 100).toFixed(1)}% slower)${comparison.baselineCpu === undefined ? '' : `; note: baseline CPU ${comparison.baselineCpu}, this run ${comparison.cpu}`}`;
       process.stdout.write(
         process.env.GITHUB_ACTIONS
           ? `::warning title=Benchmark regression::${message}\n`
