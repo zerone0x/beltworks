@@ -15,9 +15,10 @@ export default defineConfig({
     trace: 'off',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  // Serve the production build so the smoke test covers what gets deployed.
+  // Serve a production build so the tests cover what gets deployed. `--mode test` only adds
+  // the `window.__beltworks` test hook (see src/testHook.ts); everything else is identical.
   webServer: {
-    command: `npm run build && npm run preview -- --port ${String(PORT)} --strictPort`,
+    command: `npm run build:test && npm run preview -- --port ${String(PORT)} --strictPort`,
     url: `http://localhost:${String(PORT)}${base}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

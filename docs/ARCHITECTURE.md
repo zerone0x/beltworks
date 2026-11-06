@@ -50,7 +50,7 @@
 4. Belts (transport lines)
 5. Inserters
 6. Furnaces, assemblers, labs
-7. Player hand-crafting
+7. Players: movement, hand-mining, hand-crafting
 8. Emit the render snapshot and events
 
 The order is fixed and covered by tests.
@@ -88,8 +88,15 @@ This is Factorio's core optimization, and it has to be there from day one:
 - All textures are packed into atlases.
 - Zooming out past a threshold switches to a "map mode" of flat colors.
 
+### Worker protocol
+- Messages are typed in `src/worker/protocol.ts`. Main → worker: `init {seed}`, `commands [...]`, `setViewport {x, y, w, h}` (tiles). Worker → main: `snapshot`, `stats {tick, tickMs, droppedTicks}`, `error`.
+- The main thread sends commands without a tick; the worker stamps each one with the next tick it will run, so a command can never land on a tick that already ran.
+- The worker loop (`src/worker/loop.ts`) accumulates wall time and runs whole 60 Hz ticks, at most 5 per wake-up; any further backlog is dropped.
+- **One snapshot per wake-up, not per tick.** When the worker catches up several ticks at once, only the newest state is useful for rendering; the snapshot carries `ticksRun` so the renderer can tell. At full speed a wake-up runs one tick, so this is usually one snapshot per tick.
+- `stats` go out every 30 ticks; the main thread derives UPS from them and shows it in the debug overlay.
+
 ### Snapshot transfer
-- v1: each tick the Worker writes the state visible in the viewport into a transferable `ArrayBuffer` and sends it to the main thread.
+- v1: after each wake-up that ran a tick, the Worker writes the state visible in the viewport into a transferable `ArrayBuffer` and sends it to the main thread.
 - Later: a double-buffered SharedArrayBuffer. This needs COOP/COEP headers, which GitHub Pages can't set, so it would need a service-worker workaround or another host.
 
 ## Saves and blueprints
@@ -100,6 +107,9 @@ This is Factorio's core optimization, and it has to be there from day one:
 ## Determinism and testing
 
 - **Determinism test:** the same seed and the same Command sequence, run for N ticks, must produce the same state hash. CI runs it in both Node and Chromium and compares the hashes.
+  - The scenario lives in `src/sim/scenarios/determinism.ts`; the expected hash lives only in `tests/sim/determinism.expected.ts`, and both `tests/sim/determinism.test.ts` (Node) and `tests/e2e/determinism.spec.ts` (Chromium) compare against it.
+  - Chromium reaches the scenario through `window.__beltworks` (`src/testHook.ts`), which exists only in dev builds and `vite build --mode test` (what Playwright serves). Production builds don't contain it.
+  - The hash covers the tick counter, seed, PRNG state, every entity table, and the world (through its `hashInto` hook). Commands queued for future ticks are input, not state, and are not hashed.
 - **System unit tests:** belt throughput (exact items per second for each tier), inserter swing timing, assembler output rate.
 - **Replays:** Command logs are recorded and can be replayed to debug.
 - **Benchmarks:** fixed scenes (1k / 10k / 50k entities) measure mean and P99 tick time, and CI reports regressions.
@@ -126,8 +136,12 @@ src/
     entities/     # SoA tables and systems for each entity type
     belts/        # transport lines
     power/
-    commands.ts
-    tick.ts
+    scenarios/    # scripted runs shared by tests (determinism)
+    commands.ts   # Command union, validation, ordered queue
+    state.ts      # SimState, world slot, state hash
+    tick.ts       # Sim: enqueue/step/hash, fixed system order
+    fixed.ts      # fixed-point helpers (1/256 tile, 1/65536 progress)
+    snapshot.ts   # render snapshot encoding
     hash.ts
     rng.ts
   data/           # prototypes (items, recipes, technologies)
