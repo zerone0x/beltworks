@@ -4,7 +4,7 @@
  */
 
 import { validateCommandInput } from '../sim/commands';
-import { encodeChunks, encodeInventory, encodePlayers } from '../sim/snapshot';
+import { encodeChunks, encodeEntities, encodeInventory, encodePlayers } from '../sim/snapshot';
 import { Sim } from '../sim/tick';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
 import { FixedStepClock } from './loop';
@@ -80,6 +80,9 @@ function sendSnapshot(ticksRun: number): void {
   const inventory = encodeInventory(sim.state, LOCAL_PLAYER_ID);
   const batch = streamer.collect();
   const chunks = batch && batch.chunks.length > 0 ? encodeChunks(batch.chunks) : null;
+  const entities = encodeEntities(sim.state, batch?.window ?? null);
+  const transfer: Transferable[] = [players.buffer, inventory.buffer, entities.buffer];
+  if (chunks) transfer.push(chunks);
   post(
     {
       type: 'snapshot',
@@ -88,10 +91,11 @@ function sendSnapshot(ticksRun: number): void {
       viewport,
       players: players.buffer,
       inventory: inventory.buffer,
+      entities: entities.buffer,
       chunkWindow: batch?.window ?? null,
       chunks,
     },
-    chunks ? [players.buffer, inventory.buffer, chunks] : [players.buffer, inventory.buffer],
+    transfer,
   );
 }
 

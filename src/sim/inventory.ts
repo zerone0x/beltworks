@@ -7,7 +7,7 @@
  * arrays (see `PlayerTable`). Everything is integer-only.
  */
 
-import { ItemId, itemPrototype } from '../data/items';
+import { ItemId, itemPrototype, type ItemStack } from '../data/items';
 import { fnv1a32 } from './hash';
 
 /** Slots in a player inventory. */
@@ -81,6 +81,15 @@ export class Inventory {
       else if (slotItem === item) n += stack - this.counts[i]!;
     }
     return n;
+  }
+
+  /**
+   * Whether every stack in `stacks` fits at once, added in order (several
+   * stacks can compete for the same empty slots). Changes nothing.
+   */
+  fitsAll(stacks: readonly ItemStack[]): boolean {
+    const scratch = new Inventory(this.items.slice(), this.counts.slice());
+    return stacks.every((s) => scratch.add(s.item, s.count) === s.count);
   }
 
   /**

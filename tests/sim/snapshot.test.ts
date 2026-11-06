@@ -37,7 +37,7 @@ describe('encodeChunks / decodeChunks', () => {
 
 describe('encodeInventory / decodeInventory', () => {
   it('round-trips one player inventory as [item, count] slots', () => {
-    const sim = new Sim({ seed: 1, players: 2 });
+    const sim = new Sim({ seed: 1, players: 2, startingKit: [] });
     sim.state.players.inventory(1).add(ItemId.Coal, 60);
     sim.state.players.inventory(1).add(ItemId.Stone, 3);
     const encoded = encodeInventory(sim.state, 1);

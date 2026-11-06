@@ -7,6 +7,7 @@
  * state. All fields are integers.
  */
 
+import { isDirection, type Direction } from './entities/direction';
 import { isInt32 } from './fixed';
 
 /** A movement axis: -1, 0 or +1. */
@@ -38,7 +39,35 @@ export interface MineStopCommand extends CommandBase {
   readonly type: 'MineStop';
 }
 
-export type Command = MoveCommand | MineStartCommand | MineStopCommand;
+/**
+ * Places the entity that `item` places, with the top-left tile of its
+ * footprint at `(x, y)` and facing `dir`, using one `item` from the
+ * inventory. Ignored if it can't be placed there (see src/sim/entities/build.ts).
+ */
+export interface PlaceCommand extends CommandBase {
+  readonly type: 'Place';
+  readonly item: number;
+  readonly x: number;
+  readonly y: number;
+  readonly dir: Direction;
+}
+
+/** Removes the entity covering tile `(x, y)`, refunding its item and contents. */
+export interface RemoveCommand extends CommandBase {
+  readonly type: 'Remove';
+  readonly x: number;
+  readonly y: number;
+}
+
+/** Turns the entity covering tile `(x, y)` a quarter turn clockwise. */
+export interface RotateCommand extends CommandBase {
+  readonly type: 'Rotate';
+  readonly x: number;
+  readonly y: number;
+}
+
+export type Command =
+  MoveCommand | MineStartCommand | MineStopCommand | PlaceCommand | RemoveCommand | RotateCommand;
 export type CommandType = Command['type'];
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -49,6 +78,9 @@ export type CommandInput = DistributiveOmit<Command, 'tick'>;
 export const MAX_PLAYER_ID = 0xffff;
 
 const isAxis = (v: unknown): v is Axis => v === -1 || v === 0 || v === 1;
+const isTile = (v: unknown): boolean => typeof v === 'number' && isInt32(v);
+const isUint16 = (v: unknown): boolean =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffff;
 
 /**
  * Checks the fields of a command that has no tick yet (e.g. one received from
@@ -72,11 +104,16 @@ export function validateCommandInput(input: unknown): string | null {
     case 'Move':
       return isAxis(c.dx) && isAxis(c.dy) ? null : 'Move needs dx and dy in {-1, 0, 1}';
     case 'MineStart':
-      return typeof c.x === 'number' && typeof c.y === 'number' && isInt32(c.x) && isInt32(c.y)
-        ? null
-        : 'MineStart needs int32 x and y';
+      return isTile(c.x) && isTile(c.y) ? null : 'MineStart needs int32 x and y';
     case 'MineStop':
       return null;
+    case 'Place':
+      return isUint16(c.item) && isTile(c.x) && isTile(c.y) && isDirection(c.dir)
+        ? null
+        : 'Place needs a uint16 item, int32 x and y, and dir in [0, 3]';
+    case 'Remove':
+    case 'Rotate':
+      return isTile(c.x) && isTile(c.y) ? null : `${c.type} needs int32 x and y`;
     default:
       return `unknown command type ${String(c.type)}`;
   }

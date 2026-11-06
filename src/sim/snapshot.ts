@@ -3,6 +3,7 @@
  * typed arrays whose buffers can be transferred to the main thread.
  */
 
+import type { ChunkRange } from './entities/occupancy';
 import type { SimState } from './state';
 import { CHUNK_AREA } from './world/chunk';
 
@@ -48,6 +49,42 @@ export function encodeInventory(state: SimState, playerId: number): Uint16Array<
     out[2 * i] = inv.items[i]!;
     out[2 * i + 1] = inv.counts[i]!;
   }
+  return out;
+}
+
+/** Int32 fields per entity in {@link encodeEntities}. */
+export const ENTITY_STRIDE = 5;
+/** Field offsets within one entity record. */
+export const EntityField = {
+  id: 0,
+  type: 1,
+  x: 2,
+  y: 3,
+  dir: 4,
+} as const;
+
+/**
+ * Encodes the entities whose origin (top-left tile) lies in the chunks of
+ * `range` as `ENTITY_STRIDE` int32s each: `[id, type, x, y, dir]` (ids are
+ * uint32s stored bit for bit; `x`, `y` is the top-left tile). Entities are
+ * at most `MAX_ENTITY_SIZE` tiles wide, so a range with a one-chunk margin
+ * around the viewport catches every entity that overlaps it.
+ */
+export function encodeEntities(state: SimState, range: ChunkRange | null): Int32Array<ArrayBuffer> {
+  if (range === null) {
+    return new Int32Array(0);
+  }
+  const { store, occupancy } = state.entities;
+  const ids = occupancy.originsIn(range);
+  const out = new Int32Array(ids.length * ENTITY_STRIDE);
+  ids.forEach((id, i) => {
+    const o = i * ENTITY_STRIDE;
+    out[o + EntityField.id] = id;
+    out[o + EntityField.type] = store.type(id);
+    out[o + EntityField.x] = store.x(id);
+    out[o + EntityField.y] = store.y(id);
+    out[o + EntityField.dir] = store.dir(id);
+  });
   return out;
 }
 

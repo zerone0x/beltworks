@@ -1,6 +1,7 @@
 import { Application } from 'pixi.js';
 import { PLAYER_INVENTORY_SLOTS } from './sim/inventory';
 import { decodeInventory, type SlotData } from './sim/snapshot';
+import { BuildInput } from './render/buildInput';
 import { GameView } from './render/gameView';
 import { PlayerInput } from './render/playerInput';
 import { DebugOverlay } from './ui/debugOverlay';
@@ -45,6 +46,7 @@ async function main(): Promise<void> {
     pointer: () => view.input.pointer,
     tileAt: (sx, sy) => view.camera.tileAt(sx, sy),
     isMineable: (x, y) => (view.terrain.tileAt(x, y)?.resource ?? 0) !== 0,
+    entityAt: (x, y) => view.entityIndex.at(x, y)?.id ?? 0,
     onToggleInventory: () => {
       inventoryPanel.toggle();
     },
@@ -54,6 +56,22 @@ async function main(): Promise<void> {
   });
 
   let inventory: SlotData[] = [];
+  const build = new BuildInput({
+    element: app.canvas,
+    playerId: LOCAL_PLAYER_ID,
+    send: (commands) => {
+      client.sendCommands(commands);
+    },
+    pointer: () => view.input.pointer,
+    screenToWorld: (sx, sy) => view.camera.screenToWorld(sx, sy),
+    tileAt: (sx, sy) => view.camera.tileAt(sx, sy),
+    inventory: () => inventory,
+    entityAt: (x, y) => view.entityIndex.at(x, y),
+    canPlace: (proto, x, y, dir) => view.canPlace(proto, x, y, dir),
+    onSelect: (slot) => {
+      hotbar.select(slot);
+    },
+  });
   // Every snapshot must reach the view, in order, or its chunk cache drifts from
   // what the worker thinks was sent. Snapshots before this point carry no
   // chunks: the worker only sends them once it has a viewport, and the first
@@ -67,12 +85,14 @@ async function main(): Promise<void> {
   app.ticker.add((ticker) => {
     view.frame(ticker.deltaMS);
     input.update();
+    build.update();
+    view.drawGhost(build.ghost);
     overlay.updateTile(view.hoveredTile());
   });
 
   if (import.meta.env.DEV || import.meta.env.MODE === 'test') {
     const { installTestHook } = await import('./testHook');
-    installTestHook({ client, view, seed: WORLD_SEED, inventory: () => inventory });
+    installTestHook({ client, view, build, seed: WORLD_SEED, inventory: () => inventory });
   }
 }
 

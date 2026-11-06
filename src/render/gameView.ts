@@ -9,10 +9,18 @@
  */
 
 import { Container, type Application } from 'pixi.js';
+import type { EntityPrototype } from '../data/entities';
+import { isBuildable } from '../data/tiles';
+import type { Direction } from '../sim/entities/direction';
+import { Placement, checkPlacement, type PlacementView } from '../sim/entities/placement';
 import { SUBTILES_PER_TILE } from '../sim/fixed';
+import { PLAYER_STRIDE, PlayerField } from '../sim/snapshot';
+import { isTileInMap } from '../sim/world/world';
 import { LOCAL_PLAYER_ID, type SnapshotMessage, type Viewport } from '../worker/protocol';
 import { Camera, TILE_PX, type Point } from './camera';
 import { CameraInput } from './cameraInput';
+import { EntityIndex } from './entityIndex';
+import { EntityLayer, GhostLayer, type Ghost } from './entityLayer';
 import { PlayerLayer } from './playerLayer';
 import { PlayerTrack } from './playerTrack';
 import { TerrainLayer, type TileInfo } from './terrainLayer';
@@ -29,6 +37,10 @@ export class GameView {
   readonly camera = new Camera();
   readonly terrain = new TerrainLayer();
   readonly players = new PlayerLayer();
+  /** Entities around the view, from the latest snapshot. */
+  readonly entityIndex = new EntityIndex();
+  readonly entities = new EntityLayer();
+  readonly ghost = new GhostLayer();
   /** Interpolated player positions from the snapshots. */
   readonly track = new PlayerTrack();
   readonly input: CameraInput;
@@ -46,7 +58,12 @@ export class GameView {
     private readonly app: Application,
     private readonly onViewport: (viewport: Viewport) => void,
   ) {
-    this.world.addChild(this.terrain.container, this.players.container);
+    this.world.addChild(
+      this.terrain.container,
+      this.entities.container,
+      this.players.container,
+      this.ghost.container,
+    );
     app.stage.addChild(this.world);
     this.input = new CameraInput(this.camera, app.canvas);
     this.input.onPan = () => {
@@ -59,6 +76,39 @@ export class GameView {
   applySnapshot(snapshot: SnapshotMessage): void {
     this.terrain.applySnapshot(snapshot.chunkWindow, snapshot.chunks);
     this.track.push(new Int32Array(snapshot.players), snapshot.ticksRun, performance.now());
+    this.entityIndex.apply(snapshot.entities);
+  }
+
+  /**
+   * Whether `proto` can be placed facing `dir` at `(x, y)` by the local
+   * player, judged with the simulation's own rules (src/sim/entities/placement.ts)
+   * on the latest snapshot. Tiles whose chunk hasn't arrived count as blocked.
+   */
+  canPlace(proto: EntityPrototype, x: number, y: number, dir: Direction): boolean {
+    const records = this.track.latest;
+    const o = LOCAL_PLAYER_ID * PLAYER_STRIDE;
+    if (records.length < o + PLAYER_STRIDE) {
+      return false;
+    }
+    const view: PlacementView = {
+      inMap: isTileInMap,
+      buildable: (tx, ty) => {
+        const tile = this.terrain.tileAt(tx, ty);
+        return tile !== null && isBuildable(tile.terrain);
+      },
+      occupant: (tx, ty) => this.entityIndex.at(tx, ty)?.id ?? 0,
+      playerCount: this.track.count,
+      playerX: (i) => records[i * PLAYER_STRIDE + PlayerField.x]!,
+      playerY: (i) => records[i * PLAYER_STRIDE + PlayerField.y]!,
+    };
+    const px = records[o + PlayerField.x]!;
+    const py = records[o + PlayerField.y]!;
+    return checkPlacement(view, proto, x, y, dir, px, py) === Placement.Ok;
+  }
+
+  /** Shows the ghost preview, or hides it for `null`. */
+  drawGhost(ghost: Ghost | null): void {
+    this.ghost.draw(ghost);
   }
 
   /** Locks the camera onto the local player again. */
@@ -86,6 +136,7 @@ export class GameView {
     }
     this.applyCamera();
     this.terrain.update();
+    this.entities.draw(this.entityIndex);
     this.players.draw(this.track, now);
   }
 

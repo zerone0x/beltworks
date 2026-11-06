@@ -42,6 +42,15 @@
 - Data-oriented: one struct-of-arrays table per entity type, with an `id → index` sparse set.
 - Example: `Assembler { recipe: Uint16, progress: Int32, inputs: Uint16[k], output: Uint16, energy: Int32, state: Uint8 }`.
 - No generic ECS library. Like Factorio, each system is specialized and its hot loop only walks compact arrays.
+- Implemented in `src/sim/entities/` (`Entities` in `entities.ts` ties the pieces together):
+  - **Ids**: uint32s handed out in increasing order from 1 and never reused, so an id held by another entity can't come to mean a different one; 0 is "no entity".
+  - **Generic table** (`store.ts`): type, top-left tile, and direction (N/E/S/W, `direction.ts`) of every entity, in the row order of a `SparseSet` (`sparseSet.ts`; removal moves the last row into the hole).
+  - **Per-type tables** implement `EntityTypeTable` (`table.ts`) and are registered in `createEntityTables` (`registry.ts`). They get hooks when an entity of their type is placed, rotated or removed, report its contents (refunded on removal, which is refused if they don't fit), can react to any entity being placed or removed (belts relinking, inserters finding their source and target), and are hashed in type id order.
+  - **Occupancy** (`occupancy.ts`): per 32×32 chunk, the entity covering each tile and the entities whose origin lies in the chunk (to collect the entities around the viewport).
+  - **Wake subscriptions** (`wake.ts`): an entity can subscribe to another; `Entities.notify(target)` hands each subscriber to its table's `wake` hook. Removing an entity wakes its subscribers. See "Machine sleep".
+- Prototypes (size, rotatable, placing item, placeholder color) are in `src/data/entities.ts`; footprints swap width and height when facing east or west.
+- **Building** (`build.ts`, `placement.ts`): `Place {item, x, y, dir}` takes one item and needs the whole footprint inside the map, on buildable terrain, free of entities and of every player's collision box, and its center within build reach (10 tiles, an exact integer comparison of squared distances). `Remove {x, y}` and `Rotate {x, y}` act on the entity covering that tile and need reach too. Commands that don't apply are ignored without touching state. The renderer colors the ghost preview with the same `checkPlacement`, fed from its snapshot data. Players walk through entities for now.
+- A new game gives every player the starting kit from `src/data/start.ts`.
 
 ### Update order (per tick)
 1. Apply this tick's Commands
@@ -69,6 +78,7 @@ This is Factorio's core optimization, and it has to be there from day one:
 - Entity state: `Working | NoInput | OutputFull | NoPower | Idle`.
 - An entity that isn't Working leaves the active list and waits on the event that would wake it (a chest gets a new item, an output slot is emptied, and so on). Once woken, it rejoins the active list.
 - An inserter waiting to pick up only wakes when the items at its source change.
+- The subscriptions live in `src/sim/entities/wake.ts` and are part of the state hash; the active lists are each system's own.
 
 ### Power
 - Poles are kept in connected networks with union-find, updated incrementally on placement (rebuilt locally on removal).
@@ -79,7 +89,7 @@ This is Factorio's core optimization, and it has to be there from day one:
 - `PlayerTable` (`src/sim/player.ts`) holds every player as columns: position in subtiles, movement intent, mining target and progress, and a 40-slot inventory (`src/sim/inventory.ts`, item id and count per slot as `Uint16Array`s; stack sizes come from `src/data/items.ts`).
 - Movement: a constant integer speed (38 subtiles/tick, 27 per axis diagonally). The player is a 0.4-tile box that can't overlap a non-walkable tile (water); each axis is resolved separately, so pushing diagonally into a shore slides along it.
 - Hand-mining: `MineStart {x, y}` sets a target tile. While the tile's center is within 2.5 tiles of the player (an exact integer comparison of squared distances), one unit is mined every 30 ticks, taken out of the world (`World.mine`) and added to the inventory. Out of reach, mining pauses with its progress reset and resumes once the player is back; a depleted tile, a tile without a resource, or an inventory with no room for the item ends it. `MineStop` cancels.
-- On the main thread, WASD and the right mouse button become commands only when they change (`src/render/playerInput.ts`). The renderer draws players between ticks by gliding from where they are drawn to each new snapshot position (`src/render/playerTrack.ts`), and the camera follows the local player until the user pans.
+- On the main thread, WASD and the right mouse button become commands only when they change (`src/render/playerInput.ts`); a right-button press that starts on an entity sends `Remove` instead and never turns into mining. Hotbar selection (1–0), the ghost, `R` and left-click placement are in `src/render/buildInput.ts`. The renderer draws players between ticks by gliding from where they are drawn to each new snapshot position (`src/render/playerTrack.ts`), and the camera follows the local player until the user pans.
 
 ### Prototypes and data
 - Every prototype (item, entity, recipe, technology) is defined in `src/data/*.ts` and compiled at startup into numeric-id tables.
@@ -90,13 +100,13 @@ This is Factorio's core optimization, and it has to be there from day one:
 - Only chunks in the viewport, plus a one-chunk margin, are rendered. Chunks that leave that window are destroyed together with their textures, so memory stays flat while panning.
 - Camera (`src/render/camera.ts`): world position at the screen center plus a zoom clamped to 0.25×–4× (one tile is 32 px at 1×). Middle-mouse drag or arrow keys pan, the wheel zooms towards the cursor. Camera math lives only in the render layer.
 - Terrain: each chunk is baked into one texture (`src/render/chunkBake.ts`) and re-baked when it changes. The placeholder art is made of whole-texel blocks, so it is baked at 8 texels per tile and sampled with nearest filtering: crisp at every zoom level, at 1/16 of the memory of 32 px per tile. Bakes are spread over frames (a few per frame).
-- Entities: separate Containers per layer (ground → items on belts → buildings → inserters → overlays), with pooled sprites.
+- Entities: separate Containers per layer (ground → items on belts → buildings → inserters → overlays), with pooled sprites. For now `src/render/entityLayer.ts` draws placeholder blocks in each prototype's color (with a direction marker on rotatable ones), redrawn only when the snapshot's entities change, plus the ghost preview above the players.
 - Items on belts: the main thread computes their positions from the lane data in the snapshot, interpolating between ticks so motion looks smooth.
 - All textures are packed into atlases.
 - Zooming out past a threshold switches to a "map mode" of flat colors.
 
 ### Worker protocol
-- Messages are typed in `src/worker/protocol.ts`. Main → worker: `init {seed}`, `commands [...]`, `setViewport {x, y, w, h}` (tiles). Worker → main: `snapshot`, `stats {tick, tickMs, droppedTicks}`, `error`. Each snapshot carries every player (`encodePlayers`) and the inventory of the local player (`encodeInventory`; the main thread is player `LOCAL_PLAYER_ID` = 0).
+- Messages are typed in `src/worker/protocol.ts`. Main → worker: `init {seed}`, `commands [...]`, `setViewport {x, y, w, h}` (tiles). Worker → main: `snapshot`, `stats {tick, tickMs, droppedTicks}`, `error`. Each snapshot carries every player (`encodePlayers`), the inventory of the local player (`encodeInventory`; the main thread is player `LOCAL_PLAYER_ID` = 0), and every entity whose origin lies in the chunk window (`encodeEntities`: id, type, top-left tile, direction).
 - The main thread sends commands without a tick; the worker stamps each one with the next tick it will run, so a command can never land on a tick that already ran.
 - The worker loop (`src/worker/loop.ts`) accumulates wall time and runs whole 60 Hz ticks, at most 5 per wake-up; any further backlog is dropped.
 - **One snapshot per wake-up, not per tick.** When the worker catches up several ticks at once, only the newest state is useful for rendering; the snapshot carries `ticksRun` so the renderer can tell. At full speed a wake-up runs one tick, so this is usually one snapshot per tick.
@@ -117,7 +127,7 @@ This is Factorio's core optimization, and it has to be there from day one:
 - **Determinism test:** the same seed and the same Command sequence, run for N ticks, must produce the same state hash. CI runs it in both Node and Chromium and compares the hashes.
   - The scenario lives in `src/sim/scenarios/determinism.ts`; the expected hash lives only in `tests/sim/determinism.expected.ts`, and both `tests/sim/determinism.test.ts` (Node) and `tests/e2e/determinism.spec.ts` (Chromium) compare against it.
   - Chromium reaches the scenario through `window.__beltworks` (`src/testHook.ts`), which exists only in dev builds and `vite build --mode test` (what Playwright serves). Production builds don't contain it.
-  - The hash covers the tick counter, seed, PRNG state, every entity table, and the world (through its `hashInto` hook). Commands queued for future ticks are input, not state, and are not hashed.
+  - The hash covers the tick counter, seed, PRNG state, every entity table (players, the generic entity table, occupancy, the per-type tables, wake subscriptions), and the world (through its `hashInto` hook). Commands queued for future ticks are input, not state, and are not hashed.
 - **System unit tests:** belt throughput (exact items per second for each tier), inserter swing timing, assembler output rate.
 - **Replays:** Command logs are recorded and can be replayed to debug.
 - **Benchmarks:** fixed scenes (1k / 10k / 50k entities) measure mean and P99 tick time, and CI reports regressions.
