@@ -86,7 +86,7 @@ export async function walkNear(
  * Like {@link walkNear}, but also converges at very low frame rates, where a
  * key released as soon as the player is in range still moves it for a frame
  * or two (a tile or more at 10 fps) and can overshoot a small range again
- * and again. It walks to within 1.5 tiles first, then nudges each axis that
+ * and again. It walks to within 3 tiles first, then nudges each axis that
  * is still off by tapping its key for a single animation frame (the input
  * turns into commands once per frame, so a tap moves the player for about
  * one frame) until the player stands within `tolerance` tiles.
@@ -97,7 +97,7 @@ export async function walkClose(
   ty: number,
   tolerance: number,
 ): Promise<{ x: number; y: number }> {
-  await walkNear(page, tx, ty, Math.max(tolerance, 1.5));
+  await walkNear(page, tx, ty, Math.max(tolerance, 3));
   const deadline = Date.now() + 30_000;
   for (;;) {
     const p = await waitUntilStill(page);

@@ -100,15 +100,15 @@ const MEASURED = NORTH.chests[0]!;
  * Where the player stands: between the generators and the north row, and
  * south of the south row, west and east, clear of everything built from
  * there and within build reach (10 tiles) of the half of a row it builds,
- * anywhere within `STAND_TOLERANCE` of the spot. CI's software-rendered
- * Chromium runs at about 14 fps, where a walk overshoots by most of a tile,
- * so the spots have a tile of room around them.
+ * anywhere within `STAND_TOLERANCE` of the spot (checked for every corner
+ * of that square). CI's software-rendered Chromium can drop to 7 fps, where
+ * one frame of walking is more than a tile, so the spots need that room.
  */
 const NORTH_WEST = { x: 14, y: -29 };
 const NORTH_EAST = { x: 21, y: -29 };
-const SOUTH_WEST = { x: 14, y: -11.5 };
-const SOUTH_EAST = { x: 21, y: -11.5 };
-const STAND_TOLERANCE = 1;
+const SOUTH_WEST = { x: 14.5, y: -11 };
+const SOUTH_EAST = { x: 20.5, y: -11 };
+const STAND_TOLERANCE = 1.5;
 
 test('drills slow down on an overloaded network and recover with a second generator', async ({
   page,
