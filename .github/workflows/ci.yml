@@ -36,6 +36,9 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Benchmark tooling tests
+        run: npm run test:bench
+
       - name: Build
         run: npm run build
 

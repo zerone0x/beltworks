@@ -1,0 +1,101 @@
+name: Benchmark
+
+# Runs the headless benchmark (tools/bench) and reports tick times against
+# tools/bench/baseline.json. Informational only: it never blocks a PR. A mean
+# tick time more than 20% over the baseline shows up as a warning annotation,
+# in the job summary and in the PR comment.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Non-blocking: a failing benchmark run doesn't fail the workflow.
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run benchmark
+        run: >-
+          npm run bench --
+          --json bench-results/result.json
+          --md bench-results/result.md
+          --baseline tools/bench/baseline.json
+          --compare-md bench-results/compare.md
+
+      - name: Write job summary
+        if: ${{ !cancelled() && hashFiles('bench-results/result.md') != '' }}
+        run: |
+          {
+            echo '## Benchmark'
+            echo
+            cat bench-results/result.md
+            echo
+            echo '### Compared with `tools/bench/baseline.json`'
+            echo
+            cat bench-results/compare.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: ${{ !cancelled() && hashFiles('bench-results/result.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-results
+          path: bench-results/
+          retention-days: 30
+
+      - name: Comment on the PR
+        # Fork PRs get a read-only token, so only comment on PRs from this repo.
+        if: >-
+          ${{ !cancelled() && github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          hashFiles('bench-results/result.md') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          marker='<!-- beltworks-bench -->'
+          {
+            echo "$marker"
+            echo "## Benchmark (${SHA:0:7})"
+            echo
+            cat bench-results/result.md
+            echo
+            echo '### Compared with `tools/bench/baseline.json`'
+            echo
+            cat bench-results/compare.md
+            echo
+            echo "Full results: the \`bench-results\` artifact of [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
+          } > bench-results/comment.md
+          # Update the previous benchmark comment instead of adding a new one per push.
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id" | head -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@bench-results/comment.md > /dev/null
+          else
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file bench-results/comment.md
+          fi

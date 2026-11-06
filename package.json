@@ -14,9 +14,11 @@
     "preview": "vite preview",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tools/bench",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:bench": "vitest run -c tools/bench/vitest.config.ts",
+    "test:e2e": "playwright test",
+    "bench": "vite build -c tools/bench/vite.config.ts && node --expose-gc node_modules/.cache/beltworks-bench/run.js"
   },
   "dependencies": {
     "pixi.js": "^8.22.0"
