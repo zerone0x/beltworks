@@ -1,7 +1,8 @@
 /**
  * The entity GUI commands: `Insert` moves items from the player's inventory
- * into an entity, `Take` moves the contents of one of its slots back (see
- * src/sim/commands.ts). Both go through the entity's item hooks (table.ts),
+ * into an entity, `Take` moves the contents of one of its slots back, and
+ * `SetRecipe` sets an assembling machine's recipe, refunding what it holds
+ * (see src/sim/commands.ts). Both go through the entity's item hooks (table.ts),
  * like drills and inserters will, so the routing rules (fuel into the fuel
  * slot, ores into the input) live in one place.
  *
@@ -11,6 +12,7 @@
  */
 
 import { itemPrototype } from '../../data/items';
+import { forceOf, isRecipeUnlocked } from '../research/unlocks';
 import type { SimState } from '../state';
 import { reaches } from './build';
 
@@ -23,8 +25,10 @@ export const TransferResult = {
   OutOfReach: 2,
   /** The player has none of the item, or the slot is empty. */
   NothingToMove: 3,
-  /** The entity (for `Insert`) or the inventory (for `Take`) has no room. */
+  /** The entity (for `Insert`) or the inventory (for `Take`, `SetRecipe`) has no room. */
   NoRoom: 4,
+  /** `SetRecipe`: the entity can't make that recipe, or the player's force hasn't unlocked it. */
+  BadRecipe: 5,
 } as const;
 
 export type TransferResult = (typeof TransferResult)[keyof typeof TransferResult];
@@ -91,5 +95,46 @@ export function takeFromEntity(
   }
   const taken = entities.take(entity, slot, n);
   inventory.add(stack.item, taken);
+  return TransferResult.Ok;
+}
+
+/**
+ * Sets entity `entity` to recipe `recipe` (0 for none) for player
+ * `playerId`, refunding its contents (slots and a craft in progress) to the
+ * player's inventory. Ignored if the entity has no recipe hooks or can't
+ * make the recipe, the player's force hasn't unlocked it, the entity
+ * already has it, or the refund doesn't all fit.
+ */
+export function setEntityRecipe(
+  state: SimState,
+  playerId: number,
+  entity: number,
+  recipe: number,
+): TransferResult {
+  const verdict = check(state, playerId, entity);
+  if (verdict !== TransferResult.Ok) {
+    return verdict;
+  }
+  const { entities } = state;
+  const allowed =
+    entities.table(entities.store.type(entity))?.setRecipe !== undefined &&
+    (recipe === 0 ||
+      (entities.allowsRecipe(entity, recipe) &&
+        isRecipeUnlocked(state, forceOf(state, playerId), recipe)));
+  if (!allowed) {
+    return TransferResult.BadRecipe;
+  }
+  if (entities.selectedRecipe(entity) === recipe) {
+    return TransferResult.Ok;
+  }
+  const refund = entities.contents(entity);
+  const inventory = state.players.inventory(playerId);
+  if (!inventory.fitsAll(refund)) {
+    return TransferResult.NoRoom;
+  }
+  entities.setRecipe(entity, recipe);
+  for (const stack of refund) {
+    inventory.add(stack.item, stack.count);
+  }
   return TransferResult.Ok;
 }

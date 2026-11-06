@@ -59,6 +59,8 @@ export interface EntityState {
   dir: number;
   /** Machine state (`MachineState`), e.g. 1 while a furnace works. */
   status: number;
+  /** The recipe an assembling machine is set to (0 for none and other types). */
+  recipe: number;
 }
 
 /** A belt as known to the renderer, with the items on it. */
@@ -167,6 +169,8 @@ export interface BeltworksTestHook {
   openPowerPanel(): number;
   /** Power icons (no power, low power) the entity layer drew last. */
   powerIcons(): number;
+  /** Assembling machines as drawn last: the product icon shown (0 for none) and animation speed (0..1). */
+  assemblers(): { id: number; item: number; speed: number }[];
 }
 
 declare global {
@@ -285,6 +289,7 @@ export function installTestHook({
         h: e.h,
         dir: e.dir,
         status: e.status,
+        recipe: e.recipe,
       })),
     belts: () =>
       view.belts.data.map((b) => ({
@@ -319,5 +324,6 @@ export function installTestHook({
     openEntity: () => entityPanel.entity,
     openPowerPanel: () => powerPanel.pole,
     powerIcons: () => view.entities.powerIcons,
+    assemblers: () => view.assemblers.machines.map((m) => ({ ...m })),
   };
 }

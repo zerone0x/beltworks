@@ -435,6 +435,7 @@ describe('burner mining drill', () => {
         { item: ItemId.Coal, count: 1 },
         { item: 0, count: 0 },
       ],
+      recipeOptions: [],
     });
   });
 

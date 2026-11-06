@@ -5,13 +5,16 @@ import { RecipeId } from '../../src/data/recipes';
 import { MachineState } from '../../src/sim/entities/machine';
 import type { EntityDetailData } from '../../src/sim/snapshot';
 import { engineSpeed } from '../../src/render/generatorLayer';
+import { assemblerIcon, assemblerSpeed } from '../../src/render/assemblerLayer';
 import {
   formatPower,
   machineBars,
   hasEntityGui,
   powerView,
+  recipeView,
   statusView,
 } from '../../src/ui/entityPanel';
+import { RECIPES } from '../../src/data/recipes';
 
 const detail = (fields: Partial<EntityDetailData>): EntityDetailData => ({
   id: 1,
@@ -26,6 +29,7 @@ const detail = (fields: Partial<EntityDetailData>): EntityDetailData => ({
   network: 0,
   satisfaction: 0,
   slots: [],
+  recipeOptions: [],
   ...fields,
 });
 
@@ -72,6 +76,7 @@ describe('entity panel', () => {
     expect(statusView(MachineState.Working, EntityTypeId.ElectricInserter).text).toBe('Swinging');
     expect(statusView(MachineState.NoPower)).toEqual({ key: 'no-power', text: 'No power' });
     expect(statusView(MachineState.LowPower)).toEqual({ key: 'low-power', text: 'Low power' });
+    expect(statusView(MachineState.NoRecipe)).toEqual({ key: 'no-recipe', text: 'No recipe' });
     expect(statusView(MachineState.Idle).text).toBe('');
     expect(statusView(99).key).toBe('idle');
   });
@@ -164,5 +169,40 @@ describe('entity panel', () => {
     expect(powerView(detail({ type: EntityTypeId.ElectricInserter })).network).toBe(
       'Not connected',
     );
+  });
+
+  it('opens for assembling machines, with a recipe picker and their craft progress', () => {
+    expect(hasEntityGui(EntityTypeId.AssemblingMachine1)).toBe(true);
+    expect(hasEntityGui(EntityTypeId.AssemblingMachine2)).toBe(true);
+    // A gear takes 60 ticks in machine 1 and 40 in machine 2.
+    const gear = { recipe: RecipeId.IronGearWheel, progress: 30 };
+    expect(machineBars(detail({ type: EntityTypeId.AssemblingMachine1, ...gear }))).toEqual({
+      progress: 0.5,
+      fuel: 0,
+    });
+    expect(machineBars(detail({ type: EntityTypeId.AssemblingMachine2, ...gear })).progress).toBe(
+      0.75,
+    );
+    expect(machineBars(detail({ type: EntityTypeId.AssemblingMachine1 })).progress).toBe(0);
+    expect(recipeView(RECIPES[RecipeId.IronGearWheel], EntityTypeId.AssemblingMachine1)).toEqual({
+      name: 'iron-gear-wheel',
+      label: 'Iron gear wheel',
+      text: '2 × Iron plate → Iron gear wheel (1 s)',
+    });
+    expect(recipeView(RECIPES[RecipeId.CopperCable], EntityTypeId.AssemblingMachine2).text).toBe(
+      'Copper plate → 2 × Copper cable (0.67 s)',
+    );
+    expect(powerView(detail({ type: EntityTypeId.AssemblingMachine2, power: 2_500 })).text).toBe(
+      'Power: 150 kW / 150 kW',
+    );
+  });
+
+  it("draws an assembling machine's product and animates it while it works", () => {
+    expect(assemblerIcon(RecipeId.IronGearWheel)).toBe(ItemId.IronGearWheel);
+    expect(assemblerIcon(0)).toBe(0);
+    expect(assemblerSpeed(MachineState.Working)).toBe(1);
+    expect(assemblerSpeed(MachineState.LowPower)).toBe(0.5);
+    expect(assemblerSpeed(MachineState.NoInput)).toBe(0);
+    expect(assemblerSpeed(MachineState.NoPower)).toBe(0);
   });
 });

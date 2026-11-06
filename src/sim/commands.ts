@@ -89,6 +89,18 @@ export interface TakeCommand extends CommandBase {
 }
 
 /**
+ * Sets the recipe of entity `entity` (an assembling machine; 0 clears it),
+ * refunding what it holds to the player's inventory. Ignored if the entity
+ * doesn't exist, is out of reach, can't make that recipe, the recipe isn't
+ * unlocked, or the refund doesn't fit (see src/sim/entities/transfer.ts).
+ */
+export interface SetRecipeCommand extends CommandBase {
+  readonly type: 'SetRecipe';
+  readonly entity: number;
+  readonly recipe: number;
+}
+
+/**
  * Queues up to `count` hand-crafts of `recipe`, as many as the inventory
  * allows, auto-queueing missing intermediates (see src/sim/crafting/queue.ts).
  */
@@ -113,6 +125,7 @@ export type Command =
   | RotateCommand
   | InsertCommand
   | TakeCommand
+  | SetRecipeCommand
   | CraftCommand
   | CancelCraftCommand;
 export type CommandType = Command['type'];
@@ -172,6 +185,10 @@ export function validateCommandInput(input: unknown): string | null {
       return isUint32(c.entity) && isUint16(c.slot) && isCount(c.count)
         ? null
         : 'Take needs a uint32 entity, a uint16 slot and a count in [1, 65535]';
+    case 'SetRecipe':
+      return isUint32(c.entity) && isUint16(c.recipe)
+        ? null
+        : 'SetRecipe needs a uint32 entity and a uint16 recipe';
     case 'Craft':
       return isUint16(c.recipe) && isUint16(c.count) && c.count !== 0
         ? null

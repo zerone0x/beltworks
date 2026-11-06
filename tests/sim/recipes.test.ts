@@ -106,7 +106,9 @@ describe('recipe prototypes', () => {
       outputs: [[ItemId.BurnerInserter, 1]],
       ticks: 30,
     });
-    expect(HAND_RECIPES.map((r) => r.id)).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(HAND_RECIPES.map((r) => r.id)).toEqual([
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+    ]);
   });
 
   it('have the M2 power hand recipes', () => {

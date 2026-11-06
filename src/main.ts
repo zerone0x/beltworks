@@ -69,6 +69,9 @@ async function main(): Promise<void> {
     inspect: (entity) => {
       client.inspect(entity);
     },
+    setRecipe: (entity, recipe) => {
+      client.sendCommands([{ type: 'SetRecipe', playerId: LOCAL_PLAYER_ID, entity, recipe }]);
+    },
   });
   const crafting = {
     playerId: LOCAL_PLAYER_ID,

@@ -24,7 +24,7 @@ export const ICON_PX = 13;
 export type IconShape = 'ore' | 'plate' | 'item';
 
 export interface IconSpec {
-  /** One or two letters (A–Z) drawn on the icon. */
+  /** One or two letters (A–Z) or digits (1, 2: machine tiers) drawn on the icon. */
   label: string;
   shape: IconShape;
 }
@@ -52,6 +52,8 @@ const ICONS: Readonly<Partial<Record<RealItemId, IconSpec>>> = {
   [ItemId.SteamEngine]: { label: 'SE', shape: 'item' },
   [ItemId.ElectricMiningDrill]: { label: 'ED', shape: 'item' },
   [ItemId.ElectricInserter]: { label: 'EI', shape: 'item' },
+  [ItemId.AssemblingMachine1]: { label: 'A1', shape: 'item' },
+  [ItemId.AssemblingMachine2]: { label: 'A2', shape: 'item' },
 };
 
 /** Color of unknown items, so bad data is obvious. */
@@ -103,6 +105,8 @@ const GLYPHS: Readonly<Record<string, readonly string[]>> = {
   X: ['#.#', '#.#', '.#.', '#.#', '#.#'],
   Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
   Z: ['###', '..#', '.#.', '#..', '###'],
+  '1': ['.#.', '##.', '.#.', '.#.', '###'],
+  '2': ['##.', '..#', '.#.', '#..', '###'],
   '?': ['##.', '..#', '.#.', '...', '.#.'],
 };
 const GLYPH_W = 3;

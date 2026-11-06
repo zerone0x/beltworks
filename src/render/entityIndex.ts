@@ -25,6 +25,8 @@ export interface EntityView {
   dir: Direction;
   /** Machine state (`MachineState` in src/sim/entities/machine.ts). */
   status: number;
+  /** The recipe an assembling machine is set to (0 for none and other types). */
+  recipe: number;
 }
 
 /**
@@ -69,6 +71,7 @@ export class EntityIndex {
         h,
         dir,
         status: records[o + EntityField.status]!,
+        recipe: records[o + EntityField.recipe]!,
       };
       this.list.push(entity);
       for (let ty = entity.y; ty < entity.y + h; ty++) {

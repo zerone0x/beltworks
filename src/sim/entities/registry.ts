@@ -4,10 +4,12 @@
  * plain placeholders that only exist in the generic store.
  */
 
+import { ENTITIES, EntityTypeId } from '../../data/entities';
 import { BeltTable } from '../belts/belts';
 import { BoilerTable } from '../power/boiler';
 import { PowerGrid } from '../power/grid';
 import { SteamEngineTable } from '../power/steamEngine';
+import { AssemblerTable } from './assembler';
 import { ChestTable } from './chest';
 import { DrillTable } from './drill';
 import { ElectricDrillTable } from './electricDrill';
@@ -29,5 +31,7 @@ export function createEntityTables(): EntityTypeTable[] {
     new SteamEngineTable(),
     new ElectricDrillTable(),
     new ElectricInserterTable(),
+    new AssemblerTable(ENTITIES[EntityTypeId.AssemblingMachine1]),
+    new AssemblerTable(ENTITIES[EntityTypeId.AssemblingMachine2]),
   ];
 }

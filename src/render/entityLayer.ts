@@ -2,18 +2,21 @@
  * Draws the entities (placeholder shapes in each prototype's color, with a
  * direction marker on rotatable ones, a firebox on furnaces and boilers that
  * glows while they work, a drill head on mining drills that lights up while they work,
- * a small platform for inserters, and a post with a crossbar for electric
- * poles), a power icon over electric consumers without enough power (red
+ * a small platform for inserters, a post with a crossbar for electric
+ * poles, and a recessed work area on assembling machines), a power icon over electric consumers without enough power (red
  * for no power, yellow for low power; in `iconContainer`, above the
  * inserter arms and wires), and the ghost preview of the entity about to be
  * placed. Placed belts are drawn by the belt layer (beltLayer.ts) instead,
- * inserter arms by the inserter layer (inserterLayer.ts), and steam engine
- * flywheels by the generator layer (generatorLayer.ts).
+ * inserter arms by the inserter layer (inserterLayer.ts), steam engine
+ * flywheels by the generator layer (generatorLayer.ts), and assembling
+ * machines' product icons and working lights by the assembler layer
+ * (assemblerLayer.ts).
  */
 
 import { Container, Graphics } from 'pixi.js';
 import { EntityTypeId, type EntityPrototype } from '../data/entities';
 import type { Direction } from '../sim/entities/direction';
+import { isAssemblerType } from '../sim/entities/assembler';
 import { MachineState } from '../sim/entities/machine';
 import { footprintSize } from '../sim/entities/store';
 import { TILE_PX } from './camera';
@@ -31,6 +34,8 @@ const FIREBOX_CORE = 0xffe08a;
 /** Drill head when idle, and while the drill mines. */
 const DRILL_HEAD_IDLE = 0x3a3c42;
 const DRILL_HEAD_WORKING = 0xd8d2bf;
+/** An assembling machine's work area, where its product icon shows. */
+const WORK_AREA = 0x26282c;
 /** Power icons: no power at all, and low power (satisfaction below 1). */
 export const NO_POWER_COLOR = 0xe0473c;
 export const LOW_POWER_COLOR = 0xf2c230;
@@ -104,6 +109,21 @@ export function drawEntity(
       color: working ? DRILL_HEAD_WORKING : DRILL_HEAD_IDLE,
       alpha,
     });
+  }
+  if (proto && isAssemblerType(proto.id)) {
+    // A recessed square in the middle, with a bolt in each corner of the body.
+    const edge = Math.min(width, height) * 0.56;
+    g.roundRect(left + (width - edge) / 2, top + (height - edge) / 2, edge, edge, 4)
+      .fill({ color: WORK_AREA, alpha })
+      .stroke({ width: 2, color: shade(color, 0.6), alpha });
+    for (const [bx, by] of [
+      [left + 6, top + 6],
+      [left + width - 6, top + 6],
+      [left + 6, top + height - 6],
+      [left + width - 6, top + height - 6],
+    ] as const) {
+      g.circle(bx, by, 2.5).fill({ color: shade(color, 0.5), alpha });
+    }
   }
   if (!proto?.rotatable) {
     return;

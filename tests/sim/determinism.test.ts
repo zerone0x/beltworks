@@ -7,11 +7,14 @@ import { BeltShape, beltTable } from '../../src/sim/belts/belts';
 import { BeltLane } from '../../src/sim/belts/line';
 import { CRAFT_QUEUE_LENGTH } from '../../src/sim/crafting/queue';
 import { Direction } from '../../src/sim/entities/direction';
+import { assemblerTable } from '../../src/sim/entities/assembler';
 import { DrillSlot } from '../../src/sim/entities/drill';
 import { FurnaceSlot } from '../../src/sim/entities/furnace';
 import { InserterSlot, InserterState, inserterTable } from '../../src/sim/entities/inserter';
 import { MachineState } from '../../src/sim/entities/machine';
 import {
+  DETERMINISM_ASSEMBLER,
+  DETERMINISM_ASSEMBLER_TICK,
   DETERMINISM_BELTS,
   DETERMINISM_BOILER,
   DETERMINISM_BUILD_TICKS,
@@ -528,13 +531,67 @@ describe('determinism', () => {
     expect(entities.store.type(inserter)).toBe(EntityTypeId.ElectricInserter);
     expect(grid.networkOf(inserter)).toBe(1);
     expect(grid.network(1)).toMatchObject({ demand: 220, load: 220 });
-    while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
+    // Until player 1 adds its assembling machine (see the next test).
+    while (sim.tick < DETERMINISM_ASSEMBLER_TICK) sim.step();
     expect(entities.status(inserter)).toBe(MachineState.WaitingForSource);
     expect(grid.network(1)).toMatchObject({ supply: 30_000, demand: 7, load: 7 });
     // The boiler burnt one coal for all of it, 100% efficiently.
-    const drawn = 220 + 7 * (DETERMINISM_SCRIPTED_TICKS - DETERMINISM_STEAM_TICK - 5);
+    const drawn = 220 + 7 * (DETERMINISM_ASSEMBLER_TICK - DETERMINISM_STEAM_TICK - 5);
     expect(entities.slots(boiler)).toEqual([{ item: ItemId.Coal, count: 1 }]);
     expect(boilers.detail(boiler).energy).toBe(4_000_000 - drawn);
+  });
+
+  it("runs player 1's assembling machine on the steam network, with recipe changes", () => {
+    const sim = createDeterminismSim();
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    const { entities, players } = sim.state;
+    const grid = powerGrid(entities)!;
+    const table = assemblerTable(entities, EntityTypeId.AssemblingMachine1)!;
+    const id = DETERMINISM_ASSEMBLER;
+    const t = DETERMINISM_ASSEMBLER_TICK;
+    const copper = () => players.inventory(1).count(ItemId.CopperPlate);
+    const cable = () => players.inventory(1).count(ItemId.CopperCable);
+    const until = (tick: number) => {
+      while (sim.tick <= tick) sim.step();
+    };
+    until(t);
+    expect(entities.store.type(id)).toBe(EntityTypeId.AssemblingMachine1);
+    expect(grid.networkOf(id)).toBe(1);
+    expect(entities.status(id)).toBe(MachineState.NoRecipe);
+    until(t + 1);
+    expect(entities.selectedRecipe(id)).toBe(RecipeId.CopperCable);
+    expect(entities.status(id)).toBe(MachineState.NoInput);
+    // The input slot takes 2 of the 10 plates; a craft starts at once and draws 1 250 J.
+    until(t + 2);
+    expect(copper()).toBe(8);
+    expect(table.crafting(id)).toBe(true);
+    expect(entities.slots(id)).toEqual([
+      { item: ItemId.CopperPlate, count: 1 },
+      { item: 0, count: 0 },
+    ]);
+    expect(grid.member(id)!.demand).toBe(1_250);
+    // The ignored recipe commands changed nothing.
+    until(t + 3);
+    expect(entities.selectedRecipe(id)).toBe(RecipeId.CopperCable);
+    // 60 ticks a craft (30 at speed 1/2): two cables on tick t + 61.
+    until(t + 60);
+    expect(entities.slots(id)[1]).toEqual({ item: 0, count: 0 });
+    until(t + 61);
+    expect(entities.slots(id)[1]).toEqual({ item: ItemId.CopperCable, count: 2 });
+    until(t + 62);
+    expect(cable()).toBe(2);
+    until(t + 63);
+    expect(copper()).toBe(6);
+    // Switching to gears refunds the plate in the craft under way and the two in the slot.
+    until(t + 64);
+    expect(entities.selectedRecipe(id)).toBe(RecipeId.IronGearWheel);
+    expect(copper()).toBe(9);
+    expect(table.crafting(id)).toBe(false);
+    until(t + 66);
+    expect(copper()).toBe(7);
+    while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
+    expect(entities.status(id)).toBe(MachineState.Working);
+    expect(grid.network(1)).toMatchObject({ demand: 1_250 + 7, load: 1_257 });
   });
 
   it("puts player 2's electric drill and inserter on a network without power", () => {

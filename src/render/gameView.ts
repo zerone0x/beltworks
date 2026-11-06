@@ -17,6 +17,7 @@ import { SUBTILES_PER_TILE } from '../sim/fixed';
 import { PLAYER_STRIDE, PlayerField } from '../sim/snapshot';
 import { isTileInMap } from '../sim/world/world';
 import { LOCAL_PLAYER_ID, type SnapshotMessage, type Viewport } from '../worker/protocol';
+import { AssemblerLayer } from './assemblerLayer';
 import { BeltLayer } from './beltLayer';
 import { Camera, TILE_PX, type Point } from './camera';
 import { CameraInput } from './cameraInput';
@@ -44,6 +45,8 @@ export class GameView {
   /** Entities around the view, from the latest snapshot. */
   readonly entityIndex = new EntityIndex();
   readonly entities = new EntityLayer();
+  /** Assembling machines' product icons and working lights. */
+  readonly assemblers = new AssemblerLayer();
   /** Steam engine flywheels, turning with their output. */
   readonly generators = new GeneratorLayer();
   /** Belts and the items on them, below the other entities. */
@@ -75,6 +78,7 @@ export class GameView {
       this.belts.container,
       this.belts.itemContainer,
       this.entities.container,
+      this.assemblers.container,
       this.generators.container,
       this.inserters.container,
       this.power.container,
@@ -167,6 +171,7 @@ export class GameView {
     this.terrain.update();
     this.belts.draw(now);
     this.entities.draw(this.entityIndex);
+    this.assemblers.draw(this.entityIndex, dtMs);
     this.generators.draw(this.entityIndex, this.power.data, dtMs);
     this.inserters.draw(now);
     this.power.drawWires();

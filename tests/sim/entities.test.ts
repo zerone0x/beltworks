@@ -660,7 +660,7 @@ describe('encodeEntities', () => {
     expect(records[0]!.slice(EntityField.x, EntityField.dir + 1)).toEqual([-2, -2, North]);
     // A fresh furnace waits for input; belts have no machine state.
     expect(records[0]![EntityField.status]).toBe(MachineState.NoInput);
-    expect(records[1]).toEqual([1, EntityTypeId.TransportBelt, 2, 0, South, MachineState.Idle]);
+    expect(records[1]).toEqual([1, EntityTypeId.TransportBelt, 2, 0, South, MachineState.Idle, 0]);
     expect(encodeEntities(state, { cx0: 0, cy0: 0, cx1: 0, cy1: 0 }).length).toBe(ENTITY_STRIDE);
     expect(encodeEntities(state, null).length).toBe(0);
   });

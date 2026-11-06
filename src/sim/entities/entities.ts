@@ -147,6 +147,30 @@ export class Entities {
     }
   }
 
+  /** The recipe entity `id` is set to, or 0 (types without a recipe hook, missing entities). */
+  selectedRecipe(id: number): number {
+    return this.tableOf(id)?.selectedRecipe?.(id) ?? 0;
+  }
+
+  /** Whether entity `id` can be set to recipe `recipe` (false for types without a recipe hook). */
+  allowsRecipe(id: number, recipe: number): boolean {
+    return this.tableOf(id)?.allowsRecipe?.(id, recipe) ?? false;
+  }
+
+  /**
+   * Sets entity `id` to recipe `recipe` (one `allowsRecipe` accepts, or 0)
+   * and tells every table (`entityReconfigured`). Its contents are dropped:
+   * refunding them is the caller's job (see `contents`).
+   */
+  setRecipe(id: number, recipe: number): void {
+    const table = this.tableOf(id);
+    if (!table?.setRecipe) return;
+    table.setRecipe(id, recipe, this);
+    for (const t of this.tableList) {
+      t.entityReconfigured?.(id, this);
+    }
+  }
+
   /** Machine state of entity `id` (Idle for types without one and for missing entities). */
   status(id: number): MachineState {
     return this.tableOf(id)?.status?.(id) ?? MachineState.Idle;

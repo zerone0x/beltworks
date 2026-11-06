@@ -30,6 +30,13 @@ describe('validateCommandInput', () => {
     expect(
       validateCommandInput({ playerId: 0, type: 'Take', entity: 7, slot: 2, count: 0xffff }),
     ).toBeNull();
+    // Recipe 0 clears an assembling machine's recipe.
+    expect(
+      validateCommandInput({ playerId: 0, type: 'SetRecipe', entity: 7, recipe: 0 }),
+    ).toBeNull();
+    expect(
+      validateCommandInput({ playerId: 0, type: 'SetRecipe', entity: 2 ** 32 - 1, recipe: 0xffff }),
+    ).toBeNull();
   });
 
   it.each([
@@ -60,6 +67,10 @@ describe('validateCommandInput', () => {
     { playerId: 0, type: 'Insert', entity: 1, count: 1 },
     { playerId: 0, type: 'Take', entity: 1, slot: 0.5, count: 1 },
     { playerId: 0, type: 'Take', entity: 1, slot: 0 },
+    { playerId: 0, type: 'SetRecipe', entity: 1 },
+    { playerId: 0, type: 'SetRecipe', entity: 1, recipe: -1 },
+    { playerId: 0, type: 'SetRecipe', entity: 1, recipe: 0x1_0000 },
+    { playerId: 0, type: 'SetRecipe', entity: 1.5, recipe: 4 },
   ])('rejects %j', (input) => {
     expect(validateCommandInput(input)).not.toBeNull();
   });

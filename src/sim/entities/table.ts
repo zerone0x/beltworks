@@ -82,6 +82,13 @@ export interface EntityTypeTable {
   entityPlaced?(id: number, entities: Entities): void;
   entityRotated?(id: number, entities: Entities): void;
   entityRemoved?(id: number, entities: Entities): void;
+  /**
+   * Called on every table, in type id order, after entity `id` changed its
+   * settings in a way that can change what it accepts (an assembling
+   * machine's recipe), so tables can wake entities that feed it (inserters
+   * waiting for something their target accepts).
+   */
+  entityReconfigured?(id: number, entities: Entities): void;
 
   /**
    * Something subscribed to entity `id` of this type (see wake.ts). Belts
@@ -137,6 +144,22 @@ export interface EntityTypeTable {
    * pick up. With `accept`, only slots holding an item it accepts count.
    */
   outputSlot?(id: number, accept?: (item: number) => boolean): number;
+
+  // Recipe hooks, for types whose recipe the player picks (assembling
+  // machines; furnaces pick theirs from their input).
+
+  /** The recipe the entity is set to (src/data/recipes.ts), or 0 for none. */
+  selectedRecipe?(id: number): number;
+
+  /** Whether the entity can be set to recipe `recipe` (an existing recipe id). */
+  allowsRecipe?(id: number, recipe: number): boolean;
+
+  /**
+   * Sets the entity to recipe `recipe` (0 for none; one `allowsRecipe`
+   * accepts): its slots are resized from the new recipe and start empty, and
+   * a craft in progress is dropped. The caller first refunds `contents`.
+   */
+  setRecipe?(id: number, recipe: number, entities: Entities): void;
 
   // Power hooks (src/sim/power/). A type implementing `powerDemand` is an
   // electric consumer, one implementing `powerMaxOutput` an electric
