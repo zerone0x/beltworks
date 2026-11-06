@@ -1,74 +1,74 @@
-# 游戏设计文档（GDD）
+# Game Design Document
 
-## 一句话
+## One line
 
-在一颗外星球上，从徒手挖矿开始，搭建越来越大的自动化生产线，最终造出火箭离开。
+Stranded on an alien planet, you start by mining ore by hand and build bigger and bigger automated production lines until you can launch a rocket home.
 
-## 核心体验
+## Core experience
 
-1. **自动化的满足感**：手工做一次 → 让机器做一万次。
-2. **物流解谜**：原料怎么运到机器、产物怎么运走，空间与吞吐的权衡。
-3. **扩张与重构**：旧产线不够用，拆掉重建或并联。
+1. **The satisfaction of automation:** craft something once by hand, then make machines craft it ten thousand times.
+2. **Logistics puzzles:** getting inputs to machines and outputs away, trading space for throughput.
+3. **Expansion and rebuilding:** an old line can't keep up, so you tear it down or build a second one beside it.
 
-## 核心循环
+## Core loop
 
 ```
-探索/采集 → 手工合成 → 放置机器 → 连接物流 → 研究科技 → 解锁更复杂配方 → 扩张
+explore/gather → hand-craft → place machines → connect logistics → research → unlock harder recipes → expand
 ```
 
-## 视角与风格
+## View and style
 
-- 俯视 2D（top-down），网格放置，单格 = 32px 基准（支持缩放）。
-- 像素/扁平风格，原创素材。工业感、暖色金属 + 冷色地面。
-- 机器有简单动画（2–8 帧），传送带滚动纹理。
+- Top-down 2D on a grid. One tile is 32 px at 1× zoom, and zoom is supported.
+- Pixel or flat style, all original art. Industrial look: warm metal over cool ground.
+- Machines have simple animations (2–8 frames). Belts scroll their texture.
 
-## 范围（v1 单人）
+## v1 scope (single-player)
 
-### 世界
-- 无限程序生成地图（按 chunk 生成），种子可复现。
-- 地形：草地、沙地、水（不可建造）、岩石（可拆，掉石头）。
-- 资源：铁矿、铜矿、煤、石头。（v1.x：原油）
-- 树：可砍，掉木头。
+### World
+- Infinite procedurally generated map, generated chunk by chunk. A seed always produces the same map.
+- Terrain: grass, sand, water (can't build on it), rock (can be removed and drops stone).
+- Resources: iron ore, copper ore, coal, stone. (v1.x: crude oil.)
+- Trees: can be chopped and drop wood.
 
-### 角色
-- WASD 移动，鼠标放置/拆除，背包 + 快捷栏。
-- 手工合成队列（耗时）。
-- 建造距离限制（约 10 格）。
+### Player
+- Move with WASD. Place and remove with the mouse. Inventory and hotbar.
+- Hand-crafting queue; each recipe takes time.
+- Build reach of about 10 tiles.
 
-### 实体（v1）
-| 类别 | 实体 |
+### Entities (v1)
+| Category | Entities |
 |---|---|
-| 采集 | 燃料采矿机、电动采矿机 |
-| 物流 | 传送带（3 级速度）、地下带、分流器 |
-| 搬运 | 机械臂（燃料 / 电动 / 快速 / 长臂） |
-| 加工 | 石炉、组装机（2 级） |
-| 储存 | 木箱、铁箱 |
-| 电力 | 锅炉、蒸汽机、小电线杆、中电线杆（v1 用"假流体"：锅炉→蒸汽机相邻即连通） |
-| 研究 | 实验室 |
+| Extraction | Burner mining drill, electric mining drill |
+| Logistics | Transport belt (3 speed tiers), underground belt, splitter |
+| Handling | Inserter (burner / electric / fast / long) |
+| Processing | Stone furnace, assembler (2 tiers) |
+| Storage | Wooden chest, iron chest |
+| Power | Boiler, steam engine, small pole, medium pole (v1 skips real fluids: a boiler next to a steam engine counts as connected) |
+| Research | Lab |
 
-### 物品与配方
-- v1 约 30 种物品、25 个配方，数据驱动（JSON/TS 表），便于平衡。
-- 科技瓶：红（自动化）、绿（物流）。v1.x：蓝。
+### Items and recipes
+- About 30 items and 25 recipes in v1, defined as data tables (TS) so balancing is easy.
+- Science packs: red (automation) and green (logistics). Blue comes in v1.x.
 
-### 科技树
-- v1 约 15 个科技节点，解锁实体与配方。
+### Tech tree
+- About 15 technology nodes in v1. Each one unlocks entities and recipes.
 
-### 胜利条件
-- v1：研究完所有绿瓶科技 = "通关"演示。
-- 完整版：火箭发射。
+### Win condition
+- v1: researching every green-science technology finishes the demo.
+- Full game: launch a rocket.
 
-## 明确不做（v1）
+## Non-goals for v1
 
-- 敌人 / 战斗 / 污染
-- 流体系统（管道、炼油）
-- 火车
-- 电路网络
-- 多人（但架构保持确定性，见 ARCHITECTURE.md）
-- 移动端触控适配（桌面浏览器优先）
-- Mod 支持
+- Enemies, combat, pollution
+- Fluids (pipes, oil refining)
+- Trains
+- Circuit network
+- Multiplayer (the architecture stays deterministic, see ARCHITECTURE.md)
+- Mobile and touch input (desktop browsers first)
+- Mod support
 
-## 体验指标
+## Experience targets
 
-- 新玩家 5 分钟内造出第一台自动采矿 → 熔炉。
-- 30 分钟内完成红瓶自动化。
-- 1 万实体工厂保持 60 UPS / 60 FPS（中端笔记本 Chrome）。
+- A new player builds their first automatic drill → furnace setup within 5 minutes.
+- Red science is automated within 30 minutes.
+- A 10k-entity factory keeps 60 UPS / 60 FPS in Chrome on a mid-range laptop.

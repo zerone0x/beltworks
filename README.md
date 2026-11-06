@@ -1,19 +1,25 @@
 # Beltworks
 
-浏览器里的自动化工厂游戏（灵感来自 Factorio，原创美术与命名）。
+A factory-automation game for the browser, inspired by Factorio. All art and names are original.
 
-> 状态：规划阶段。尚无可运行代码。
+> Status: in development. Live build: https://zerone0x.github.io/beltworks-play/
 
-## 文档
+## Docs
 
-| 文档 | 内容 |
+| Doc | Contents |
 |---|---|
-| [docs/GDD.md](docs/GDD.md) | 游戏设计：核心循环、范围、不做什么 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 技术架构：模拟核心、渲染、数据结构、确定性 |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑与验收标准 |
-| [docs/TOOLING.md](docs/TOOLING.md) | 开发工具链与 agent 工作流 |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | 已定决策与待定问题 |
+| [docs/GDD.md](docs/GDD.md) | Game design: core loop, scope, non-goals |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Simulation core, rendering, data layout, determinism |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones and acceptance criteria |
+| [docs/TOOLING.md](docs/TOOLING.md) | Toolchain, references, development rules |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Decisions made and open questions |
 
-## 版权说明
+## Deployment
 
-不使用 Factorio 的任何素材、名称、音效或代码。所有美术、音效为原创或 CC0 许可来源。
+The source repo is private. CI builds `main` and pushes `dist/` to the `gh-pages` branch of the public repo
+[`zerone0x/beltworks-play`](https://github.com/zerone0x/beltworks-play), which serves it with GitHub Pages.
+The build uses the base path `/beltworks-play/`, and pushes authenticate with the `DEPLOY_KEY` Actions secret, an SSH deploy key with write access to that repo.
+
+## Copyright
+
+This project does not use any Factorio assets, names, sounds, or code. All art and audio is original or CC0.

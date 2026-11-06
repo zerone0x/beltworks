@@ -1,24 +1,25 @@
-# 决策记录
+# Decision log
 
-## 已定
+## Decided
 
-| # | 决策 | 理由 |
+| # | Decision | Why |
 |---|---|---|
-| D1 | 俯视 2D，网格 | 工作量最小，玩法核心不依赖 3D |
-| D2 | PixiJS v8 而非 Phaser | 只需渲染层；物理、场景管理用不上，PixiJS 批量绘制更轻更快 |
-| D3 | 模拟跑在 Web Worker | 主线程只负责渲染和输入，避免卡顿 |
-| D4 | 模拟全整数、确定性 | 存档可靠、回放调试、为多人预留 |
-| D5 | 传送带用 transport line + gap 数组 | 业界验证过的唯一可扩展做法 |
-| D6 | 先 TypeScript，数据按 TypedArray 设计 | 迭代快；需要时低成本迁移 WASM |
-| D7 | v1 单人，无战斗、无流体 | 聚焦核心循环 |
-| D8 | 原创名称与素材 | 避免版权问题 |
+| D1 | Top-down 2D on a grid | Least work, and the gameplay doesn't need 3D |
+| D2 | PixiJS v8 rather than Phaser | Only a renderer is needed; physics and scene management would go unused, and PixiJS batches sprites more lightly and quickly |
+| D3 | The simulation runs in a Web Worker | The main thread only renders and handles input, so the game doesn't stutter |
+| D4 | Integer-only, deterministic simulation | Reliable saves, replay debugging, room for multiplayer |
+| D5 | Belts are transport lines with gap arrays | The only approach proven to scale |
+| D6 | TypeScript first, with data laid out as TypedArrays | Fast iteration, cheap to move to WASM if needed |
+| D7 | v1 is single-player with no combat or fluids | Keeps the focus on the core loop |
+| D8 | Original names and art | Avoids copyright problems |
+| D9 | Private source repo, public deploy repo `beltworks-play` on GitHub Pages | GitHub Pages isn't available for private repos on the current plan |
 
-## 待定
+## Open
 
-| # | 问题 | 何时决定 |
+| # | Question | Decide when |
 |---|---|---|
-| Q1 | UI 框架：Solid 还是 Preact | M0 开始时 |
-| Q2 | 快照传输：transferable buffer 还是 SharedArrayBuffer | M4 基准测试后 |
-| Q3 | 是否以及何时迁移 Rust→WASM | M4 |
-| Q4 | 美术风格最终定稿（像素 vs 扁平矢量） | M1 结束前，先用占位图 |
-| Q5 | 项目正式名称（暂名 Beltworks） | 公开测试前 |
+| Q1 | UI: plain DOM or Preact | When the UI grows past the inventory (M2) |
+| Q2 | Snapshot transfer: transferable buffers or SharedArrayBuffer (needs COOP/COEP) | After the M4 benchmarks |
+| Q3 | Whether and when to move to Rust→WASM | M4 |
+| Q4 | Final art style (pixel or flat vector) | Before the end of M1; placeholders until then |
+| Q5 | Final name (working title: Beltworks) | Before the public beta |

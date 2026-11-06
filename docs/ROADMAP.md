@@ -1,75 +1,75 @@
-# 路线图
+# Roadmap
 
-每个里程碑结束时：所有测试通过、benchmark 无回归、部署一个可玩预览链接、Playwright 截图存档。
+Every milestone ends the same way: all tests pass, benchmarks don't regress, a playable build is deployed, and Playwright screenshots are saved.
 
-## M0 — 骨架与原型
+## M0 — Skeleton and prototype
 
 - Vite + TS strict + Vitest + Playwright + ESLint/Prettier
-- Worker 消息协议、固定步长 tick 循环、Command 队列
-- 种子 PRNG、chunk 化地图生成（地形 + 4 种矿）
-- PixiJS：相机平移/缩放、按 chunk 渲染地形
-- 角色移动、手动采矿、背包（数据 + 简单 UI）
-- 确定性哈希测试框架（Node + Chromium）
-- CI（GitHub Actions）+ Cloudflare Pages 预览部署
+- Worker message protocol, fixed-step tick loop, Command queue
+- Seeded PRNG, chunked map generation (terrain + 4 resources)
+- PixiJS: camera pan and zoom, terrain rendered per chunk
+- Player movement, hand-mining, inventory (data + simple UI)
+- Determinism hash test (Node + Chromium)
+- CI (GitHub Actions) + deploy to GitHub Pages
 
-**验收**：浏览器里能走、能缩放地图、能挖矿进背包；确定性测试在 CI 通过。
+**Done when:** you can walk around, zoom the map, and mine ore into your inventory in the browser, and the determinism test passes in CI.
 
-## M1 — 核心自动化循环
+## M1 — Core automation loop
 
-- 放置/拆除/旋转，建造预览（ghost），碰撞检测
-- 燃料采矿机、石炉、木箱
-- 传送带（transport line 实现）+ 2 条 lane
-- 燃料机械臂（拾取/放下节拍）
-- 燃料系统（煤）
-- 手工合成队列
-- benchmark 场景脚手架（先做 1k 实体）
+- Place, remove, and rotate, with a ghost preview and collision checks
+- Burner mining drill, stone furnace, wooden chest
+- Transport belts (transport-line implementation) with 2 lanes
+- Burner inserter (pickup and drop timing)
+- Fuel (coal)
+- Hand-crafting queue
+- Benchmark scaffold (1k-entity scene first)
 
-**验收**：铁矿 → 采矿机 → 带 → 机械臂 → 熔炉 → 机械臂 → 箱子，全自动产铁板；带吞吐测试精确匹配设计值。
+**Done when:** iron ore → drill → belt → inserter → furnace → inserter → chest produces iron plates with no player input, and the belt throughput test matches the design numbers exactly.
 
-## M2 — 生产链与科技
+## M2 — Production chains and research
 
-- 组装机（选配方 UI）、实验室
-- 物品/配方数据表（~30 物品），配方可达性测试
-- 科技树 UI + 研究进度
-- 红瓶、绿瓶
-- 地下带、分流器、多级带
-- 铁箱、多种机械臂
+- Assembler (with a recipe picker) and lab
+- Item and recipe tables (~30 items) with a craftability test
+- Tech tree UI and research progress
+- Red and green science
+- Underground belts, splitters, belt tiers
+- Iron chest and the other inserter types
 
-**验收**：从零自动化生产红瓶和绿瓶并完成研究。
+**Done when:** you can go from nothing to automated red and green science and finish researching it.
 
-## M3 — 电力
+## M3 — Power
 
-- 锅炉 + 蒸汽机 + 电线杆，电网并查集
-- 电动采矿机、电动机械臂
-- 供电不足时按比例减速，电力面板（供需图）
+- Boiler + steam engine + poles, with union-find power networks
+- Electric mining drill, electric inserter
+- Machines slow down in proportion to missing power; power panel with a supply/demand graph
 
-**验收**：缺电时机器明显变慢，补发电后恢复。
+**Done when:** machines visibly slow down when power runs short and recover once more generators are added.
 
-## M4 — 性能
+## M4 — Performance
 
-- 机器休眠/唤醒体系完善
-- benchmark：1k / 10k / 50k 实体场景，CI 报告
-- 视口裁剪、sprite 池、带上物品渲染优化
-- 快照传输优化（必要时 SharedArrayBuffer）
-- 评估热点是否迁移 Rust→WASM
+- Complete the machine sleep/wake system
+- Benchmarks for 1k / 10k / 50k entities, reported in CI
+- Viewport culling, sprite pools, faster rendering of belt items
+- Faster snapshot transfer
+- Evaluate moving hot paths to Rust→WASM
 
-**验收**：10k 实体 + 5 万带上物品稳定 60 UPS / 60 FPS。
+**Done when:** 10k entities and 50k items on belts hold a steady 60 UPS / 60 FPS.
 
-## M5 — 体验完善
+## M5 — Polish
 
-- 存档/读档（IndexedDB）、自动存档、存档版本迁移
-- 蓝图：框选复制、粘贴、导入/导出字符串
-- 小地图、地图模式
-- 音效与背景音乐（CC0 / 原创）
-- 新手引导（前 5 分钟）
-- 设置：按键、画质、UI 缩放
+- Save and load (IndexedDB), autosave, save-version migrations
+- Blueprints: box-select copy, paste, string import and export
+- Minimap and map mode
+- Sound effects and music (CC0 or original)
+- Onboarding for the first 5 minutes
+- Settings: keybindings, graphics, UI scale
 
-**验收**：v1 公开测试版。
+**Done when:** v1 is ready for a public beta.
 
-## 之后（v1.x / v2）
+## Later (v1.x / v2)
 
-- 流体：原油、炼油、管道
-- 蓝瓶及以上科技、火箭
-- 敌人、炮塔、污染
-- 火车
-- 多人（确定性锁步 + WebSocket 中继）
+- Fluids: crude oil, refining, pipes
+- Blue science and beyond, the rocket
+- Enemies, turrets, pollution
+- Trains
+- Multiplayer (deterministic lockstep with a WebSocket relay)
