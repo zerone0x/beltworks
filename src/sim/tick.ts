@@ -9,6 +9,7 @@
 import { CommandQueue, validateCommand, type Command } from './commands';
 import { updateCrafting } from './crafting/queue';
 import { placeEntity, removeEntity, rotateEntity } from './entities/build';
+import { drillTable } from './entities/drill';
 import { furnaceTable } from './entities/furnace';
 import { insertIntoEntity, takeFromEntity } from './entities/transfer';
 import { updatePlayers } from './player';
@@ -25,7 +26,10 @@ const stub = (name: string): System => ({ name, run: () => {} });
 export const SYSTEMS: readonly System[] = [
   { name: 'commands', run: (sim, commands) => commands.forEach((c) => applyCommand(sim.state, c)) },
   stub('power'),
-  stub('drills'),
+  {
+    name: 'drills',
+    run: ({ state }) => drillTable(state.entities)?.update(state.entities, state.world),
+  },
   stub('belts'),
   stub('inserters'),
   { name: 'machines', run: (sim) => furnaceTable(sim.state.entities)?.update(sim.state.entities) },

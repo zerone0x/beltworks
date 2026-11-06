@@ -13,6 +13,8 @@
  *    reach, and walking out of reach while mining. Player 0 then builds a
  *    furnace and a chest on its (iron) patch, smelts the ore it mined, and
  *    moves plates into the chest; the furnace keeps smelting into phase 2.
+ *    It also sets up a drill on the patch that mines into a chest placed in
+ *    front of it once the first ore is waiting, and keeps mining into phase 2.
  *    Meanwhile the players hand-craft from the plates, wood and stone of
  *    `DETERMINISM_KIT`: crafts with auto-queued intermediates, crafts cut
  *    short by missing items, and cancels (of a craft, of an intermediate in
@@ -135,11 +137,17 @@ function buildPhase(): Command[] {
 /** Entities player 0 builds on its patch after mining it (ids follow the five built at the spawn). */
 export const DETERMINISM_PATCH_FURNACE = 6;
 export const DETERMINISM_PATCH_CHEST = 7;
+export const DETERMINISM_PATCH_DRILL = 8;
+export const DETERMINISM_DRILL_CHEST = 9;
+/** Ticks after the drill is fuelled until the chest in front of it is placed. */
+const DETERMINISM_DRILL_CHEST_DELAY = 300;
 
 /**
  * Player 0's work on its iron patch, starting on tick `tick` while it stands
  * on `(x, y)`: a furnace two tiles east, fuelled and loaded with the mined
- * ore; a chest two tiles west; then, near the end of the scripted phase, the
+ * ore; a chest two tiles west; a fuelled drill two tiles south facing north,
+ * which holds its first ore (nothing is in front of it) until a second chest
+ * is placed on its drop tile; then, near the end of the scripted phase, the
  * plates so far go from the furnace into the chest, together with the kit
  * plates that crafting left (see craftPhase), and one comes back. The furnace
  * is the one player 0 crafts at the start of craftPhase.
@@ -148,6 +156,7 @@ function smeltPhase(tick: number, x: number, y: number): Command[] {
   const p = { playerId: 0 };
   const furnace = DETERMINISM_PATCH_FURNACE;
   const chest = DETERMINISM_PATCH_CHEST;
+  const drill = DETERMINISM_PATCH_DRILL;
   const end = DETERMINISM_SCRIPTED_TICKS - 10;
   return [
     { ...p, tick, type: 'Place', item: ItemId.StoneFurnace, x: x + 2, y: y - 1, dir: 0 },
@@ -156,6 +165,26 @@ function smeltPhase(tick: number, x: number, y: number): Command[] {
     { ...p, tick: tick + 2, type: 'Place', item: ItemId.WoodenChest, x: x - 2, y, dir: 0 },
     // Ignored: the output is still empty.
     { ...p, tick: tick + 3, type: 'Take', entity: furnace, slot: FurnaceSlot.Output, count: 5 },
+    // The drill covers (x - 1..x, y + 2..y + 3) and drops onto (x - 1, y + 1).
+    {
+      ...p,
+      tick: tick + 4,
+      type: 'Place',
+      item: ItemId.BurnerMiningDrill,
+      x: x - 1,
+      y: y + 2,
+      dir: 0,
+    },
+    { ...p, tick: tick + 5, type: 'Insert', entity: drill, item: ItemId.Coal, count: 2 },
+    {
+      ...p,
+      tick: tick + 5 + DETERMINISM_DRILL_CHEST_DELAY,
+      type: 'Place',
+      item: ItemId.WoodenChest,
+      x: x - 1,
+      y: y + 1,
+      dir: 0,
+    },
     { ...p, tick: end, type: 'Take', entity: furnace, slot: FurnaceSlot.Output, count: 100 },
     { ...p, tick: end + 1, type: 'Insert', entity: chest, item: ItemId.IronPlate, count: 100 },
     { ...p, tick: end + 2, type: 'Take', entity: chest, slot: 0, count: 1 },
