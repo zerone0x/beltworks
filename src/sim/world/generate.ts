@@ -1,6 +1,6 @@
 /**
- * Deterministic chunk generation: terrain bands from fractal value noise and
- * blob-shaped resource patches.
+ * Deterministic chunk generation: terrain bands from fractal value noise,
+ * blob-shaped resource patches, and trees (trees.ts).
  *
  * Generation is a pure function of `(seed, cx, cy)`: a chunk never depends on
  * which other chunks were generated before it, so chunks can be produced
@@ -12,6 +12,7 @@ import { TileId } from '../../data/tiles';
 import { Rng } from '../rng';
 import { CHUNK_SHIFT, CHUNK_SIZE, Chunk } from './chunk';
 import { fractalNoise, hash2, valueNoise } from './noise';
+import { plantTrees } from './trees';
 
 // ---------------------------------------------------------------------------
 // Terrain
@@ -133,6 +134,7 @@ function subSeed(seed: number, salt: number): number {
 const SALT_TERRAIN = 1;
 const SALT_START = 2;
 const SALT_REGION = 3;
+const SALT_TREES = 4;
 
 /** Region coordinate of world tile coordinate `t`. */
 export function regionOf(t: number): number {
@@ -278,5 +280,6 @@ export function generateChunk(seed: number, cx: number, cy: number): Chunk {
   for (const patch of regionPatches(seed, regionOf(x0), regionOf(y0))) {
     stampPatch(chunk, patch);
   }
+  plantTrees(chunk, subSeed(seed, SALT_TREES));
   return chunk;
 }

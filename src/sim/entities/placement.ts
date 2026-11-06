@@ -4,9 +4,9 @@
  * snapshots).
  *
  * An entity can be placed when its whole footprint is inside the map, on
- * buildable terrain (not water), free of other entities, clear of every
- * player's collision box, and its center is within build reach of the
- * builder. All checks are integer-only.
+ * buildable terrain (not water) without trees, free of other entities, clear
+ * of every player's collision box, and its center is within build reach of
+ * the builder. All checks are integer-only.
  */
 
 import type { EntityPrototype } from '../../data/entities';
@@ -32,6 +32,8 @@ export const Placement = {
   Occupied: 4,
   /** A player's collision box overlaps the footprint. */
   PlayerInTheWay: 5,
+  /** A tree stands on part of the footprint (mine it first). */
+  Tree: 6,
 } as const;
 
 export type Placement = (typeof Placement)[keyof typeof Placement];
@@ -42,6 +44,8 @@ export interface PlacementView {
   inMap(x: number, y: number): boolean;
   /** Whether entities can stand on tile `(x, y)` (it is in the map range). */
   buildable(x: number, y: number): boolean;
+  /** Whether a tree stands on tile `(x, y)` (it is in the map range). */
+  tree(x: number, y: number): boolean;
   /** The entity covering tile `(x, y)`, or 0. */
   occupant(x: number, y: number): number;
   /** Number of players; player `i` stands at `(playerX(i), playerY(i))`, in subtiles. */
@@ -118,6 +122,11 @@ export function checkPlacement(
   for (let ty = y; ty <= y1; ty++) {
     for (let tx = x; tx <= x1; tx++) {
       if (!view.buildable(tx, ty)) return Placement.Terrain;
+    }
+  }
+  for (let ty = y; ty <= y1; ty++) {
+    for (let tx = x; tx <= x1; tx++) {
+      if (view.tree(tx, ty)) return Placement.Tree;
     }
   }
   for (let ty = y; ty <= y1; ty++) {

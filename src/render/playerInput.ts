@@ -1,7 +1,7 @@
 /**
  * Player controls: WASD moves, the right mouse button removes the entity
- * under the cursor or, where there is none, hand-mines the resource tile
- * (held), `E` toggles the inventory and `F` makes the camera follow the
+ * under the cursor or, where there is none, hand-mines the resource or tree
+ * tile (held), `E` toggles the inventory and `F` makes the camera follow the
  * player again. Build controls (placing, rotating) are in buildInput.ts.
  *
  * Input becomes commands (see src/sim/commands.ts) that are only sent when
@@ -52,7 +52,7 @@ export interface PlayerInputOptions {
   pointer: () => Point | null;
   /** Tile under a screen position. */
   tileAt: (sx: number, sy: number) => Point;
-  /** Whether tile `(x, y)` has a resource to mine, as far as the renderer knows. */
+  /** Whether tile `(x, y)` has a resource or a tree to mine, as far as the renderer knows. */
   isMineable: (x: number, y: number) => boolean;
   /** Id of the entity covering tile `(x, y)`, or 0, as far as the renderer knows. */
   entityAt?: (x: number, y: number) => number;
@@ -146,7 +146,7 @@ export class PlayerInput {
     return { ...tile, id: this.options.entityAt?.(tile.x, tile.y) ?? 0 };
   }
 
-  /** The tile to mine right now: the resource tile under the pointer while the right button is held. */
+  /** The tile to mine right now: the resource or tree tile under the pointer while the right button is held. */
   private miningTarget(): Point | null {
     if (!this.rightHeld) {
       return null;

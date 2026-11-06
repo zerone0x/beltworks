@@ -107,6 +107,7 @@ export class GameView {
         const tile = this.terrain.tileAt(tx, ty);
         return tile !== null && isBuildable(tile.terrain);
       },
+      tree: (tx, ty) => this.terrain.tileAt(tx, ty)?.tree === 1,
       occupant: (tx, ty) => this.entityIndex.at(tx, ty)?.id ?? 0,
       playerCount: this.track.count,
       playerX: (i) => records[i * PLAYER_STRIDE + PlayerField.x]!,

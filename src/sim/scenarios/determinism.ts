@@ -13,7 +13,9 @@
  *    must be ignored), then every player
  *    walks from the spawn to one of the starting ore patches and hand-mines
  *    it, including a re-target, mining that waits until the player is in
- *    reach, and walking out of reach while mining. Player 0 then builds a
+ *    reach, and walking out of reach while mining. Player 1 then walks to
+ *    the nearest tree outside the starting area, fells it for wood and
+ *    crafts chests from that wood. Player 0 then builds a
  *    furnace and a chest on its (iron) patch, smelts the ore it mined, and
  *    moves plates into the chest; the furnace keeps smelting into phase 2.
  *    It also sets up a drill on the patch that mines into a chest placed in
@@ -32,6 +34,7 @@
 import { ItemId, type ItemStack } from '../../data/items';
 import { RecipeId } from '../../data/recipes';
 import { STARTING_KIT } from '../../data/start';
+import { TREE_MINING_TICKS } from '../../data/trees';
 import type { Axis, Command } from '../commands';
 import { Direction } from '../entities/direction';
 import { FurnaceSlot } from '../entities/furnace';
@@ -40,6 +43,7 @@ import { PLAYER_DIAGONAL_SPEED, PLAYER_SPEED } from '../player';
 import { Rng } from '../rng';
 import { Sim } from '../tick';
 import { startingPatches } from '../world/generate';
+import { World } from '../world/world';
 
 export const DETERMINISM_SEED = 0x5eed_2026;
 export const DETERMINISM_SCRIPT_SEED = 0xc0ffee;
@@ -49,12 +53,12 @@ export const DETERMINISM_PLAYERS = 3;
 export const DETERMINISM_SCRIPTED_TICKS = 1_000;
 
 const AXES: readonly Axis[] = [-1, 0, 1];
-/** Random `Place` and `Insert` commands use item ids in `[0, ITEM_ID_SPAN)`. */
-const ITEM_ID_SPAN = 16;
+/** Random `Place` and `Insert` commands use item ids in `[0, ITEM_ID_SPAN)` (the last two unknown). */
+const ITEM_ID_SPAN = 24;
 /** Random `Insert` and `Take` commands target entity ids in `[0, ENTITY_ID_SPAN)`. */
 const ENTITY_ID_SPAN = 16;
-/** Random `Craft` commands use recipe ids in `[0, RECIPE_ID_SPAN)`. */
-const RECIPE_ID_SPAN = 11;
+/** Random `Craft` commands use recipe ids in `[0, RECIPE_ID_SPAN)` (the last one unknown). */
+const RECIPE_ID_SPAN = 18;
 
 /** What every player starts with: the normal starting kit plus materials to craft from. */
 export const DETERMINISM_KIT: readonly ItemStack[] = [
@@ -335,6 +339,50 @@ function craftPhase(): Command[] {
   ];
 }
 
+/**
+ * The tree closest to tile `(x, y)` on the scenario's map (ties: smallest
+ * `dy`, then smallest `dx`), searched within `radius` tiles.
+ */
+export function nearestTree(x: number, y: number, radius = 64): { x: number; y: number } {
+  const world = new World(DETERMINISM_SEED);
+  let best: { x: number; y: number } | null = null;
+  let bestD2 = Infinity;
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2 && world.treeAt(x + dx, y + dy)) {
+        best = { x: x + dx, y: y + dy };
+        bestD2 = d2;
+      }
+    }
+  }
+  if (!best)
+    throw new Error(`no tree within ${String(radius)} tiles of (${String(x)}, ${String(y)})`);
+  return best;
+}
+
+/** Chests player 1 crafts from the kit's wood plus the wood of the tree it fells. */
+export const DETERMINISM_TREE_CHESTS = 3;
+
+/**
+ * Player 1 walks from where it stopped mining to the tile east of the nearest
+ * tree, fells it, and crafts chests that need the tree's wood.
+ */
+function treePhase(commands: Command[], w: Walker): void {
+  const tree = nearestTree(fixedToTile(w.x), fixedToTile(w.y));
+  walkTo(commands, w, tileToFixed(tree.x + 1) + HALF_TILE, tileToFixed(tree.y) + HALF_TILE);
+  commands.push({ tick: w.tick, playerId: w.playerId, type: 'MineStart', x: tree.x, y: tree.y });
+  // MineStart applies on its own tick, which already counts as a mining tick.
+  const craftTick = w.tick + TREE_MINING_TICKS;
+  commands.push({
+    tick: craftTick,
+    playerId: w.playerId,
+    type: 'Craft',
+    recipe: RecipeId.WoodenChest,
+    count: DETERMINISM_TREE_CHESTS,
+  });
+}
+
 /** Phase 1: player 0 builds, then each player walks to a starting ore patch and mines it. */
 function scriptedPhase(): Command[] {
   const commands: Command[] = [...buildPhase(), ...craftPhase(), ...chainPhase()];
@@ -356,10 +404,14 @@ function scriptedPhase(): Command[] {
     if (id === 1) {
       // Walk away while still mining: mining pauses once out of reach.
       commands.push({ tick: w.tick, playerId: id, type: 'Move', dx: sign(-patch.x), dy: 0 });
+      w.x += sign(-patch.x) * PLAYER_SPEED * 60;
       w.tick += 60;
       commands.push({ tick: w.tick, playerId: id, type: 'Move', dx: 0, dy: 0 });
     }
     commands.push({ tick: w.tick, playerId: id, type: 'MineStop' });
+    if (id === 1) {
+      treePhase(commands, w);
+    }
     if (id === 0) {
       commands.push(...smeltPhase(w.tick, fixedToTile(w.x), fixedToTile(w.y)));
     }

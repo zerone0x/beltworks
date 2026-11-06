@@ -402,16 +402,18 @@ export function decodeInventory(buffer: ArrayBuffer): SlotData[] {
 /** Byte offsets of the fields within one chunk record of {@link encodeChunks}. */
 const RECORD_TERRAIN = 8;
 const RECORD_RESOURCE = RECORD_TERRAIN + CHUNK_AREA;
-const RECORD_AMOUNT = RECORD_RESOURCE + CHUNK_AREA;
+const RECORD_TREE = RECORD_RESOURCE + CHUNK_AREA;
+const RECORD_AMOUNT = RECORD_TREE + CHUNK_AREA;
 
 /**
  * Bytes per chunk record in {@link encodeChunks}:
  * `cx: int32, cy: int32, terrain: uint8[CHUNK_AREA], resource: uint8[CHUNK_AREA],
- * amount: uint32[CHUNK_AREA]`. Every field starts at a multiple of 4 bytes.
+ * tree: uint8[CHUNK_AREA], amount: uint32[CHUNK_AREA]`. Every field starts at
+ * a multiple of 4 bytes.
  */
 export const CHUNK_RECORD_BYTES = RECORD_AMOUNT + 4 * CHUNK_AREA;
 
-/** Terrain and resources of one chunk (a `Chunk`, or one decoded on the main thread). */
+/** Terrain, resources and trees of one chunk (a `Chunk`, or one decoded on the main thread). */
 export interface ChunkData {
   /** Chunk coordinates (in chunks, not tiles). */
   readonly cx: number;
@@ -420,9 +422,11 @@ export interface ChunkData {
   readonly terrain: Uint8Array;
   readonly resource: Uint8Array;
   readonly amount: Uint32Array;
+  /** 1 where a tree stands, else 0. */
+  readonly tree: Uint8Array;
 }
 
-/** Packs the terrain and resources of `chunks` into one transferable buffer. */
+/** Packs the terrain, resources and trees of `chunks` into one transferable buffer. */
 export function encodeChunks(chunks: readonly ChunkData[]): ArrayBuffer {
   const buffer = new ArrayBuffer(chunks.length * CHUNK_RECORD_BYTES);
   chunks.forEach((chunk, i) => {
@@ -432,6 +436,7 @@ export function encodeChunks(chunks: readonly ChunkData[]): ArrayBuffer {
     r.terrain.set(chunk.terrain);
     r.resource.set(chunk.resource);
     r.amount.set(chunk.amount);
+    r.tree.set(chunk.tree);
   });
   return buffer;
 }
@@ -456,6 +461,7 @@ export function decodeChunks(buffer: ArrayBuffer): ChunkData[] {
       terrain: r.terrain,
       resource: r.resource,
       amount: r.amount,
+      tree: r.tree,
     });
   }
   return out;
@@ -464,7 +470,13 @@ export function decodeChunks(buffer: ArrayBuffer): ChunkData[] {
 function recordViews(
   buffer: ArrayBuffer,
   index: number,
-): { coords: Int32Array; terrain: Uint8Array; resource: Uint8Array; amount: Uint32Array } {
+): {
+  coords: Int32Array;
+  terrain: Uint8Array;
+  resource: Uint8Array;
+  amount: Uint32Array;
+  tree: Uint8Array;
+} {
   const base = index * CHUNK_RECORD_BYTES;
   return {
     // [cx, cy]
@@ -472,5 +484,6 @@ function recordViews(
     terrain: new Uint8Array(buffer, base + RECORD_TERRAIN, CHUNK_AREA),
     resource: new Uint8Array(buffer, base + RECORD_RESOURCE, CHUNK_AREA),
     amount: new Uint32Array(buffer, base + RECORD_AMOUNT, CHUNK_AREA),
+    tree: new Uint8Array(buffer, base + RECORD_TREE, CHUNK_AREA),
   };
 }

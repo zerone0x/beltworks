@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EntityTypeId } from '../../src/data/entities';
 import { ItemId, MINED_ITEM } from '../../src/data/items';
 import { RecipeId } from '../../src/data/recipes';
+import { TREE_WOOD } from '../../src/data/trees';
 import { BeltShape, beltTable } from '../../src/sim/belts/belts';
 import { BeltLane } from '../../src/sim/belts/line';
 import { CRAFT_QUEUE_LENGTH } from '../../src/sim/crafting/queue';
@@ -31,9 +32,11 @@ import {
   DETERMINISM_SPAWN_CHEST,
   DETERMINISM_SPAWN_INSERTER,
   DETERMINISM_TICKS,
+  DETERMINISM_TREE_CHESTS,
   buildDeterminismScript,
   createDeterminismSim,
   runDeterminismScenario,
+  nearestTree,
 } from '../../src/sim/scenarios/determinism';
 import { Sim } from '../../src/sim/tick';
 import { startingPatches } from '../../src/sim/world/generate';
@@ -314,6 +317,53 @@ describe('determinism', () => {
     expect(inv1.count(ItemId.IronPlate)).toBe(0);
     // Player 2 crafted two inserters on top of the kit's four, and built two into its chain.
     expect(sim.state.players.inventory(2).count(ItemId.BurnerInserter)).toBe(4);
+  });
+
+  it('fells a tree outside the starting area and crafts chests from its wood', () => {
+    const script = buildDeterminismScript();
+    const mine = script.find(
+      (c) =>
+        c.type === 'MineStart' &&
+        c.playerId === 1 &&
+        c.tick > DETERMINISM_BUILD_TICKS + 500 &&
+        c.tick < DETERMINISM_SCRIPTED_TICKS,
+    );
+    expect(mine).toBeDefined();
+    const { x, y } = mine as { x: number; y: number };
+    // The tree is outside the starting area, near player 1's copper patch.
+    expect(x * x + y * y).toBeGreaterThan(48 * 48);
+    const craft = script.find(
+      (c) =>
+        c.type === 'Craft' &&
+        c.playerId === 1 &&
+        c.recipe === RecipeId.WoodenChest &&
+        c.tick < DETERMINISM_SCRIPTED_TICKS,
+    )!;
+    expect(craft.tick).toBeLessThan(DETERMINISM_SCRIPTED_TICKS - 30);
+
+    const sim = createDeterminismSim();
+    script.forEach((c) => sim.enqueue(c));
+    expect(sim.state.world.treeAt(x, y)).toBe(true);
+    expect(nearestTree(x, y)).toEqual({ x, y });
+    for (let i = 0; i < craft.tick; i++) sim.step();
+    const inv = sim.state.players.inventory(1);
+    const kitWood = DETERMINISM_KIT.find((s) => s.item === ItemId.Wood)!.count;
+    // The player reached the tree (no water in the way) and felled it.
+    expect(sim.state.world.treeAt(x, y)).toBe(false);
+    expect(inv.count(ItemId.Wood)).toBe(kitWood + TREE_WOOD);
+    sim.step();
+    // With the tree gone, mining ends.
+    expect(sim.state.players.mining[1]).toBe(0);
+    // The chests need more wood than the kit had: all three were queued.
+    expect(inv.count(ItemId.Wood)).toBe(kitWood + TREE_WOOD - 2 * DETERMINISM_TREE_CHESTS);
+    // The first chest is done after 30 ticks (counting the one it was queued
+    // on), still in the scripted phase.
+    const kitChests = DETERMINISM_KIT.find((s) => s.item === ItemId.WoodenChest)!.count;
+    for (let i = 0; i < 28; i++) sim.step();
+    expect(inv.count(ItemId.WoodenChest)).toBe(kitChests);
+    sim.step();
+    expect(inv.count(ItemId.WoodenChest)).toBe(kitChests + 1);
+    expect(sim.tick).toBeLessThanOrEqual(DETERMINISM_SCRIPTED_TICKS);
   });
 
   it('runs the M1 automation chain on the stone patch with no further commands', () => {

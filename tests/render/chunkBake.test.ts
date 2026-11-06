@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { RESOURCES, ResourceId } from '../../src/data/resources';
 import { TILES, TileId } from '../../src/data/tiles';
+import { TREE_CANOPY_COLOR, TREE_CANOPY_LIGHT, TREE_TRUNK_COLOR } from '../../src/data/trees';
 import {
   CHUNK_TEXTURE_SIZE,
   MISSING_COLOR,
@@ -19,6 +20,7 @@ function blankChunk(terrain: number = TileId.Grass): ChunkData {
     terrain: new Uint8Array(CHUNK_AREA).fill(terrain),
     resource: new Uint8Array(CHUNK_AREA),
     amount: new Uint32Array(CHUNK_AREA),
+    tree: new Uint8Array(CHUNK_AREA),
   };
 }
 
@@ -84,6 +86,25 @@ describe('bakeChunkPixels', () => {
     expect(countDots(1)).toBe(4 * dotCount(100));
     expect(countDots(2)).toBe(4 * dotCount(5000));
     expect(dotCount(5000)).toBeGreaterThan(dotCount(100));
+  });
+
+  it('draws trees as a canopy on a trunk over shaded ground', () => {
+    const chunk = blankChunk();
+    chunk.tree[tileIndex(5, 6)] = 1;
+    const px = bakeChunkPixels(chunk);
+    const colors = tileColors(px, 5, 6);
+    expect(colors.has(TREE_CANOPY_COLOR)).toBe(true);
+    expect(colors.has(TREE_CANOPY_LIGHT)).toBe(true);
+    expect(colors.has(TREE_TRUNK_COLOR)).toBe(true);
+    expect(colors.has(TILES[TileId.Grass]!.color)).toBe(false);
+    expect(colors.size).toBe(4);
+    // The trunk sits at the bottom middle of the tile, the canopy above it.
+    const [x0, y0] = [5 * TEXELS_PER_TILE, 6 * TEXELS_PER_TILE];
+    expect(texel(px, x0 + 3, y0 + 7)).toBe(TREE_TRUNK_COLOR);
+    expect(texel(px, x0 + 3, y0 + 3)).toBe(TREE_CANOPY_COLOR);
+    // Neighbouring tiles are untouched.
+    expect(tileColors(px, 4, 6)).toEqual(new Set([TILES[TileId.Grass]!.color]));
+    expect(tileColors(px, 5, 7)).toEqual(new Set([TILES[TileId.Grass]!.color]));
   });
 
   it('flags unknown ids in magenta', () => {

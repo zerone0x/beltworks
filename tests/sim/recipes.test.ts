@@ -106,7 +106,72 @@ describe('recipe prototypes', () => {
       outputs: [[ItemId.BurnerInserter, 1]],
       ticks: 30,
     });
-    expect(HAND_RECIPES.map((r) => r.id)).toEqual([4, 5, 6, 7, 8, 9]);
+    expect(HAND_RECIPES.map((r) => r.id)).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+  });
+
+  it('have the M2 power hand recipes', () => {
+    const hand = (id: number) => {
+      const r = RECIPES[id as keyof typeof RECIPES];
+      expect(r.category).toBe('hand');
+      return { inputs: r.inputs, outputs: r.outputs, ticks: r.ticks };
+    };
+    expect(hand(RecipeId.CopperCable)).toEqual({
+      inputs: [[ItemId.CopperPlate, 1]],
+      outputs: [[ItemId.CopperCable, 2]],
+      ticks: 30,
+    });
+    expect(hand(RecipeId.ElectronicCircuit)).toEqual({
+      inputs: [
+        [ItemId.CopperCable, 3],
+        [ItemId.IronPlate, 1],
+      ],
+      outputs: [[ItemId.ElectronicCircuit, 1]],
+      ticks: 30,
+    });
+    expect(hand(RecipeId.SmallElectricPole)).toEqual({
+      inputs: [
+        [ItemId.Wood, 1],
+        [ItemId.CopperCable, 2],
+      ],
+      outputs: [[ItemId.SmallElectricPole, 2]],
+      ticks: 30,
+    });
+    expect(hand(RecipeId.Boiler)).toEqual({
+      inputs: [
+        [ItemId.StoneFurnace, 1],
+        [ItemId.IronPlate, 4],
+      ],
+      outputs: [[ItemId.Boiler, 1]],
+      ticks: 30,
+    });
+    expect(hand(RecipeId.SteamEngine)).toEqual({
+      inputs: [
+        [ItemId.IronGearWheel, 8],
+        [ItemId.IronPlate, 15],
+      ],
+      outputs: [[ItemId.SteamEngine, 1]],
+      ticks: 60,
+    });
+    expect(hand(RecipeId.ElectricMiningDrill)).toEqual({
+      inputs: [
+        [ItemId.ElectronicCircuit, 3],
+        [ItemId.IronGearWheel, 5],
+        [ItemId.IronPlate, 10],
+      ],
+      outputs: [[ItemId.ElectricMiningDrill, 1]],
+      ticks: 120,
+    });
+    expect(hand(RecipeId.ElectricInserter)).toEqual({
+      inputs: [
+        [ItemId.ElectronicCircuit, 1],
+        [ItemId.IronGearWheel, 1],
+        [ItemId.IronPlate, 1],
+      ],
+      outputs: [[ItemId.ElectricInserter, 1]],
+      ticks: 30,
+    });
+    // Wood is a raw item now that the map has trees.
+    expect(RAW_ITEMS).toContain(ItemId.Wood);
   });
 
   it('smelt ores and stone in 192 ticks, picked by the input item', () => {
@@ -149,14 +214,23 @@ describe('recipe prototypes', () => {
     }
   });
 
-  it('can auto-queue every hand-made input of a hand recipe as an intermediate', () => {
+  it('can auto-queue every hand-made input of a hand recipe as an intermediate, unless it comes in twos', () => {
+    const notAutoQueued: number[] = [];
     for (const r of HAND_RECIPES) {
       for (const [item] of r.inputs) {
-        if (handRecipeFor(item)) {
-          expect(intermediateRecipeFor(item)).toBe(handRecipeFor(item));
+        const recipe = handRecipeFor(item);
+        if (!recipe) continue;
+        if (recipe.outputs[0]![1] === 1) {
+          expect(intermediateRecipeFor(item)).toBe(recipe);
+        } else {
+          expect(intermediateRecipeFor(item)).toBeUndefined();
+          if (!notAutoQueued.includes(item)) notAutoQueued.push(item);
         }
       }
     }
+    // Copper cable comes in twos: circuits and poles need it crafted first.
+    expect(notAutoQueued).toEqual([ItemId.CopperCable]);
+    expect(intermediateRecipeFor(ItemId.ElectronicCircuit)?.id).toBe(RecipeId.ElectronicCircuit);
     expect(handRecipeFor(ItemId.IronGearWheel)?.id).toBe(RecipeId.IronGearWheel);
     // Plates are smelted, not hand-crafted.
     expect(handRecipeFor(ItemId.IronPlate)).toBeUndefined();

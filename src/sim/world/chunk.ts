@@ -22,6 +22,8 @@ export class Chunk {
   readonly resource = new Uint8Array(CHUNK_AREA);
   /** Remaining resource amount per tile; 0 wherever `resource` is 0. */
   readonly amount = new Uint32Array(CHUNK_AREA);
+  /** 1 where a tree stands, else 0 (see trees.ts). Trees never share a tile with a resource. */
+  readonly tree = new Uint8Array(CHUNK_AREA);
 
   constructor(cx: number, cy: number) {
     this.cx = cx;

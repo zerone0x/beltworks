@@ -25,6 +25,13 @@ export const ItemId = {
   CopperPlate: 12,
   StoneBrick: 13,
   IronGearWheel: 14,
+  CopperCable: 15,
+  ElectronicCircuit: 16,
+  SmallElectricPole: 17,
+  Boiler: 18,
+  SteamEngine: 19,
+  ElectricMiningDrill: 20,
+  ElectricInserter: 21,
 } as const;
 
 export type ItemId = (typeof ItemId)[keyof typeof ItemId];
@@ -163,6 +170,56 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 100,
     color: 0x8e9aa3,
   },
+  [ItemId.CopperCable]: {
+    id: ItemId.CopperCable,
+    name: 'copper-cable',
+    label: 'Copper cable',
+    stackSize: 200,
+    color: 0xe08848,
+  },
+  [ItemId.ElectronicCircuit]: {
+    id: ItemId.ElectronicCircuit,
+    name: 'electronic-circuit',
+    label: 'Electronic circuit',
+    stackSize: 200,
+    color: 0x4c9a52,
+  },
+  // Power entities (see src/data/entities.ts); colors match the entities.
+  [ItemId.SmallElectricPole]: {
+    id: ItemId.SmallElectricPole,
+    name: 'small-electric-pole',
+    label: 'Small electric pole',
+    stackSize: 50,
+    color: 0x8a6440,
+  },
+  [ItemId.Boiler]: {
+    id: ItemId.Boiler,
+    name: 'boiler',
+    label: 'Boiler',
+    stackSize: 50,
+    color: 0x9a8a78,
+  },
+  [ItemId.SteamEngine]: {
+    id: ItemId.SteamEngine,
+    name: 'steam-engine',
+    label: 'Steam engine',
+    stackSize: 10,
+    color: 0x6f8a94,
+  },
+  [ItemId.ElectricMiningDrill]: {
+    id: ItemId.ElectricMiningDrill,
+    name: 'electric-mining-drill',
+    label: 'Electric mining drill',
+    stackSize: 50,
+    color: 0x4f6f96,
+  },
+  [ItemId.ElectricInserter]: {
+    id: ItemId.ElectricInserter,
+    name: 'electric-inserter',
+    label: 'Electric inserter',
+    stackSize: 50,
+    color: 0x3f7fc8,
+  },
 };
 
 /** Every real item id, in id order. */
@@ -181,6 +238,13 @@ export const ITEM_IDS: readonly RealItemId[] = [
   ItemId.CopperPlate,
   ItemId.StoneBrick,
   ItemId.IronGearWheel,
+  ItemId.CopperCable,
+  ItemId.ElectronicCircuit,
+  ItemId.SmallElectricPole,
+  ItemId.Boiler,
+  ItemId.SteamEngine,
+  ItemId.ElectricMiningDrill,
+  ItemId.ElectricInserter,
 ];
 
 /** The prototype of item `id`, or `undefined` for 0 and unknown ids. */
