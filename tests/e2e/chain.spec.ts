@@ -259,15 +259,16 @@ test('a drill, a belt, inserters, a furnace and a chest make iron plates on thei
 
   // Fuel through the GUI: right-click inserts half of the coal stack, left-click all of it.
   const panel = page.locator('#entity-panel');
-  const slot = (role: string) => panel.locator(`[data-role="${role}"] .slot`);
   const coal = panel.locator('.player-inventory .slot[data-item="coal"]');
   const fuel = async (at: Tile, type: string, button: 'left' | 'right', left: number) => {
     const c = await tileScreen(page, at.x, at.y);
     await page.mouse.click(c.x, c.y);
     await expect(panel).toHaveAttribute('data-type', type);
     await coal.click({ button });
-    await expect(slot('fuel')).toHaveAttribute('data-item', 'coal');
     await expect.poll(() => countOf(page, ItemId.Coal)).toBe(left);
+    // The fuel slot may already be empty again: a machine with work to do
+    // starts burning a single unit at once.
+    await expect.poll(() => statusAt(page, at.x, at.y)).not.toBe(MachineState.NoFuel);
     await page.keyboard.press('Escape');
     await expect(panel).toBeHidden();
   };

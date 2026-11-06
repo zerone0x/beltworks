@@ -1,0 +1,287 @@
+/**
+ * Placeholder item icons, drawn in code: a small pixel-art tile in the item's
+ * color with a one- or two-letter label in a 3×5 pixel font (e.g. `FE` for
+ * iron ore and iron plates, `C` for coal). The shape tells item kinds apart:
+ * ores and stone are rough chunks, plates and bricks are bevelled squares,
+ * and everything else (buildings, intermediates) is a rounded square.
+ *
+ * The same `ICON_PX`² bitmap is used everywhere an item is shown: on belts
+ * and in inserter hands (as Pixi textures, one pixel per texel at zoom 1),
+ * and in the inventory, hotbar and entity windows (as an image scaled 2×).
+ * It doesn't depend on any font, so it looks the same on every machine (the
+ * hotbar is part of the screenshot tests).
+ *
+ * Placeholder art until M5 (docs/DECISIONS.md, Q4).
+ */
+
+import { Rectangle, Texture } from 'pixi.js';
+import { ITEM_IDS, ItemId, itemPrototype, type RealItemId } from '../data/items';
+
+/** Edge length of an item icon in pixels (world pixels on belts, so ~0.4 tile). */
+export const ICON_PX = 13;
+
+/** Outline of an item kind. */
+export type IconShape = 'ore' | 'plate' | 'item';
+
+export interface IconSpec {
+  /** One or two letters (A–Z) drawn on the icon. */
+  label: string;
+  shape: IconShape;
+}
+
+/** Icons of the known items. Items missing here get one from `iconSpec`'s fallback. */
+const ICONS: Readonly<Partial<Record<RealItemId, IconSpec>>> = {
+  [ItemId.IronOre]: { label: 'FE', shape: 'ore' },
+  [ItemId.CopperOre]: { label: 'CU', shape: 'ore' },
+  [ItemId.Coal]: { label: 'C', shape: 'ore' },
+  [ItemId.Stone]: { label: 'S', shape: 'ore' },
+  [ItemId.WoodenChest]: { label: 'CH', shape: 'item' },
+  [ItemId.StoneFurnace]: { label: 'FU', shape: 'item' },
+  [ItemId.BurnerMiningDrill]: { label: 'DR', shape: 'item' },
+  [ItemId.TransportBelt]: { label: 'BE', shape: 'item' },
+  [ItemId.BurnerInserter]: { label: 'IN', shape: 'item' },
+  [ItemId.Wood]: { label: 'W', shape: 'item' },
+  [ItemId.IronPlate]: { label: 'FE', shape: 'plate' },
+  [ItemId.CopperPlate]: { label: 'CU', shape: 'plate' },
+  [ItemId.StoneBrick]: { label: 'BR', shape: 'plate' },
+  [ItemId.IronGearWheel]: { label: 'G', shape: 'item' },
+  [ItemId.CopperCable]: { label: 'CA', shape: 'item' },
+  [ItemId.ElectronicCircuit]: { label: 'EC', shape: 'item' },
+  [ItemId.SmallElectricPole]: { label: 'PO', shape: 'item' },
+  [ItemId.Boiler]: { label: 'BO', shape: 'item' },
+  [ItemId.SteamEngine]: { label: 'SE', shape: 'item' },
+  [ItemId.ElectricMiningDrill]: { label: 'ED', shape: 'item' },
+  [ItemId.ElectricInserter]: { label: 'EI', shape: 'item' },
+};
+
+/** Color of unknown items, so bad data is obvious. */
+const UNKNOWN_COLOR = 0xff00ff;
+
+/**
+ * The icon of item `item`: from the table above, or for items added later
+ * the initials of the first two words of its label; `?` for unknown ids.
+ */
+export function iconSpec(item: number): IconSpec {
+  const known = (ICONS as Readonly<Record<number, IconSpec | undefined>>)[item];
+  if (known) return known;
+  const proto = itemPrototype(item);
+  if (!proto) return { label: '?', shape: 'item' };
+  const initials = proto.label
+    .split(/[\s-]+/)
+    .map((w) => w.charAt(0).toUpperCase())
+    .filter((c) => c in GLYPHS)
+    .join('')
+    .slice(0, 2);
+  return { label: initials || '?', shape: 'item' };
+}
+
+/** A 3×5 pixel font: five rows of three columns each, `#` set. */
+const GLYPHS: Readonly<Record<string, readonly string[]>> = {
+  A: ['.#.', '#.#', '###', '#.#', '#.#'],
+  B: ['##.', '#.#', '##.', '#.#', '##.'],
+  C: ['.##', '#..', '#..', '#..', '.##'],
+  D: ['##.', '#.#', '#.#', '#.#', '##.'],
+  E: ['###', '#..', '##.', '#..', '###'],
+  F: ['###', '#..', '##.', '#..', '#..'],
+  G: ['.##', '#..', '#.#', '#.#', '.##'],
+  H: ['#.#', '#.#', '###', '#.#', '#.#'],
+  I: ['###', '.#.', '.#.', '.#.', '###'],
+  J: ['..#', '..#', '..#', '#.#', '.#.'],
+  K: ['#.#', '#.#', '##.', '#.#', '#.#'],
+  L: ['#..', '#..', '#..', '#..', '###'],
+  M: ['#.#', '###', '###', '#.#', '#.#'],
+  N: ['##.', '#.#', '#.#', '#.#', '#.#'],
+  O: ['.#.', '#.#', '#.#', '#.#', '.#.'],
+  P: ['##.', '#.#', '##.', '#..', '#..'],
+  Q: ['.#.', '#.#', '#.#', '##.', '.##'],
+  R: ['##.', '#.#', '##.', '#.#', '#.#'],
+  S: ['.##', '#..', '.#.', '..#', '##.'],
+  T: ['###', '.#.', '.#.', '.#.', '.#.'],
+  U: ['#.#', '#.#', '#.#', '#.#', '###'],
+  V: ['#.#', '#.#', '#.#', '#.#', '.#.'],
+  W: ['#.#', '#.#', '###', '###', '#.#'],
+  X: ['#.#', '#.#', '.#.', '#.#', '#.#'],
+  Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
+  Z: ['###', '..#', '.#.', '#..', '###'],
+  '?': ['##.', '..#', '.#.', '...', '.#.'],
+};
+const GLYPH_W = 3;
+const GLYPH_H = 5;
+
+/** Darkest outline, and the label colors for dark and light fills. */
+const OUTLINE = 0x16181c;
+const LIGHT_TEXT = 0xf4efe0;
+const DARK_TEXT = 0x1a1c20;
+
+function scale(c: number, t: number): number {
+  const ch = (s: number) => Math.min(255, Math.max(0, Math.round(((c >> s) & 0xff) * t))) << s;
+  return ch(16) | ch(8) | ch(0);
+}
+
+/** Perceived brightness of 0xRRGGBB in [0, 1]. */
+function luminance(c: number): number {
+  return (0.299 * ((c >> 16) & 0xff) + 0.587 * ((c >> 8) & 0xff) + 0.114 * (c & 0xff)) / 255;
+}
+
+/** Whether pixel `(x, y)` of the icon lies inside `shape`, and whether it is on its edge. */
+function inside(shape: IconShape, x: number, y: number): boolean {
+  const n = ICON_PX - 1;
+  const dx = Math.min(x, n - x);
+  const dy = Math.min(y, n - y);
+  switch (shape) {
+    case 'ore':
+      // An octagon with corners cut by 3 pixels: a rough chunk.
+      return dx + dy >= 3;
+    case 'plate':
+      return true;
+    case 'item':
+      // Rounded corners: one pixel cut.
+      return dx + dy >= 1;
+  }
+}
+
+const iconCache = new Map<number, Uint8ClampedArray>();
+
+/**
+ * The RGBA pixels (`ICON_PX`², row-major, top row first) of item `item`'s
+ * icon. Transparent outside the shape. Cached; don't modify the result.
+ */
+export function iconPixels(item: number): Uint8ClampedArray {
+  const cached = iconCache.get(item);
+  if (cached) return cached;
+  const { label, shape } = iconSpec(item);
+  const color = itemPrototype(item)?.color ?? UNKNOWN_COLOR;
+  const px = new Uint8ClampedArray(ICON_PX * ICON_PX * 4);
+  const set = (x: number, y: number, c: number): void => {
+    const o = (y * ICON_PX + x) * 4;
+    px[o] = (c >> 16) & 0xff;
+    px[o + 1] = (c >> 8) & 0xff;
+    px[o + 2] = c & 0xff;
+    px[o + 3] = 0xff;
+  };
+  const light = scale(color, 1.3);
+  const dark = scale(color, 0.7);
+  for (let y = 0; y < ICON_PX; y++) {
+    for (let x = 0; x < ICON_PX; x++) {
+      if (!inside(shape, x, y)) continue;
+      // Edge pixels (a neighbour is outside or off the icon) form the outline.
+      const edge =
+        x === 0 ||
+        y === 0 ||
+        x === ICON_PX - 1 ||
+        y === ICON_PX - 1 ||
+        !inside(shape, x - 1, y) ||
+        !inside(shape, x + 1, y) ||
+        !inside(shape, x, y - 1) ||
+        !inside(shape, x, y + 1);
+      if (edge) {
+        set(x, y, OUTLINE);
+      } else if (shape === 'plate' && (x === 1 || y === 1)) {
+        set(x, y, light); // bevel: lit from the top left
+      } else if (shape === 'plate' && (x === ICON_PX - 2 || y === ICON_PX - 2)) {
+        set(x, y, dark);
+      } else {
+        set(x, y, color);
+      }
+    }
+  }
+  if (shape === 'ore') {
+    // A few darker specks in the corners, clear of the label.
+    for (const [x, y] of [
+      [3, 2],
+      [9, 3],
+      [2, 9],
+      [10, 9],
+    ] as const) {
+      set(x, y, dark);
+    }
+  }
+  const text = luminance(color) > 0.55 ? DARK_TEXT : LIGHT_TEXT;
+  const letters = [...label].slice(0, 2);
+  const width = letters.length * GLYPH_W + (letters.length - 1);
+  const x0 = Math.floor((ICON_PX - width) / 2);
+  const y0 = Math.floor((ICON_PX - GLYPH_H) / 2);
+  letters.forEach((ch, i) => {
+    const glyph = GLYPHS[ch] ?? GLYPHS['?']!;
+    glyph.forEach((row, gy) => {
+      for (let gx = 0; gx < GLYPH_W; gx++) {
+        if (row[gx] === '#') set(x0 + i * (GLYPH_W + 1) + gx, y0 + gy, text);
+      }
+    });
+  });
+  iconCache.set(item, px);
+  return px;
+}
+
+/** A canvas with item `item`'s icon at one pixel per icon pixel. */
+function iconCanvas(item: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = ICON_PX;
+  canvas.height = ICON_PX;
+  const ctx = canvas.getContext('2d')!;
+  const image = ctx.createImageData(ICON_PX, ICON_PX);
+  image.data.set(iconPixels(item));
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
+const urlCache = new Map<number, string>();
+
+/** A `data:` URL of item `item`'s icon, for DOM slots (scale it with `image-rendering: pixelated`). */
+export function iconDataUrl(item: number): string {
+  let url = urlCache.get(item);
+  if (url === undefined) {
+    url = iconCanvas(item).toDataURL();
+    urlCache.set(item, url);
+  }
+  return url;
+}
+
+/**
+ * Pixi textures of the item icons, all in one atlas so items on belts and in
+ * hands batch into few draw calls. Sampled with nearest filtering: at zoom 1
+ * one texel covers exactly one screen pixel, so labels stay crisp.
+ */
+export class ItemIconAtlas {
+  private readonly textures = new Map<number, Texture>();
+  private readonly base: Texture;
+  /** Icon pitch in the atlas: one transparent pixel between icons so neighbours never bleed. */
+  private static readonly PITCH = ICON_PX + 1;
+
+  constructor() {
+    const ids: number[] = [...ITEM_IDS, 0xffff];
+    const canvas = document.createElement('canvas');
+    canvas.width = ids.length * ItemIconAtlas.PITCH;
+    canvas.height = ICON_PX;
+    const ctx = canvas.getContext('2d')!;
+    ids.forEach((id, i) => {
+      const image = ctx.createImageData(ICON_PX, ICON_PX);
+      image.data.set(iconPixels(id));
+      ctx.putImageData(image, i * ItemIconAtlas.PITCH, 0);
+    });
+    this.base = Texture.from(canvas);
+    this.base.source.scaleMode = 'nearest';
+    ids.forEach((id, i) => {
+      const frame = new Rectangle(i * ItemIconAtlas.PITCH, 0, ICON_PX, ICON_PX);
+      this.textures.set(id, new Texture({ source: this.base.source, frame }));
+    });
+  }
+
+  /** The texture of item `item` (the unknown-item icon for ids without a prototype). */
+  texture(item: number): Texture {
+    return this.textures.get(item) ?? this.textures.get(0xffff)!;
+  }
+
+  destroy(): void {
+    for (const t of this.textures.values()) t.destroy(false);
+    this.base.destroy(true);
+  }
+}
+
+let shared: ItemIconAtlas | null = null;
+
+/** The atlas shared by the belt and inserter layers, created on first use. */
+export function itemIconAtlas(): ItemIconAtlas {
+  shared ??= new ItemIconAtlas();
+  return shared;
+}

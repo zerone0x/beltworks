@@ -160,7 +160,7 @@ test('the debug overlay shows the tile under the mouse', async ({ page }) => {
   );
   expect(info.resource).toBe(patch.ore);
   await expect(readout).toHaveText(formatTile({ ...tile, info }));
-  await expect(readout).toContainText(/\| \S+ \d+$/);
+  await expect(readout).toContainText(/ · [a-z ]+ \d{1,3}( \d{3})*$/);
 
   // Leaving the canvas clears it.
   await page.dispatchEvent('canvas', 'pointerleave');

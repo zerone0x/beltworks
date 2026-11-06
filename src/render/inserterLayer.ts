@@ -7,15 +7,16 @@
  * (arm position 0) to pointing at the drop tile (`INSERTER_SWING_TICKS`).
  * Between ticks it is drawn `swing × (1 − α)` ticks behind the snapshot's
  * position, with `α` the fraction of a tick since the snapshot arrived, so it
- * rotates smoothly.
+ * rotates smoothly. The held item shows as its icon (src/render/itemIcons.ts),
+ * the same as on belts.
  */
 
-import { Container, Graphics } from 'pixi.js';
-import { itemPrototype } from '../data/items';
+import { Container, Graphics, Sprite } from 'pixi.js';
 import { INSERTER_SWING_TICKS } from '../sim/entities/inserter';
 import { decodeInserters, type InserterData } from '../sim/snapshot';
 import { TICKS_PER_SECOND } from '../worker/protocol';
 import { TILE_PX } from './camera';
+import { itemIconAtlas } from './itemIcons';
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 /** From the inserter's center to the tip of its hand, in tiles: into the neighbouring tile. */
@@ -23,9 +24,6 @@ export const ARM_LENGTH = 0.8;
 const ARM_COLOR = 0x3c3f46;
 const ARM_EDGE = 0xd9d4c4;
 const HAND_COLOR = 0xe0a040;
-const ITEM_OUTLINE = 0xf2ecd8;
-/** Held items, in tiles: the size of items on belts. */
-const ITEM_SIZE = 0.22;
 
 /**
  * The tip of the arm of an inserter facing `dir` at swing fraction `t` (0 at
@@ -52,6 +50,8 @@ export function swingFraction(inserter: InserterData, alpha: number): number {
 export class InserterLayer {
   readonly container = new Container({ label: 'inserters' });
   private readonly graphics = new Graphics({ label: 'inserter-arms' });
+  /** Icons of held items (the same as on belts), above the arms; reused from frame to frame. */
+  private readonly held: Sprite[] = [];
   private inserters: InserterData[] = [];
   private receivedAt = 0;
 
@@ -75,6 +75,7 @@ export class InserterLayer {
     const alpha = Math.min(1, Math.max(0, (nowMs - this.receivedAt) / TICK_MS));
     const g = this.graphics;
     g.clear();
+    let shown = 0;
     for (const ins of this.inserters) {
       const cx = (ins.x + 0.5) * TILE_PX;
       const cy = (ins.y + 0.5) * TILE_PX;
@@ -85,14 +86,22 @@ export class InserterLayer {
       g.moveTo(cx, cy).lineTo(tx, ty).stroke({ width: 3.5, color: ARM_COLOR, cap: 'round' });
       g.circle(cx, cy, 4).fill(ARM_COLOR).stroke({ width: 1.5, color: ARM_EDGE });
       if (ins.held !== 0) {
-        const half = (ITEM_SIZE / 2) * TILE_PX;
-        g.rect(tx - half, ty - half, 2 * half, 2 * half)
-          .fill(itemPrototype(ins.held)?.color ?? 0xff00ff)
-          .stroke({ width: 1.5, color: ITEM_OUTLINE, alpha: 0.9 });
+        let sprite = this.held[shown];
+        if (!sprite) {
+          sprite = new Sprite();
+          sprite.anchor.set(0.5);
+          this.held.push(sprite);
+          this.container.addChild(sprite);
+        }
+        shown++;
+        sprite.visible = true;
+        sprite.texture = itemIconAtlas().texture(ins.held);
+        sprite.position.set(tx, ty);
       } else {
         g.circle(tx, ty, 3).fill(HAND_COLOR);
       }
     }
+    for (let i = shown; i < this.held.length; i++) this.held[i]!.visible = false;
   }
 
   destroy(): void {

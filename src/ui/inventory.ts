@@ -2,14 +2,16 @@
  * Inventory UI (plain DOM): the inventory panel, toggled with `E` (other
  * panels such as crafting can add sections to it), and the
  * hotbar strip showing the first `HOTBAR_SLOTS` slots, with the slot selected
- * for building (keys `1`–`0`) highlighted. Both show each slot's item as a
- * colored swatch with its count.
+ * for building (keys `1`–`0`, or a click on the slot) highlighted. Both
+ * show each slot's item as its icon (src/render/itemIcons.ts, the same as on
+ * belts and in inserter hands) with its count.
  *
  * Slots have fixed pixel sizes and an empty slot has no text, so the hotbar
  * looks the same on every machine (it is part of the screenshot tests).
  */
 
 import { itemPrototype } from '../data/items';
+import { ICON_PX, iconDataUrl } from '../render/itemIcons';
 import type { SlotData } from '../sim/snapshot';
 
 /** Slots shown in the hotbar: the first slots of the inventory. */
@@ -23,6 +25,70 @@ export const HOTBAR_BOTTOM_PX = 8;
 const SLOT_BORDER = '1px solid rgba(232, 226, 208, 0.25)';
 /** Drawn as an outline inside the slot, so selecting doesn't shift its contents. */
 const SELECTED_OUTLINE = '2px solid #f2d36b';
+
+/** Icons in slots are drawn this many CSS pixels per icon pixel. */
+const ICON_SCALE = 2;
+
+/** How much of a stack a click on a slot moves (between the inventory and an entity). */
+export type Transfer = 'all' | 'half' | 'one';
+
+/**
+ * What a mouse event on a slot asks for: a left click (or shift-click) moves
+ * the whole stack, a right click half of it (rounded up), and a ctrl-click
+ * (⌘-click on a Mac) or a middle click a single item. `null` for other buttons.
+ */
+export function transferFor(
+  e: Pick<MouseEvent, 'button' | 'ctrlKey' | 'metaKey'>,
+): Transfer | null {
+  switch (e.button) {
+    case 0:
+      return e.ctrlKey || e.metaKey ? 'one' : 'all';
+    case 1:
+      return 'one';
+    case 2:
+      return 'half';
+    default:
+      return null;
+  }
+}
+
+/** Units of a stack of `count` that `transfer` moves. */
+export function transferCount(count: number, transfer: Transfer): number {
+  switch (transfer) {
+    case 'all':
+      return count;
+    case 'half':
+      return Math.ceil(count / 2);
+    case 'one':
+      return Math.min(1, count);
+  }
+}
+
+/**
+ * An element showing an item icon in a slot-sized box (`SLOT_PX` with a 1px
+ * border), centered; set its item with `setSlotIcon`.
+ */
+export function makeSlotIcon(): HTMLElement {
+  const iconPx = ICON_PX * ICON_SCALE;
+  const inset = `${String(Math.floor((SLOT_PX - 2 - iconPx) / 2))}px`;
+  const icon = document.createElement('div');
+  icon.className = 'icon';
+  Object.assign(icon.style, {
+    position: 'absolute',
+    left: inset,
+    top: inset,
+    width: `${String(iconPx)}px`,
+    height: `${String(iconPx)}px`,
+    backgroundSize: '100% 100%',
+    imageRendering: 'pixelated',
+  } satisfies Partial<CSSStyleDeclaration>);
+  return icon;
+}
+
+/** Shows item `item`'s icon on an element from `makeSlotIcon`, or nothing for 0. */
+export function setSlotIcon(icon: HTMLElement, item: number): void {
+  icon.style.backgroundImage = item === 0 ? 'none' : `url(${iconDataUrl(item)})`;
+}
 
 /** CSS color for a 0xRRGGBB value. */
 export function cssColor(rgb: number): string {
@@ -68,20 +134,19 @@ export function countByName(slots: readonly SlotData[], name: string): number {
 
 /**
  * A row-major grid of slot elements that only touches the DOM for slots that
- * changed. With `onClick`, clicking a slot calls it with the slot index;
- * with `onRightClick`, so does a right click (which then opens no context
- * menu).
+ * changed. With `onClick`, a click on a slot calls it with the slot index and
+ * the `Transfer` the click asks for (see `transferFor`); a right click then
+ * opens no context menu, and a middle click doesn't start scrolling.
  */
 export class SlotGrid {
   readonly element: HTMLElement;
-  private readonly cells: { root: HTMLElement; swatch: HTMLElement; count: HTMLElement }[] = [];
+  private readonly cells: { root: HTMLElement; icon: HTMLElement; count: HTMLElement }[] = [];
   private readonly shown: (string | null)[] = [];
 
   constructor(
     slots: number,
     columns: number,
-    onClick?: (index: number) => void,
-    onRightClick?: (index: number) => void,
+    onClick?: (index: number, transfer: Transfer) => void,
   ) {
     const el = document.createElement('div');
     el.className = 'slot-grid';
@@ -103,17 +168,8 @@ export class SlotGrid {
         borderRadius: '3px',
         background: 'rgba(0, 0, 0, 0.55)',
       } satisfies Partial<CSSStyleDeclaration>);
-      const swatch = document.createElement('div');
-      Object.assign(swatch.style, {
-        position: 'absolute',
-        left: '7px',
-        top: '7px',
-        width: '20px',
-        height: '20px',
-        borderRadius: '4px',
-        boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.22)',
-        display: 'none',
-      } satisfies Partial<CSSStyleDeclaration>);
+      const icon = makeSlotIcon();
+      icon.style.display = 'none';
       const count = document.createElement('span');
       count.className = 'count';
       Object.assign(count.style, {
@@ -124,21 +180,29 @@ export class SlotGrid {
         color: '#f4efe0',
         textShadow: '0 0 2px #000, 0 0 2px #000',
       } satisfies Partial<CSSStyleDeclaration>);
-      root.append(swatch, count);
+      root.append(icon, count);
       if (onClick) {
         root.style.cursor = 'pointer';
-        root.addEventListener('click', () => {
-          onClick(i);
+        root.addEventListener('click', (e) => {
+          const transfer = transferFor(e);
+          if (transfer !== null) onClick(i, transfer);
         });
-      }
-      if (onRightClick) {
+        root.addEventListener('auxclick', (e) => {
+          // Right clicks arrive as `contextmenu` below, so they don't count twice.
+          if (e.button === 1) onClick(i, 'one');
+        });
         root.addEventListener('contextmenu', (e) => {
           e.preventDefault();
-          onRightClick(i);
+          // On a Mac, ctrl-click opens the context menu instead of clicking.
+          onClick(i, e.ctrlKey || e.metaKey ? 'one' : 'half');
+        });
+        root.addEventListener('mousedown', (e) => {
+          // No autoscroll on a middle click, no text selection on a shift-click.
+          if (e.button === 1 || e.shiftKey) e.preventDefault();
         });
       }
       el.appendChild(root);
-      this.cells.push({ root, swatch, count });
+      this.cells.push({ root, icon, count });
       this.shown.push(null);
     }
     this.element = el;
@@ -158,7 +222,8 @@ export class SlotGrid {
   /** Shows `slots[i]` in cell `i`; missing entries show as empty. */
   update(slots: readonly SlotData[]): void {
     this.cells.forEach((cell, i) => {
-      const view = slotView(slots[i] ?? { item: 0, count: 0 });
+      const slot = slots[i] ?? { item: 0, count: 0 };
+      const view = slotView(slot);
       const key = `${view.name}:${view.count}`;
       if (this.shown[i] === key) {
         return;
@@ -167,19 +232,38 @@ export class SlotGrid {
       cell.root.dataset.item = view.name;
       cell.root.dataset.count = view.count === '' ? '0' : view.count;
       cell.root.title = view.title;
-      cell.swatch.style.display = view.color ? 'block' : 'none';
-      cell.swatch.style.background = view.color ?? 'transparent';
+      cell.icon.style.display = view.color ? 'block' : 'none';
+      setSlotIcon(cell.icon, view.color ? slot.item : 0);
       cell.count.textContent = view.count;
     });
   }
 }
 
-/** The hotbar strip at the bottom of the screen. */
+export interface HotbarOptions {
+  /** A left click on hotbar slot `slot`: select it, or deselect it if it is selected. */
+  onClick: (slot: number) => void;
+  /** A right click on a hotbar slot: deselect. */
+  onRightClick: () => void;
+}
+
+/**
+ * The hotbar strip at the bottom of the screen. With `options`, its slots are
+ * clickable, and the strip catches the pointer: the game under it gets no clicks.
+ */
 export class Hotbar {
   readonly element: HTMLElement;
-  private readonly grid = new SlotGrid(HOTBAR_SLOTS, HOTBAR_SLOTS);
+  private readonly grid: SlotGrid;
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, options?: HotbarOptions) {
+    this.grid = new SlotGrid(
+      HOTBAR_SLOTS,
+      HOTBAR_SLOTS,
+      options &&
+        ((slot, transfer) => {
+          if (transfer === 'half') options.onRightClick();
+          else options.onClick(slot);
+        }),
+    );
     const el = document.createElement('div');
     el.id = 'hotbar';
     Object.assign(el.style, {
@@ -191,11 +275,12 @@ export class Hotbar {
       padding: '4px',
       background: 'rgba(0, 0, 0, 0.45)',
       borderRadius: '4px',
-      // Clicks pass through to the game for now.
-      pointerEvents: 'none',
       zIndex: '10',
     } satisfies Partial<CSSStyleDeclaration>);
     el.appendChild(this.grid.element);
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
     parent.appendChild(el);
     this.element = el;
     this.grid.update([]);

@@ -27,7 +27,17 @@ async function main(): Promise<void> {
 
   const client = new SimClient(WORLD_SEED);
   const overlay = new DebugOverlay(document.body);
-  const hotbar = new Hotbar(document.body);
+  // Hotbar clicks select like the number keys (the build input exists once the canvas does).
+  let selectSlot: (slot: number | null) => void = () => undefined;
+  let selectedSlot: () => number | null = () => null;
+  const hotbar = new Hotbar(document.body, {
+    onClick: (slot) => {
+      selectSlot(slot === selectedSlot() ? null : slot);
+    },
+    onRightClick: () => {
+      selectSlot(null);
+    },
+  });
   const inventoryPanel = new InventoryPanel(document.body, PLAYER_INVENTORY_SLOTS);
   const entityPanel = new EntityPanel(document.body, PLAYER_INVENTORY_SLOTS, {
     insert: (entity, item, count) => {
@@ -119,6 +129,10 @@ async function main(): Promise<void> {
       entityPanel.open(entity.id, entity.type);
     },
   });
+  selectSlot = (slot) => {
+    build.select(slot);
+  };
+  selectedSlot = () => build.selected;
   // Every snapshot must reach the view, in order, or its chunk cache drifts from
   // what the worker thinks was sent. Snapshots before this point carry no
   // chunks: the worker only sends them once it has a viewport, and the first

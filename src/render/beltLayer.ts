@@ -8,26 +8,24 @@
  * arcs with bars sweeping around them. Items are drawn every frame between
  * the last tick's position and the current one: each record says how far the
  * item moved on the tick, so an item is drawn `moved * (1 - α)` behind where
- * it is, with `α` the fraction of a tick since the snapshot arrived.
+ * it is, with `α` the fraction of a tick since the snapshot arrived. Items
+ * show as their icons (src/render/itemIcons.ts).
  */
 
-import { Container, Graphics, Texture, TilingSprite } from 'pixi.js';
+import { Container, Graphics, Sprite, Texture, TilingSprite } from 'pixi.js';
 import { ENTITIES, EntityTypeId } from '../data/entities';
-import { itemPrototype } from '../data/items';
 import { BELT_SPEED, BeltShape } from '../sim/belts/belts';
 import { BELT_LENGTH } from '../sim/belts/line';
 import { decodeBelts, type BeltData } from '../sim/snapshot';
 import { TICKS_PER_SECOND } from '../worker/protocol';
 import { beltPoint, laneLateral, progressOf } from './beltPath';
 import { TILE_PX } from './camera';
+import { itemIconAtlas } from './itemIcons';
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 const BELT_BASE = 0x5b5d64;
 const BELT_BAR = 0x84878f;
 const BELT_RAIL = ENTITIES[EntityTypeId.TransportBelt].color;
-const ITEM_OUTLINE = 0xf2ecd8;
-/** Item squares, in tiles: a little under the lane spacing (a quarter tile), so packed items don't overlap. */
-const ITEM_SIZE = 0.22;
 /** Bars per tile on the belt texture. */
 const BARS = 2;
 
@@ -68,7 +66,8 @@ export class BeltLayer {
   readonly itemContainer = new Container({ label: 'belt-items' });
   private readonly straight: TilingSprite[] = [];
   private readonly curves = new Graphics({ label: 'belt-curves' });
-  private readonly items = new Graphics({ label: 'items' });
+  /** Item icon sprites, reused from frame to frame. */
+  private readonly items: Sprite[] = [];
   private texture: Texture | null = null;
   private belts: BeltData[] = [];
   private tick = 0;
@@ -76,7 +75,6 @@ export class BeltLayer {
 
   constructor() {
     this.container.addChild(this.curves);
-    this.itemContainer.addChild(this.items);
   }
 
   /** Takes the belts of a snapshot of tick `tick`, received at `nowMs`. */
@@ -121,11 +119,18 @@ export class BeltLayer {
     }
     for (let i = used; i < this.straight.length; i++) this.straight[i]!.visible = false;
 
-    const g = this.items;
-    g.clear();
-    const half = ITEM_SIZE / 2;
+    // Item icons (src/render/itemIcons.ts) at one texel per world pixel,
+    // about 0.4 tile: bigger than the quarter-tile spacing of packed items,
+    // so each lane is drawn from its back to its front and the front item of
+    // a queue shows whole.
+    const atlas = itemIconAtlas();
+    let shown = 0;
     for (const belt of this.belts) {
-      for (const it of belt.items) {
+      const order = belt.items
+        .map((_, i) => i)
+        .sort((a, b) => belt.items[b]!.offset - belt.items[a]!.offset);
+      for (const i of order) {
+        const it = belt.items[i]!;
         const offset = it.offset + it.moved * (1 - alpha);
         const p = beltPoint(
           belt.dir,
@@ -133,13 +138,20 @@ export class BeltLayer {
           laneLateral(it.lane),
           progressOf(offset, BELT_LENGTH),
         );
-        const x = (belt.x + p.x - half) * TILE_PX;
-        const y = (belt.y + p.y - half) * TILE_PX;
-        g.rect(x, y, ITEM_SIZE * TILE_PX, ITEM_SIZE * TILE_PX)
-          .fill(itemPrototype(it.item)?.color ?? 0xff00ff)
-          .stroke({ width: 1.5, color: ITEM_OUTLINE, alpha: 0.9 });
+        let sprite = this.items[shown];
+        if (!sprite) {
+          sprite = new Sprite();
+          sprite.anchor.set(0.5);
+          this.items.push(sprite);
+          this.itemContainer.addChild(sprite);
+        }
+        shown++;
+        sprite.visible = true;
+        sprite.texture = atlas.texture(it.item);
+        sprite.position.set((belt.x + p.x) * TILE_PX, (belt.y + p.y) * TILE_PX);
       }
     }
+    for (let i = shown; i < this.items.length; i++) this.items[i]!.visible = false;
   }
 
   destroy(): void {
