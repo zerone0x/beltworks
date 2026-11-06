@@ -1,6 +1,10 @@
 /**
  * Build controls: the `1`–`0` keys select a hotbar slot (again to deselect,
- * `Q` clears the selection); while the selected item places an entity, a
+ * `Q` clears the selection), and a click in the inventory window selects any
+ * slot holding a placeable item (`selectSlot`, wired up in main.ts). `Q` with
+ * nothing selected is the pipette: it selects the item of the entity under
+ * the cursor, if the inventory holds one, facing the same way. While the
+ * selected item places an entity, a
  * ghost preview follows the cursor, `R` rotates it, and the left mouse button
  * places it (holding it and dragging places along the way). Without a ghost,
  * `R` rotates the entity under the cursor and a left click opens its GUI
@@ -31,6 +35,39 @@ export function hotbarSlotForKey(code: string): number | null {
   const digit = Number(m[1]);
   const slot = digit === 0 ? 9 : digit - 1;
   return slot < HOTBAR_SLOTS ? slot : null;
+}
+
+/**
+ * The slot to select for placing item `item`: the first one holding it (so
+ * the hotbar comes first), or `null` if no slot does.
+ */
+export function slotWithItem(slots: readonly SlotData[], item: number): number | null {
+  const i = slots.findIndex((s) => s.item === item && s.count > 0);
+  return i < 0 ? null : i;
+}
+
+/**
+ * Where a selection of slot `slot` past the hotbar, made for item `item`,
+ * goes once the inventory is `slots`: it stays while the slot still holds the
+ * item, moves to another slot holding it once the slot runs out (or something
+ * else lands there), and is dropped (`null`) when none does. Hotbar slots stay
+ * selected whatever they hold, like their number keys.
+ */
+export function followSelection(
+  slots: readonly SlotData[],
+  slot: number,
+  item: number,
+): number | null {
+  if (slot < HOTBAR_SLOTS) return slot;
+  const s = slots[slot];
+  if (s && s.item === item && s.count > 0) return slot;
+  return slotWithItem(slots, item);
+}
+
+/** Whether inventory slot `slot` of `slots` holds an item that places an entity. */
+export function isPlaceableSlot(slots: readonly SlotData[], slot: number): boolean {
+  const s = slots[slot];
+  return s !== undefined && s.count > 0 && entityForItem(s.item) !== undefined;
 }
 
 /**
@@ -65,15 +102,17 @@ export interface BuildInputOptions {
   entityAt: (x: number, y: number) => EntityView | null;
   /** Whether `proto` can be placed there, as far as the renderer can tell. */
   canPlace: (proto: EntityPrototype, x: number, y: number, dir: Direction) => boolean;
-  /** Called when the selected hotbar slot changes. */
+  /** Called when the selected slot changes (an inventory slot index: 0–9 are the hotbar). */
   onSelect?: (slot: number | null) => void;
   /** A left click with nothing to place landed on this entity: open its GUI. */
   onOpenEntity?: (entity: EntityView) => void;
 }
 
 export class BuildInput {
-  /** Selected hotbar slot, or `null`. */
+  /** Selected inventory slot (0–9 are the hotbar slots), or `null`. */
   selected: number | null = null;
+  /** The item a selection past the hotbar was made for (see `followSelection`). */
+  private selectedItem = 0;
   /** Direction of the ghost. Kept across selections, like a held item's rotation. */
   dir: Direction = Direction.North;
   /** The ghost after the latest `update()`, or `null` when there is none. */
@@ -103,17 +142,49 @@ export class BuildInput {
     return entityForItem(slot.item) ?? null;
   }
 
-  /** Selects hotbar slot `slot` (or clears the selection for `null`). */
+  /**
+   * Selects inventory slot `slot` (or clears the selection for `null`). A
+   * slot past the hotbar is only selected while it holds a placeable item.
+   */
   select(slot: number | null): void {
+    if (slot !== null && slot >= HOTBAR_SLOTS) {
+      const inventory = this.options.inventory();
+      if (!isPlaceableSlot(inventory, slot)) slot = null;
+      else this.selectedItem = inventory[slot]!.item;
+    }
     if (slot === this.selected) return;
     this.selected = slot;
     this.options.onSelect?.(slot);
+  }
+
+  /**
+   * The pipette: with nothing selected, selects the slot holding the item of
+   * the entity under the cursor and turns the ghost the way the entity faces.
+   * Does nothing if there is no entity there or the inventory has none of its
+   * item. Returns whether it selected something.
+   */
+  pipette(): boolean {
+    const { options } = this;
+    const p = options.pointer();
+    if (this.selected !== null || !p) return false;
+    const tile = options.tileAt(p.x, p.y);
+    const entity = options.entityAt(tile.x, tile.y);
+    const proto = entity?.proto;
+    if (!entity || !proto) return false;
+    const slot = slotWithItem(options.inventory(), proto.item);
+    if (slot === null) return false;
+    if (proto.rotatable) this.dir = entity.dir;
+    this.select(slot);
+    return true;
   }
 
   /** Updates the ghost and sends whatever the input asks for. Call once per frame, after the camera moved. */
   update(): void {
     const { options } = this;
     const commands: CommandInput[] = [];
+    if (this.selected !== null && this.selected >= HOTBAR_SLOTS) {
+      this.select(followSelection(options.inventory(), this.selected, this.selectedItem));
+    }
     const proto = this.selectedPrototype();
     const p = options.pointer();
     const clicked = this.clickPending;
@@ -191,7 +262,8 @@ export class BuildInput {
       if (!e.repeat) this.select(slot === this.selected ? null : slot);
     } else if (e.code === 'KeyQ' && !e.repeat) {
       e.preventDefault();
-      this.select(null);
+      if (this.selected !== null) this.select(null);
+      else this.pipette();
     } else if (e.code === 'KeyR' && !e.repeat) {
       e.preventDefault();
       this.rotateRequested = true;

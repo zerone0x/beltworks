@@ -1,8 +1,9 @@
 /**
  * Inventory UI (plain DOM): the inventory panel, toggled with `E` (other
  * panels such as crafting can add sections to it), and the
- * hotbar strip showing the first `HOTBAR_SLOTS` slots, with the slot selected
- * for building (keys `1`–`0`, or a click on the slot) highlighted. Both
+ * hotbar strip showing the first `HOTBAR_SLOTS` slots. Both highlight the
+ * slot selected for building: keys `1`–`0` or a click on a hotbar slot
+ * select one there, a click in the inventory panel selects any slot. Both
  * show each slot's item as its icon (src/render/itemIcons.ts, the same as on
  * belts and in inserter hands) with its count.
  *
@@ -290,20 +291,32 @@ export class Hotbar {
     this.grid.update(slots.slice(0, HOTBAR_SLOTS));
   }
 
-  /** Highlights the slot selected for building, or none for `null`. */
+  /** Highlights the slot selected for building, or none for `null` or a slot past the hotbar. */
   select(slot: number | null): void {
-    this.element.dataset.selected = slot === null ? '' : String(slot);
-    this.grid.highlight(slot);
+    const shown = slot !== null && slot < HOTBAR_SLOTS ? slot : null;
+    this.element.dataset.selected = shown === null ? '' : String(shown);
+    this.grid.highlight(shown);
   }
 }
 
-/** The inventory panel, hidden until toggled. */
+export interface InventoryPanelOptions {
+  /** A left click on slot `slot` (plain, shift or ctrl): select it for building, or deselect. */
+  onClick: (slot: number) => void;
+  /** A right click on a slot: deselect. */
+  onRightClick: () => void;
+}
+
+/**
+ * The inventory panel, hidden until toggled. With `options`, its slots are
+ * clickable (for selecting an item to build; transfers into an entity happen
+ * in the entity window's own copy of the inventory, see entityPanel.ts).
+ */
 export class InventoryPanel {
   readonly element: HTMLElement;
   private readonly grid: SlotGrid;
   private readonly body: HTMLElement;
 
-  constructor(parent: HTMLElement, slots: number) {
+  constructor(parent: HTMLElement, slots: number, options?: InventoryPanelOptions) {
     const el = document.createElement('div');
     el.id = 'inventory-panel';
     el.setAttribute('role', 'dialog');
@@ -324,7 +337,15 @@ export class InventoryPanel {
     const title = document.createElement('div');
     title.textContent = 'Inventory';
     Object.assign(title.style, { fontWeight: '600', marginBottom: '6px' });
-    this.grid = new SlotGrid(slots, INVENTORY_COLUMNS);
+    this.grid = new SlotGrid(
+      slots,
+      INVENTORY_COLUMNS,
+      options &&
+        ((slot, transfer) => {
+          if (transfer === 'half') options.onRightClick();
+          else options.onClick(slot);
+        }),
+    );
     // Sections (the inventory, then e.g. crafting) side by side.
     this.body = document.createElement('div');
     Object.assign(this.body.style, { display: 'flex', alignItems: 'flex-start', gap: '12px' });
@@ -362,6 +383,12 @@ export class InventoryPanel {
 
   update(slots: readonly SlotData[]): void {
     this.grid.update(slots);
+  }
+
+  /** Highlights the slot selected for building, or none for `null`. */
+  select(slot: number | null): void {
+    this.element.dataset.selected = slot === null ? '' : String(slot);
+    this.grid.highlight(slot);
   }
 }
 

@@ -7,7 +7,7 @@ import {
   decodeInventory,
   type SlotData,
 } from './sim/snapshot';
-import { BuildInput } from './render/buildInput';
+import { BuildInput, isPlaceableSlot } from './render/buildInput';
 import { GameView } from './render/gameView';
 import { PlayerInput } from './render/playerInput';
 import { CraftQueueStrip, CraftingPanel } from './ui/crafting';
@@ -27,7 +27,10 @@ async function main(): Promise<void> {
 
   const client = new SimClient(WORLD_SEED);
   const overlay = new DebugOverlay(document.body);
-  // Hotbar clicks select like the number keys (the build input exists once the canvas does).
+  /** The local player's inventory as of the latest snapshot. */
+  let inventory: SlotData[] = [];
+  // Hotbar clicks select like the number keys, and inventory clicks select any
+  // slot with a placeable item (the build input exists once the canvas does).
   let selectSlot: (slot: number | null) => void = () => undefined;
   let selectedSlot: () => number | null = () => null;
   const hotbar = new Hotbar(document.body, {
@@ -38,7 +41,17 @@ async function main(): Promise<void> {
       selectSlot(null);
     },
   });
-  const inventoryPanel = new InventoryPanel(document.body, PLAYER_INVENTORY_SLOTS);
+  // Clicks in the inventory window select for building; in an entity window
+  // (which has its own copy of the inventory) they move stacks instead (D11).
+  const inventoryPanel = new InventoryPanel(document.body, PLAYER_INVENTORY_SLOTS, {
+    onClick: (slot) => {
+      if (slot === selectedSlot()) selectSlot(null);
+      else if (isPlaceableSlot(inventory, slot)) selectSlot(slot);
+    },
+    onRightClick: () => {
+      selectSlot(null);
+    },
+  });
   const entityPanel = new EntityPanel(document.body, PLAYER_INVENTORY_SLOTS, {
     insert: (entity, item, count) => {
       client.sendCommands([{ type: 'Insert', playerId: LOCAL_PLAYER_ID, entity, item, count }]);
@@ -106,7 +119,6 @@ async function main(): Promise<void> {
     },
   });
 
-  let inventory: SlotData[] = [];
   const build = new BuildInput({
     element: app.canvas,
     playerId: LOCAL_PLAYER_ID,
@@ -121,6 +133,7 @@ async function main(): Promise<void> {
     canPlace: (proto, x, y, dir) => view.canPlace(proto, x, y, dir),
     onSelect: (slot) => {
       hotbar.select(slot);
+      inventoryPanel.select(slot);
     },
     onOpenEntity: (entity) => {
       if (!hasEntityGui(entity.type)) return;

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ENTITIES, EntityTypeId } from '../../src/data/entities';
-import { ghostOrigin, hotbarSlotForKey } from '../../src/render/buildInput';
+import { ItemId } from '../../src/data/items';
+import {
+  followSelection,
+  ghostOrigin,
+  hotbarSlotForKey,
+  isPlaceableSlot,
+  slotWithItem,
+} from '../../src/render/buildInput';
 import { TILE_PX } from '../../src/render/camera';
 import { EntityIndex } from '../../src/render/entityIndex';
 import { Direction } from '../../src/sim/entities/direction';
@@ -26,6 +33,50 @@ describe('hotbarSlotForKey', () => {
     expect(hotbarSlotForKey('Digit0')).toBe(9);
     expect(hotbarSlotForKey('KeyR')).toBeNull();
     expect(hotbarSlotForKey('Numpad1')).toBeNull();
+  });
+});
+
+describe('selecting inventory slots', () => {
+  const empty = { item: 0, count: 0 };
+  /** 12 slots: belts in slot 0 and 11, coal in slot 1, electric inserters in slot 10. */
+  const slots = [
+    { item: ItemId.TransportBelt, count: 5 },
+    { item: ItemId.Coal, count: 3 },
+    ...Array.from({ length: 8 }, () => empty),
+    { item: ItemId.ElectricInserter, count: 4 },
+    { item: ItemId.TransportBelt, count: 7 },
+  ];
+
+  it('finds the first slot holding an item, hotbar first', () => {
+    expect(slotWithItem(slots, ItemId.TransportBelt)).toBe(0);
+    expect(slotWithItem(slots, ItemId.ElectricInserter)).toBe(10);
+    expect(slotWithItem(slots, ItemId.WoodenChest)).toBeNull();
+    expect(slotWithItem([{ item: ItemId.WoodenChest, count: 0 }], ItemId.WoodenChest)).toBeNull();
+  });
+
+  it('only counts slots with an item that places an entity', () => {
+    expect(isPlaceableSlot(slots, 0)).toBe(true);
+    expect(isPlaceableSlot(slots, 10)).toBe(true);
+    expect(isPlaceableSlot(slots, 1)).toBe(false);
+    expect(isPlaceableSlot(slots, 2)).toBe(false);
+    expect(isPlaceableSlot(slots, 40)).toBe(false);
+  });
+
+  it('keeps a selection past the hotbar on its item', () => {
+    expect(followSelection(slots, 10, ItemId.ElectricInserter)).toBe(10);
+    // Run out, or another item in the slot: dropped when no other slot has it.
+    const used = slots.map((s, i) => (i === 10 ? empty : s));
+    expect(followSelection(used, 10, ItemId.ElectricInserter)).toBeNull();
+    const replaced = slots.map((s, i) => (i === 10 ? { item: ItemId.IronOre, count: 1 } : s));
+    expect(followSelection(replaced, 10, ItemId.ElectricInserter)).toBeNull();
+    // Moves to another slot holding it, the hotbar included.
+    const noBelts = slots.map((s, i) => (i === 11 ? empty : s));
+    expect(followSelection(noBelts, 11, ItemId.TransportBelt)).toBe(0);
+  });
+
+  it('leaves hotbar selections on their slot', () => {
+    expect(followSelection([], 3, ItemId.TransportBelt)).toBe(3);
+    expect(followSelection(slots, 1, ItemId.TransportBelt)).toBe(1);
   });
 });
 
