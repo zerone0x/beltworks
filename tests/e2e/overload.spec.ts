@@ -14,7 +14,7 @@ import { ResourceId } from '../../src/data/resources';
 import { Direction } from '../../src/sim/entities/direction';
 import { MachineState } from '../../src/sim/entities/machine';
 import { World } from '../../src/sim/world/world';
-import { walkNear } from './walk';
+import { walkClose } from './walk';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -98,17 +98,22 @@ const BRIDGE_POLE: Spot = { x: 16, y: -28, w: 1, h: 1, dir: Direction.North };
 const MEASURED = NORTH.chests[0]!;
 /**
  * Where the player stands: between the generators and the north row, and
- * south of the south row, clear of everything built from there and within
- * build reach (10 tiles) of it.
+ * south of the south row, west and east, clear of everything built from
+ * there and within build reach (10 tiles) of the half of a row it builds,
+ * anywhere within `STAND_TOLERANCE` of the spot. CI's software-rendered
+ * Chromium runs at about 14 fps, where a walk overshoots by most of a tile,
+ * so the spots have a tile of room around them.
  */
-const NORTH_STAND = { x: 17.5, y: -29.5 };
-const SOUTH_STAND = { x: 17.5, y: -11.5 };
-const STAND_TOLERANCE = 0.4;
+const NORTH_WEST = { x: 14, y: -29 };
+const NORTH_EAST = { x: 21, y: -29 };
+const SOUTH_WEST = { x: 14, y: -11.5 };
+const SOUTH_EAST = { x: 21, y: -11.5 };
+const STAND_TOLERANCE = 1;
 
 test('drills slow down on an overloaded network and recover with a second generator', async ({
   page,
 }, testInfo) => {
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   const errors = collectErrors(page);
 
   // Every drill has iron ore in the 5×5 area it mines.
@@ -159,16 +164,20 @@ test('drills slow down on an overloaded network and recover with a second genera
     await page.mouse.click(at.x, at.y);
     await expect.poll(async () => (await entityAt(page, s.x, s.y))?.name).toBe(name);
   };
-  const placeRow = async (row: DrillRow) => {
-    for (const p of row.poles) await place(KEY.pole, p, 'small-electric-pole');
+  /** Places the west (0) or east (1) half of `row`: a pole and two pairs. */
+  const placeHalfRow = async (row: DrillRow, half: 0 | 1) => {
+    await place(KEY.pole, row.poles[half]!, 'small-electric-pole');
+    const drills = row.drills.slice(4 * half, 4 * half + 4);
     // Drills facing south, then north, so the ghost turns only once.
-    for (const d of row.drills.filter((d) => d.dir === Direction.South)) {
+    for (const d of drills.filter((d) => d.dir === Direction.South)) {
       await place(KEY.drill, d, 'electric-mining-drill');
     }
-    for (const d of row.drills.filter((d) => d.dir === Direction.North)) {
+    for (const d of drills.filter((d) => d.dir === Direction.North)) {
       await place(KEY.drill, d, 'electric-mining-drill');
     }
-    for (const c of row.chests) await place(KEY.chest, c, 'wooden-chest');
+    for (const c of row.chests.slice(2 * half, 2 * half + 2)) {
+      await place(KEY.chest, c, 'wooden-chest');
+    }
   };
   const placeGenerator = async (g: typeof G1) => {
     await place(KEY.engine, g.engine, 'steam-engine');
@@ -251,17 +260,20 @@ test('drills slow down on an overloaded network and recover with a second genera
 
   const walkTo = async (stand: { x: number; y: number }) => {
     await page.keyboard.press('Escape');
-    await walkNear(page, stand.x, stand.y, STAND_TOLERANCE);
+    await walkClose(page, stand.x, stand.y, STAND_TOLERANCE);
     await page.waitForFunction(() => window.__beltworks!.terrainReady());
   };
 
   // 1. One generator, eight drills (720 kW of 900 kW): full speed.
-  await walkTo(NORTH_STAND);
+  await walkTo(NORTH_WEST);
   await placeGenerator(G1);
   await place(KEY.pole, GEN_POLE, 'small-electric-pole');
   await place(KEY.pole, BRIDGE_POLE, 'small-electric-pole');
-  await placeRow(NORTH);
+  await placeHalfRow(NORTH, 0);
+  await walkTo(NORTH_EAST);
+  await placeHalfRow(NORTH, 1);
   await expect.poll(() => drillStates(8)).toEqual(Array(8).fill(MachineState.NoPower));
+  await walkTo(NORTH_WEST);
   await fuel(G1);
   await expect.poll(() => drillStates(8)).toEqual(Array(8).fill(MachineState.Working));
   await expect.poll(() => powerIcons(page)).toBe(0);
@@ -286,8 +298,10 @@ test('drills slow down on an overloaded network and recover with a second genera
 
   // 2. Eight more drills on the same network (1.44 MW of 900 kW): every
   // drill slows down to 900 / 1 440 = 62.5% and shows the yellow bolt.
-  await walkTo(SOUTH_STAND);
-  await placeRow(SOUTH);
+  await walkTo(SOUTH_WEST);
+  await placeHalfRow(SOUTH, 0);
+  await walkTo(SOUTH_EAST);
+  await placeHalfRow(SOUTH, 1);
   await expect.poll(() => drillStates(16)).toEqual(Array(16).fill(MachineState.LowPower));
   await expect.poll(() => powerIcons(page)).toBe(16);
   await openPowerPanel(SOUTH.poles[0]!);
@@ -297,17 +311,19 @@ test('drills slow down on an overloaded network and recover with a second genera
   await expect(powerPanel.locator('[data-role="consumption"]')).toHaveText(/ \/ 1\.4 MW$/);
   await expect(drillGroup).toHaveAttribute('data-count', '16');
   await screenshot('m2-overloaded.png', 'sixteen drills on one steam engine, and their network');
-  await walkTo(NORTH_STAND);
+  await walkTo(NORTH_WEST);
   const slow = await pairRate(1_200);
   expect(slow).toBeGreaterThan(0.5);
   expect(slow).toBeLessThan(0.75);
   expect(slow).toBeLessThan(full * 0.8);
 
   // 3. A second boiler and engine (1.8 MW for 1.44 MW): back to full speed.
+  await walkTo(NORTH_EAST);
   await placeGenerator(G2);
   await fuel(G2);
   await expect.poll(() => drillStates(16)).toEqual(Array(16).fill(MachineState.Working));
   await expect.poll(() => powerIcons(page)).toBe(0);
+  await walkTo(NORTH_WEST);
   const recovered = await pairRate(1_200);
   expect(recovered).toBeGreaterThan(0.85);
   expect(recovered).toBeLessThan(1.15);
