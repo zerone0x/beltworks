@@ -4,10 +4,14 @@
  * entity's slots (and, for a furnace, drill or inserter, its state, smelting
  * or mining progress or arm position, and remaining fuel) next to the
  * player's inventory:
- * - clicking an inventory stack inserts it into the entity, right-clicking
- *   inserts half of it, rounded up (`Insert`; the simulation routes fuel to
- *   the fuel slot and ores to the input; a drill or inserter only takes fuel),
+ * - clicking an inventory stack inserts it into the entity (`Insert`; the
+ *   simulation routes fuel to the fuel slot and ores to the input; a drill or
+ *   inserter only takes fuel),
  * - clicking one of the entity's slots takes its contents (`Take`).
+ *
+ * Both ways, a click (or shift-click) moves the whole stack, a right click
+ * half of it (rounded up), and a ctrl-click or middle click one item
+ * (`transferFor` in inventory.ts).
  *
  * Everything goes through commands, so the panel never changes state itself;
  * it redraws from the `entityDetail` of each snapshot (the worker sends it
@@ -24,7 +28,7 @@ import { FurnaceSlot } from '../sim/entities/furnace';
 import { INSERTER_SWING_TICKS, InserterSlot } from '../sim/entities/inserter';
 import { MachineState } from '../sim/entities/machine';
 import type { EntityDetailData, SlotData } from '../sim/snapshot';
-import { INVENTORY_COLUMNS, SlotGrid } from './inventory';
+import { INVENTORY_COLUMNS, SlotGrid, transferCount, type Transfer } from './inventory';
 
 /** Entity types that have a GUI. */
 export function hasEntityGui(type: number): boolean {
@@ -87,9 +91,9 @@ export function machineBars(detail: EntityDetailData): { progress: number; fuel:
 }
 
 export interface EntityPanelOptions {
-  /** The player clicked inventory slot `[item, count]`: insert it into `entity`. */
+  /** The player clicked an inventory stack of `item`: insert `count` of it into `entity`. */
   insert: (entity: number, item: number, count: number) => void;
-  /** The player clicked slot `slot` of `entity`, which holds `count` units: take them. */
+  /** The player clicked slot `slot` of `entity`: take `count` units out of it. */
   take: (entity: number, slot: number, count: number) => void;
   /** The panel opened for `entity`, or closed (0): forward it to the worker (`inspect`). */
   inspect: (entity: number) => void;
@@ -207,23 +211,12 @@ export class EntityPanel {
     const invTitle = document.createElement('div');
     invTitle.textContent = 'Inventory';
     Object.assign(invTitle.style, { fontWeight: '600', marginBottom: '4px' });
-    const insert = (i: number, half: boolean): void => {
+    this.inventoryGrid = new SlotGrid(inventorySlots, INVENTORY_COLUMNS, (i, transfer) => {
       const stack = this.inventory[i];
       if (this.entityId !== 0 && stack && stack.count > 0) {
-        const count = half ? Math.ceil(stack.count / 2) : stack.count;
-        this.options.insert(this.entityId, stack.item, count);
+        this.options.insert(this.entityId, stack.item, transferCount(stack.count, transfer));
       }
-    };
-    this.inventoryGrid = new SlotGrid(
-      inventorySlots,
-      INVENTORY_COLUMNS,
-      (i) => {
-        insert(i, false);
-      },
-      (i) => {
-        insert(i, true);
-      },
-    );
+    });
     this.inventoryGrid.element.classList.add('player-inventory');
 
     el.append(header, this.body, invTitle, this.inventoryGrid.element);
@@ -314,10 +307,10 @@ export class EntityPanel {
     this.status.textContent = view.text;
   }
 
-  private takeSlot(slot: number): void {
+  private takeSlot(slot: number, transfer: Transfer): void {
     const stack = this.entitySlots[slot];
     if (this.entityId !== 0 && stack && stack.count > 0) {
-      this.options.take(this.entityId, slot, stack.count);
+      this.options.take(this.entityId, slot, transferCount(stack.count, transfer));
     }
   }
 
@@ -327,8 +320,8 @@ export class EntityPanel {
     this.machine = null;
     if (type === EntityTypeId.WoodenChest) {
       const slots = ENTITIES[EntityTypeId.WoodenChest].slots ?? 0;
-      this.chestGrid = new SlotGrid(slots, CHEST_COLUMNS, (i) => {
-        this.takeSlot(i);
+      this.chestGrid = new SlotGrid(slots, CHEST_COLUMNS, (i, transfer) => {
+        this.takeSlot(i, transfer);
       });
       this.chestGrid.update([]);
       this.body.appendChild(this.chestGrid.element);
@@ -345,8 +338,8 @@ export class EntityPanel {
       gap: '10px',
     } satisfies Partial<CSSStyleDeclaration>);
     const labeled = (slot: number, role: string, label: string): LabeledSlot => {
-      const grid = new SlotGrid(1, 1, () => {
-        this.takeSlot(slot);
+      const grid = new SlotGrid(1, 1, (_, transfer) => {
+        this.takeSlot(slot, transfer);
       });
       grid.element.dataset.role = role;
       grid.update([]);

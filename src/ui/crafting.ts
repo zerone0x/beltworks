@@ -17,7 +17,15 @@ import type { CommandInput } from '../sim/commands';
 import { countItems, maxCraftable } from '../sim/crafting/plan';
 import { CRAFT_QUEUE_LENGTH, CraftFlag } from '../sim/crafting/queue';
 import type { CraftQueueData, SlotData } from '../sim/snapshot';
-import { GAP_PX, HOTBAR_BOTTOM_PX, HOTBAR_SLOTS, SLOT_PX, barWidth, cssColor } from './inventory';
+import {
+  GAP_PX,
+  HOTBAR_BOTTOM_PX,
+  HOTBAR_SLOTS,
+  SLOT_PX,
+  barWidth,
+  makeSlotIcon,
+  setSlotIcon,
+} from './inventory';
 
 /** Crafts queued by a shift-click. */
 export const SHIFT_CRAFT_COUNT = 5;
@@ -54,10 +62,10 @@ export function craftableCounts(slots: readonly SlotData[], queueLength: number)
   return HAND_RECIPES.map((r) => maxCraftable(r, available, free));
 }
 
-/** A slot-sized square with a colored swatch and a count, like the inventory slots. */
+/** A slot-sized square with an item icon and a count, like the inventory slots. */
 function makeSlot(tag: 'button' | 'div'): {
   root: HTMLElement;
-  swatch: HTMLElement;
+  icon: HTMLElement;
   count: HTMLElement;
 } {
   const root = document.createElement(tag);
@@ -72,16 +80,7 @@ function makeSlot(tag: 'button' | 'div'): {
     background: 'rgba(0, 0, 0, 0.55)',
     cursor: 'pointer',
   } satisfies Partial<CSSStyleDeclaration>);
-  const swatch = document.createElement('div');
-  Object.assign(swatch.style, {
-    position: 'absolute',
-    left: '7px',
-    top: '7px',
-    width: '20px',
-    height: '20px',
-    borderRadius: '4px',
-    boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.22)',
-  } satisfies Partial<CSSStyleDeclaration>);
+  const icon = makeSlotIcon();
   const count = document.createElement('span');
   count.className = 'count';
   Object.assign(count.style, {
@@ -92,12 +91,12 @@ function makeSlot(tag: 'button' | 'div'): {
     color: '#f4efe0',
     textShadow: '0 0 2px #000, 0 0 2px #000',
   } satisfies Partial<CSSStyleDeclaration>);
-  root.append(swatch, count);
+  root.append(icon, count);
   // Clicking must not focus the button, or Space/Enter would click it again.
   root.addEventListener('mousedown', (e) => {
     e.preventDefault();
   });
-  return { root, swatch, count };
+  return { root, icon, count };
 }
 
 export interface CraftingUiOptions {
@@ -124,11 +123,11 @@ export class CraftingPanel {
       gap: `${String(GAP_PX)}px`,
     } satisfies Partial<CSSStyleDeclaration>);
     for (const recipe of HAND_RECIPES) {
-      const { root, swatch, count } = makeSlot('button');
+      const { root, icon, count } = makeSlot('button');
       root.className = 'recipe';
       root.dataset.recipe = recipeName(recipe);
       root.title = `${shownItem(recipe).label}: ${recipeTitle(recipe)}`;
-      swatch.style.background = cssColor(shownItem(recipe).color);
+      setSlotIcon(icon, shownItem(recipe).id);
       root.addEventListener('click', (e) => {
         send([
           {
@@ -170,7 +169,7 @@ export class CraftQueueStrip {
   readonly element: HTMLElement;
   private readonly cells: {
     root: HTMLElement;
-    swatch: HTMLElement;
+    icon: HTMLElement;
     count: HTMLElement;
     bar: HTMLElement;
   }[] = [];
@@ -200,7 +199,7 @@ export class CraftQueueStrip {
       gap: `${String(GAP_PX)}px`,
     } satisfies Partial<CSSStyleDeclaration>);
     for (let i = 0; i < CRAFT_QUEUE_LENGTH; i++) {
-      const { root, swatch, count } = makeSlot('button');
+      const { root, icon, count } = makeSlot('button');
       root.className = 'craft';
       root.dataset.index = String(i);
       root.style.display = 'none';
@@ -218,7 +217,7 @@ export class CraftQueueStrip {
         send([{ playerId, type: 'CancelCraft', index: i }]);
       });
       row.appendChild(root);
-      this.cells.push({ root, swatch, count, bar });
+      this.cells.push({ root, icon, count, bar });
     }
     el.appendChild(row);
     el.addEventListener('contextmenu', (e) => {
@@ -259,9 +258,9 @@ export class CraftQueueStrip {
       cell.root.dataset.count = String(units);
       cell.root.dataset.intermediate = String(intermediate);
       cell.root.title = `${item.label} × ${String(units)}${intermediate ? ' (intermediate)' : ''} — click to cancel`;
-      cell.swatch.style.background = cssColor(item.color);
+      setSlotIcon(cell.icon, item.id);
       // Intermediates are drawn smaller: they are made for the next entry.
-      cell.swatch.style.transform = intermediate ? 'scale(0.7)' : 'none';
+      cell.icon.style.transform = intermediate ? 'scale(0.7)' : 'none';
       cell.count.textContent = String(units);
       cell.bar.style.width = `${String(i === 0 ? bar : 0)}px`;
     });

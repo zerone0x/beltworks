@@ -160,7 +160,28 @@ test('the debug overlay shows the tile under the mouse', async ({ page }) => {
   );
   expect(info.resource).toBe(patch.ore);
   await expect(readout).toHaveText(formatTile({ ...tile, info }));
-  await expect(readout).toContainText(/\| \S+ \d+$/);
+  await expect(readout).toContainText(/ · [a-z ]+ \d{1,3}( \d{3})*$/);
+
+  // A tree shows after the terrain too: point at the first one east of the spawn area.
+  const treeTile = await page.evaluate(() => {
+    for (let x = 48; x < 200; x++) {
+      for (let y = -20; y <= 20; y++) {
+        if (window.__beltworks!.generatedTile(x, y).tree) return { x, y };
+      }
+    }
+    return null;
+  });
+  expect(treeTile).not.toBeNull();
+  await page.evaluate(
+    ([x, y]) => window.__beltworks!.setCamera(x!, y!, 1),
+    [(treeTile!.x + 0.5) * TILE_PX, (treeTile!.y + 0.5) * TILE_PX],
+  );
+  await waitForTerrain(page);
+  await page.mouse.move(sx + 1, sy);
+  await page.mouse.move(sx, sy);
+  await expect(readout).toContainText(
+    `tile (${String(treeTile!.x)}, ${String(treeTile!.y)}) grass · tree`,
+  );
 
   // Leaving the canvas clears it.
   await page.dispatchEvent('canvas', 'pointerleave');

@@ -1,6 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import { ITEMS, ItemId } from '../../src/data/items';
-import { countByName, cssColor, slotView } from '../../src/ui/inventory';
+import {
+  countByName,
+  cssColor,
+  slotView,
+  transferCount,
+  transferFor,
+} from '../../src/ui/inventory';
+
+describe('stack transfers', () => {
+  const click = (button: number, mods: { ctrlKey?: boolean; metaKey?: boolean } = {}) =>
+    transferFor({ button, ctrlKey: false, metaKey: false, ...mods });
+
+  it('map clicks to how much they move', () => {
+    expect(click(0)).toBe('all');
+    expect(click(0, { ctrlKey: true })).toBe('one');
+    expect(click(0, { metaKey: true })).toBe('one');
+    expect(click(1)).toBe('one');
+    expect(click(2)).toBe('half');
+    expect(click(3)).toBeNull();
+  });
+
+  it('count whole stacks, halves rounded up, and single items', () => {
+    expect(transferCount(10, 'all')).toBe(10);
+    expect(transferCount(10, 'half')).toBe(5);
+    expect(transferCount(5, 'half')).toBe(3);
+    expect(transferCount(1, 'half')).toBe(1);
+    expect(transferCount(10, 'one')).toBe(1);
+    expect(transferCount(0, 'one')).toBe(0);
+  });
+});
 
 describe('slotView', () => {
   it('shows the item color, count and label', () => {
