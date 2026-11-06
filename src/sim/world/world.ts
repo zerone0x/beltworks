@@ -28,6 +28,19 @@ export function isChunkCoord(c: number): boolean {
   return Number.isInteger(c) && c >= -CHUNK_COORD_LIMIT && c < CHUNK_COORD_LIMIT;
 }
 
+/**
+ * True if world tile `(x, y)` lies in the supported map range, i.e. its chunk
+ * can be generated. Usable without a `World` (e.g. by the renderer).
+ */
+export function isTileInMap(x: number, y: number): boolean {
+  return (
+    Number.isInteger(x) &&
+    Number.isInteger(y) &&
+    isChunkCoord(Math.floor(x / CHUNK_SIZE)) &&
+    isChunkCoord(Math.floor(y / CHUNK_SIZE))
+  );
+}
+
 function assertChunkCoord(c: number): void {
   if (!isChunkCoord(c)) {
     throw new RangeError(`chunk coordinate out of range: ${String(c)}`);
@@ -110,12 +123,7 @@ export class World {
    * chunk can be generated. The tile accessors throw for tiles outside it.
    */
   isTileInRange(x: number, y: number): boolean {
-    return (
-      Number.isInteger(x) &&
-      Number.isInteger(y) &&
-      isChunkCoord(Math.floor(x / CHUNK_SIZE)) &&
-      isChunkCoord(Math.floor(y / CHUNK_SIZE))
-    );
+    return isTileInMap(x, y);
   }
 
   /** Whether players can walk on tile `(x, y)`. Tiles outside the map range are not walkable. */

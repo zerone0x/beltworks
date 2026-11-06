@@ -9,12 +9,18 @@ Controls so far:
 - **WASD**: walk (water blocks the way). The camera follows the player.
 - **Hold right mouse** on an ore tile within reach (2.5 tiles): mine it by hand, one unit every 0.5 s.
 - **E**: open or close the inventory (40 slots; the first 10 are shown in the hotbar at the bottom).
+- **1–0**: select a hotbar slot (press it again, or **Q**, to deselect). A new game starts with a kit of belts, inserters, drills, furnaces, chests and coal.
+- With a buildable item selected, a **ghost** follows the cursor: green where it can be placed, red where it can't (water, another entity, the player, or out of build reach, 10 tiles). **R** rotates it, **left click** places it (hold and drag to place a row).
+- **R** with nothing selected rotates the entity under the cursor.
+- **Right click** on an entity removes it and puts it back into the inventory (refused if there is no room); elsewhere the right button mines as above.
 - **Middle-drag** or **arrow keys**: pan the camera freely; **F**: follow the player again.
 - **Mouse wheel**: zoom (towards the cursor with a free camera, around the player while following).
 
 The debug overlay shows the tile under the mouse.
 
 ![The player mining copper ore with the inventory open](docs/screenshots/m0-player.png)
+
+![Placed entities and the ghost preview of a transport belt](docs/screenshots/m1-placement.png)
 
 ## Docs
 

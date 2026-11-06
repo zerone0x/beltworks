@@ -4,6 +4,10 @@
  * Main → worker: `init`, `commands`, `setViewport`.
  * Worker → main: `snapshot`, `stats`, `error`.
  *
+ * Commands include the build commands `Place`, `Remove` and `Rotate`; like
+ * every command they are validated for shape here and ignored by the
+ * simulation when they don't apply.
+ *
  * Bulk data travels in ArrayBuffers that are transferred, not copied.
  */
 
@@ -93,6 +97,12 @@ export interface SnapshotMessage {
   players: ArrayBuffer;
   /** Inventory of `LOCAL_PLAYER_ID` as uint16 `[item, count]` pairs; see `encodeInventory`. */
   inventory: ArrayBuffer;
+  /**
+   * Every entity with its origin inside `chunkWindow`, as int32 records; see
+   * `ENTITY_STRIDE` and `encodeEntities` in src/sim/snapshot.ts. Empty before
+   * the first viewport.
+   */
+  entities: ArrayBuffer;
   /**
    * The chunks the main thread should keep cached: the viewport plus
    * `CHUNK_MARGIN` chunks on each side. Cached chunks outside it can be

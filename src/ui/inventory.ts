@@ -1,7 +1,8 @@
 /**
  * Inventory UI (plain DOM): the inventory panel, toggled with `E`, and the
- * hotbar strip showing the first `HOTBAR_SLOTS` slots. Both show each slot's
- * item as a colored swatch with its count.
+ * hotbar strip showing the first `HOTBAR_SLOTS` slots, with the slot selected
+ * for building (keys `1`–`0`) highlighted. Both show each slot's item as a
+ * colored swatch with its count.
  *
  * Slots have fixed pixel sizes and an empty slot has no text, so the hotbar
  * looks the same on every machine (it is part of the screenshot tests).
@@ -16,6 +17,9 @@ export const HOTBAR_SLOTS = 10;
 export const INVENTORY_COLUMNS = 10;
 const SLOT_PX = 36;
 const GAP_PX = 2;
+const SLOT_BORDER = '1px solid rgba(232, 226, 208, 0.25)';
+/** Drawn as an outline inside the slot, so selecting doesn't shift its contents. */
+const SELECTED_OUTLINE = '2px solid #f2d36b';
 
 /** CSS color for a 0xRRGGBB value. */
 export function cssColor(rgb: number): string {
@@ -82,7 +86,7 @@ class SlotGrid {
         boxSizing: 'border-box',
         width: `${String(SLOT_PX)}px`,
         height: `${String(SLOT_PX)}px`,
-        border: '1px solid rgba(232, 226, 208, 0.25)',
+        border: SLOT_BORDER,
         borderRadius: '3px',
         background: 'rgba(0, 0, 0, 0.55)',
       } satisfies Partial<CSSStyleDeclaration>);
@@ -113,6 +117,17 @@ class SlotGrid {
       this.shown.push(null);
     }
     this.element = el;
+  }
+
+  /** Highlights cell `index` (and un-highlights the others); `null` for none. */
+  highlight(index: number | null): void {
+    this.cells.forEach((cell, i) => {
+      const on = i === index;
+      if ((cell.root.dataset.selected === 'true') === on) return;
+      cell.root.dataset.selected = String(on);
+      cell.root.style.outline = on ? SELECTED_OUTLINE : 'none';
+      cell.root.style.outlineOffset = on ? '-2px' : '0';
+    });
   }
 
   /** Shows `slots[i]` in cell `i`; missing entries show as empty. */
@@ -163,6 +178,12 @@ export class Hotbar {
 
   update(slots: readonly SlotData[]): void {
     this.grid.update(slots.slice(0, HOTBAR_SLOTS));
+  }
+
+  /** Highlights the slot selected for building, or none for `null`. */
+  select(slot: number | null): void {
+    this.element.dataset.selected = slot === null ? '' : String(slot);
+    this.grid.highlight(slot);
   }
 }
 

@@ -21,7 +21,7 @@ const ITEM = MINED_ITEM[PATCH.ore];
 
 /** A sim whose player 0 stands on the center of the first starting patch. */
 function simAtPatch(): Sim {
-  const sim = new Sim({ seed: SEED });
+  const sim = new Sim({ seed: SEED, startingKit: [] });
   sim.state.players.x[0] = tileCenter(PATCH.x);
   sim.state.players.y[0] = tileCenter(PATCH.y);
   return sim;
@@ -60,7 +60,7 @@ function findShore(world: World): { wx: number; wy: number } {
 
 describe('player movement', () => {
   it('cannot walk into water, and stops flush against it', () => {
-    const sim = new Sim({ seed: SEED });
+    const sim = new Sim({ seed: SEED, startingKit: [] });
     const { wx, wy } = findShore(sim.state.world);
     const p = sim.state.players;
     p.x[0] = tileCenter(wx - 1);
@@ -76,7 +76,7 @@ describe('player movement', () => {
   });
 
   it('slides along a shore when pushing into it diagonally', () => {
-    const sim = new Sim({ seed: SEED });
+    const sim = new Sim({ seed: SEED, startingKit: [] });
     const { wx, wy } = findShore(sim.state.world);
     const p = sim.state.players;
     p.x[0] = tileCenter(wx - 1);
@@ -89,7 +89,7 @@ describe('player movement', () => {
   });
 
   it('walks freely around the spawn', () => {
-    const sim = new Sim({ seed: SEED });
+    const sim = new Sim({ seed: SEED, startingKit: [] });
     move(sim, -1, -1);
     steps(sim, 100);
     expect([sim.state.players.x[0], sim.state.players.y[0]]).toEqual([
@@ -161,7 +161,7 @@ describe('hand-mining', () => {
   });
 
   it('pauses out of reach and resumes when the player comes back', () => {
-    const sim = new Sim({ seed: SEED });
+    const sim = new Sim({ seed: SEED, startingKit: [] });
     const p = sim.state.players;
     // Stand 3 tiles left of the target, then walk towards it.
     p.x[0] = tileCenter(PATCH.x - 3);
@@ -195,7 +195,7 @@ describe('hand-mining', () => {
   });
 
   it('ends on tiles without a resource', () => {
-    const sim = new Sim({ seed: SEED });
+    const sim = new Sim({ seed: SEED, startingKit: [] });
     expect(sim.state.world.resourceAt(0, 0)).toBe(0);
     mineStart(sim, 0, 0);
     steps(sim, 1);
@@ -222,7 +222,7 @@ describe('hand-mining', () => {
   });
 
   it('mines every ore type into its item', () => {
-    const sim = new Sim({ seed: SEED });
+    const sim = new Sim({ seed: SEED, startingKit: [] });
     const p = sim.state.players;
     for (const patch of startingPatches(SEED)) {
       p.x[0] = tileCenter(patch.x);

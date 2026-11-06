@@ -15,6 +15,15 @@ describe('validateCommandInput', () => {
       validateCommandInput({ playerId: 3, type: 'MineStart', x: -5, y: 2 ** 31 - 1 }),
     ).toBeNull();
     expect(validateCommandInput({ playerId: 0xffff, type: 'MineStop' })).toBeNull();
+    expect(
+      validateCommandInput({ playerId: 0, type: 'Place', item: 5, x: -3, y: 7, dir: 3 }),
+    ).toBeNull();
+    // Item ids that place nothing are well-formed; the simulation ignores them.
+    expect(
+      validateCommandInput({ playerId: 0, type: 'Place', item: 0xffff, x: 0, y: 0, dir: 0 }),
+    ).toBeNull();
+    expect(validateCommandInput({ playerId: 0, type: 'Remove', x: -1, y: 0 })).toBeNull();
+    expect(validateCommandInput({ playerId: 0, type: 'Rotate', x: 0, y: -(2 ** 31) })).toBeNull();
   });
 
   it.each([
@@ -30,6 +39,14 @@ describe('validateCommandInput', () => {
     { playerId: 0, type: 'MineStart', x: 1.25, y: 0 },
     { playerId: 0, type: 'MineStart', x: 2 ** 31, y: 0 },
     { playerId: 0, type: 'MineStart', x: '1', y: 0 },
+    { playerId: 0, type: 'Place', item: 5, x: 0, y: 0 },
+    { playerId: 0, type: 'Place', item: 5, x: 0, y: 0, dir: 4 },
+    { playerId: 0, type: 'Place', item: 5, x: 0, y: 0, dir: 1.5 },
+    { playerId: 0, type: 'Place', item: 0x1_0000, x: 0, y: 0, dir: 0 },
+    { playerId: 0, type: 'Place', item: 2.5, x: 0, y: 0, dir: 0 },
+    { playerId: 0, type: 'Place', x: 0, y: 0, dir: 0 },
+    { playerId: 0, type: 'Remove', x: 0 },
+    { playerId: 0, type: 'Rotate', x: 0, y: 0.5 },
   ])('rejects %j', (input) => {
     expect(validateCommandInput(input)).not.toBeNull();
   });

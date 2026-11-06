@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { MINED_ITEM } from '../../src/data/items';
+import { EntityTypeId } from '../../src/data/entities';
+import { ItemId, MINED_ITEM } from '../../src/data/items';
+import { STARTING_KIT } from '../../src/data/start';
+import { Direction } from '../../src/sim/entities/direction';
 import {
+  DETERMINISM_BUILD_TICKS,
   DETERMINISM_PLAYERS,
   DETERMINISM_SCRIPTED_TICKS,
   DETERMINISM_SEED,
@@ -53,12 +57,41 @@ describe('determinism', () => {
     const patches = startingPatches(DETERMINISM_SEED);
     for (let id = 0; id < DETERMINISM_PLAYERS; id++) {
       const inv = sim.state.players.inventory(id);
-      // 300 + 150 ticks of mining at 30 ticks per unit.
-      expect(inv.count(MINED_ITEM[patches[id]!.ore])).toBe(15);
+      const item = MINED_ITEM[patches[id]!.ore];
+      const kit = STARTING_KIT.find((s) => s.item === item)?.count ?? 0;
+      // 300 + 150 ticks of mining at 30 ticks per unit, on top of the starting kit.
+      expect(inv.count(item) - kit).toBe(15);
     }
     // The mined patches show up in the world hash.
     expect(sim.state.world.chunkVersion(0, 0)).toBeGreaterThan(0);
     expect(runDeterminismScenario().itemsMined).toBeGreaterThanOrEqual(45);
+  });
+
+  it('builds at the spawn: places, rotates and removes, and ignores invalid commands', () => {
+    const sim = new Sim({ seed: DETERMINISM_SEED, players: DETERMINISM_PLAYERS });
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    for (let i = 0; i < DETERMINISM_BUILD_TICKS; i++) {
+      sim.step();
+    }
+    const { entities } = sim.state;
+    const at = (x: number, y: number) => {
+      const id = entities.at(x, y);
+      return id && [entities.store.type(id), entities.store.dir(id)];
+    };
+    expect(entities.count).toBe(4);
+    expect(at(2, -2)).toBe(0); // placed, then removed
+    expect(at(4, 1)).toEqual([EntityTypeId.StoneFurnace, Direction.North]);
+    expect(at(1, 2)).toEqual([EntityTypeId.TransportBelt, Direction.South]);
+    expect(at(-3, 1)).toEqual([EntityTypeId.BurnerMiningDrill, Direction.North]);
+    expect(at(-1, 2)).toEqual([EntityTypeId.BurnerInserter, Direction.East]);
+    expect(at(0, 0)).toBe(0);
+    expect(at(15, 0)).toBe(0);
+    const inv = sim.state.players.inventory(0);
+    expect(inv.count(ItemId.WoodenChest)).toBe(2);
+    expect(inv.count(ItemId.StoneFurnace)).toBe(1);
+    expect(inv.count(ItemId.TransportBelt)).toBe(9);
+    // The random phase builds too.
+    expect(runDeterminismScenario().entities).toBeGreaterThan(4);
   });
 
   it('matches the expected hash shared with the Chromium test', () => {

@@ -5,15 +5,19 @@
  * tests/sim/determinism.expected.ts.
  *
  * The script has two phases:
- * 1. Scripted (ticks `[0, DETERMINISM_SCRIPTED_TICKS)`): every player walks
- *    from the spawn to one of the starting ore patches and hand-mines it,
- *    including a re-target, mining that waits until the player is in reach,
- *    and walking out of reach while mining.
+ * 1. Scripted (ticks `[0, DETERMINISM_SCRIPTED_TICKS)`): player 0 builds at
+ *    the spawn (places, rotates and removes entities, plus build commands that
+ *    must be ignored), then every player walks from the spawn to one of the
+ *    starting ore patches and hand-mines it, including a re-target, mining
+ *    that waits until the player is in reach, and walking out of reach while
+ *    mining.
  * 2. Random: a pseudo-random but fixed stream of every command type for the
  *    remaining ticks.
  */
 
+import { ItemId } from '../../data/items';
 import type { Axis, Command } from '../commands';
+import { Direction } from '../entities/direction';
 import { HALF_TILE, tileToFixed } from '../fixed';
 import { PLAYER_DIAGONAL_SPEED, PLAYER_SPEED } from '../player';
 import { Rng } from '../rng';
@@ -28,6 +32,8 @@ export const DETERMINISM_PLAYERS = 3;
 export const DETERMINISM_SCRIPTED_TICKS = 1_000;
 
 const AXES: readonly Axis[] = [-1, 0, 1];
+/** Random `Place` commands use item ids in `[0, ITEM_ID_SPAN)`. */
+const ITEM_ID_SPAN = 12;
 
 interface Walker {
   readonly playerId: number;
@@ -63,13 +69,49 @@ function walkTo(commands: Command[], w: Walker, toX: number, toY: number): void 
   commands.push({ tick: w.tick, playerId: w.playerId, type: 'Move', dx: 0, dy: 0 });
 }
 
-/** Phase 1: each player walks to a starting ore patch and mines it. */
+/** Ticks player 0 spends building at the spawn before it walks off. */
+export const DETERMINISM_BUILD_TICKS = 8;
+
+/**
+ * Player 0's build commands at the spawn, where it stands on tiles
+ * (-1..0, -1..0). Those marked "ignored" must not change any state.
+ */
+function buildPhase(): Command[] {
+  const p = { playerId: 0 };
+  const { North, East, West } = Direction;
+  return [
+    // Ignored: the player stands there; iron ore places nothing.
+    { ...p, tick: 0, type: 'Place', item: ItemId.WoodenChest, x: 0, y: 0, dir: North },
+    { ...p, tick: 0, type: 'Place', item: ItemId.IronOre, x: 3, y: 3, dir: North },
+    { ...p, tick: 1, type: 'Place', item: ItemId.WoodenChest, x: 2, y: -2, dir: North },
+    // A 2×2 furnace on (3..4, 0..1); the direction of a non-rotatable entity is dropped.
+    { ...p, tick: 1, type: 'Place', item: ItemId.StoneFurnace, x: 3, y: 0, dir: West },
+    // Ignored: overlaps the furnace.
+    { ...p, tick: 2, type: 'Place', item: ItemId.StoneFurnace, x: 4, y: 1, dir: North },
+    { ...p, tick: 2, type: 'Place', item: ItemId.TransportBelt, x: 1, y: 2, dir: East },
+    // Ignored: out of reach.
+    { ...p, tick: 3, type: 'Place', item: ItemId.TransportBelt, x: 15, y: 0, dir: North },
+    { ...p, tick: 3, type: 'Rotate', x: 1, y: 2 },
+    // Ignored: furnaces don't rotate.
+    { ...p, tick: 4, type: 'Rotate', x: 4, y: 1 },
+    { ...p, tick: 4, type: 'Remove', x: 2, y: -2 },
+    // Ignored: nothing there.
+    { ...p, tick: 5, type: 'Remove', x: 9, y: 9 },
+    // A drill at negative coordinates, and an inserter next to it.
+    { ...p, tick: 5, type: 'Place', item: ItemId.BurnerMiningDrill, x: -3, y: 1, dir: West },
+    { ...p, tick: 6, type: 'Place', item: ItemId.BurnerInserter, x: -1, y: 2, dir: East },
+    { ...p, tick: 7, type: 'Rotate', x: -2, y: 2 },
+  ];
+}
+
+/** Phase 1: player 0 builds, then each player walks to a starting ore patch and mines it. */
 function scriptedPhase(): Command[] {
-  const commands: Command[] = [];
+  const commands: Command[] = buildPhase();
   const patches = startingPatches(DETERMINISM_SEED);
   for (let id = 0; id < DETERMINISM_PLAYERS; id++) {
     const patch = patches[id]!;
-    const w: Walker = { playerId: id, tick: 5 * id, x: 0, y: 0 };
+    const start = id === 0 ? DETERMINISM_BUILD_TICKS : 5 * id;
+    const w: Walker = { playerId: id, tick: start, x: 0, y: 0 };
     if (id === 2) {
       // Start mining from the spawn, far out of reach: it waits until the player arrives.
       commands.push({ tick: w.tick, playerId: id, type: 'MineStart', x: patch.x, y: patch.y });
@@ -114,7 +156,7 @@ export function buildDeterminismScript(
     for (let i = 0; i < burst; i++) {
       // Player id DETERMINISM_PLAYERS is out of range on purpose: it must be ignored.
       const playerId = rng.nextInt(DETERMINISM_PLAYERS + 1);
-      const kind = rng.nextInt(10);
+      const kind = rng.nextInt(14);
       if (kind < 6) {
         commands.push({
           tick,
@@ -123,7 +165,7 @@ export function buildDeterminismScript(
           dx: AXES[rng.nextInt(3)]!,
           dy: AXES[rng.nextInt(3)]!,
         });
-      } else if (kind < 9) {
+      } else if (kind < 8) {
         commands.push({
           tick,
           playerId,
@@ -131,8 +173,21 @@ export function buildDeterminismScript(
           x: rng.nextInt(201) - 100,
           y: rng.nextInt(201) - 100,
         });
-      } else {
+      } else if (kind < 9) {
         commands.push({ tick, playerId, type: 'MineStop' });
+      } else {
+        // Build commands around the spawn and the starting patches, where the
+        // players roam; most are out of reach or blocked and must be ignored.
+        const x = rng.nextInt(81) - 40;
+        const y = rng.nextInt(81) - 40;
+        if (kind < 12) {
+          // Any item id, including ones that place nothing and unknown ones.
+          const item = rng.nextInt(ITEM_ID_SPAN);
+          const dir = rng.nextInt(4) as Direction;
+          commands.push({ tick, playerId, type: 'Place', item, x, y, dir });
+        } else {
+          commands.push({ tick, playerId, type: kind < 13 ? 'Remove' : 'Rotate', x, y });
+        }
       }
     }
   }
@@ -169,8 +224,10 @@ export interface DeterminismResult {
   hash: number;
   tick: number;
   commands: number;
-  /** Units of resources the players hold at the end (proof that mining happened). */
+  /** Units of items the players hold at the end, including the starting kits. */
   itemsMined: number;
+  /** Entities on the map at the end (proof that building happened). */
+  entities: number;
 }
 
 /** Runs the scenario from scratch and returns the final state hash. */
@@ -187,5 +244,11 @@ export function runDeterminismScenario(ticks: number = DETERMINISM_TICKS): Deter
   for (const count of sim.state.players.invCounts) {
     itemsMined += count;
   }
-  return { hash: sim.hash(), tick: sim.tick, commands: script.length, itemsMined };
+  return {
+    hash: sim.hash(),
+    tick: sim.tick,
+    commands: script.length,
+    itemsMined,
+    entities: sim.state.entities.count,
+  };
 }

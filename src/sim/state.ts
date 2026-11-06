@@ -4,6 +4,10 @@
  * integer fields); see docs/ARCHITECTURE.md.
  */
 
+import type { ItemStack } from '../data/items';
+import { STARTING_KIT } from '../data/start';
+import { Entities } from './entities/entities';
+import { createEntityTables } from './entities/registry';
 import { FNV1A32_OFFSET_BASIS, fnv1a32 } from './hash';
 import { PlayerTable } from './player';
 import { Rng } from './rng';
@@ -17,6 +21,8 @@ export interface SimState {
   readonly players: PlayerTable;
   /** The map, generated lazily from `seed`. */
   readonly world: World;
+  /** Every placed entity, with the occupancy index and the per-type tables. */
+  readonly entities: Entities;
 }
 
 export interface SimOptions {
@@ -24,22 +30,33 @@ export interface SimOptions {
   seed: number;
   /** Number of player slots (default 1). Commands for other player ids are ignored. */
   players?: number;
+  /** What every player starts with (default `STARTING_KIT` from src/data/start.ts). */
+  startingKit?: readonly ItemStack[];
 }
 
 /**
  * Bump when the hashed layout changes, so stale expected hashes fail loudly
  * instead of matching by accident.
  */
-export const STATE_HASH_VERSION = 3;
+export const STATE_HASH_VERSION = 4;
 
 export function createSimState(options: SimOptions): SimState {
   const seed = options.seed >>> 0;
+  const players = new PlayerTable(options.players ?? 1);
+  const kit = options.startingKit ?? STARTING_KIT;
+  for (let id = 0; id < players.count; id++) {
+    const inventory = players.inventory(id);
+    for (const { item, count } of kit) {
+      inventory.add(item, count);
+    }
+  }
   return {
     tick: 0,
     seed,
     rng: Rng.fromSeed(seed),
-    players: new PlayerTable(options.players ?? 1),
+    players,
     world: new World(seed),
+    entities: new Entities(createEntityTables()),
   };
 }
 
@@ -52,5 +69,6 @@ export function hashState(state: SimState): number {
   h = fnv1a32(state.rng.getState(), h);
   h = state.players.hashInto(h);
   h = state.world.hashInto(h);
+  h = state.entities.hashInto(h);
   return h;
 }

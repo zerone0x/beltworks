@@ -7,6 +7,7 @@
  */
 
 import { CommandQueue, validateCommand, type Command } from './commands';
+import { placeEntity, removeEntity, rotateEntity } from './entities/build';
 import { updatePlayers } from './player';
 import { createSimState, hashState, type SimOptions, type SimState } from './state';
 
@@ -30,7 +31,10 @@ export const SYSTEMS: readonly System[] = [
   stub('events'),
 ];
 
-/** Applies one command. Commands for unknown players are ignored. */
+/**
+ * Applies one command. Commands for unknown players, and build commands that
+ * don't apply (see src/sim/entities/build.ts), are ignored.
+ */
 export function applyCommand(state: SimState, cmd: Command): void {
   const { players } = state;
   if (!players.has(cmd.playerId)) {
@@ -45,6 +49,15 @@ export function applyCommand(state: SimState, cmd: Command): void {
       break;
     case 'MineStop':
       players.stopMining(cmd.playerId);
+      break;
+    case 'Place':
+      placeEntity(state, cmd.playerId, cmd.item, cmd.x, cmd.y, cmd.dir);
+      break;
+    case 'Remove':
+      removeEntity(state, cmd.playerId, cmd.x, cmd.y);
+      break;
+    case 'Rotate':
+      rotateEntity(state, cmd.playerId, cmd.x, cmd.y);
       break;
   }
 }

@@ -15,12 +15,23 @@ export const ItemId = {
   CopperOre: 2,
   Coal: 3,
   Stone: 4,
+  WoodenChest: 5,
+  StoneFurnace: 6,
+  BurnerMiningDrill: 7,
+  TransportBelt: 8,
+  BurnerInserter: 9,
 } as const;
 
 export type ItemId = (typeof ItemId)[keyof typeof ItemId];
 
 /** Ids of real items, i.e. every id except {@link ItemId.None}. */
 export type RealItemId = Exclude<ItemId, typeof ItemId.None>;
+
+/** An amount of one item, e.g. an entry of a starting kit or of an entity's contents. */
+export interface ItemStack {
+  readonly item: RealItemId;
+  readonly count: number;
+}
 
 /** Largest stack size an inventory slot can hold (counts are stored as uint16). */
 export const MAX_STACK_SIZE = 0xffff;
@@ -61,6 +72,42 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 50,
     color: 0xa89a7c,
   },
+  // Items that place entities (see src/data/entities.ts); colors match the entities.
+  [ItemId.WoodenChest]: {
+    id: ItemId.WoodenChest,
+    name: 'wooden-chest',
+    label: 'Wooden chest',
+    stackSize: 50,
+    color: 0x9a6a3a,
+  },
+  [ItemId.StoneFurnace]: {
+    id: ItemId.StoneFurnace,
+    name: 'stone-furnace',
+    label: 'Stone furnace',
+    stackSize: 50,
+    color: 0x8c7f6a,
+  },
+  [ItemId.BurnerMiningDrill]: {
+    id: ItemId.BurnerMiningDrill,
+    name: 'burner-mining-drill',
+    label: 'Burner mining drill',
+    stackSize: 50,
+    color: 0x6d6f78,
+  },
+  [ItemId.TransportBelt]: {
+    id: ItemId.TransportBelt,
+    name: 'transport-belt',
+    label: 'Transport belt',
+    stackSize: 100,
+    color: 0xd9b23a,
+  },
+  [ItemId.BurnerInserter]: {
+    id: ItemId.BurnerInserter,
+    name: 'burner-inserter',
+    label: 'Burner inserter',
+    stackSize: 50,
+    color: 0xb5562f,
+  },
 };
 
 /** Every real item id, in id order. */
@@ -69,6 +116,11 @@ export const ITEM_IDS: readonly RealItemId[] = [
   ItemId.CopperOre,
   ItemId.Coal,
   ItemId.Stone,
+  ItemId.WoodenChest,
+  ItemId.StoneFurnace,
+  ItemId.BurnerMiningDrill,
+  ItemId.TransportBelt,
+  ItemId.BurnerInserter,
 ];
 
 /** The prototype of item `id`, or `undefined` for 0 and unknown ids. */
