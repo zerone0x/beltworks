@@ -75,12 +75,17 @@ export interface InserterView {
   x: number;
   y: number;
   dir: number;
-  /** Arm position in ticks: 0 at the pickup tile, 36 at the drop tile. */
+  /**
+   * Arm position: 0 at the pickup tile, `span` at the drop tile (in ticks for
+   * burner inserters, 1/65536 ticks for electric ones).
+   */
   arm: number;
   /** The item in the hand, or 0. */
   held: number;
-  /** How the arm moved on the last tick: +1 out, -1 back, 0 not at all. */
+  /** How the arm moved on the last tick, in arm units: positive out, negative back, 0 not at all. */
   swing: number;
+  /** Arm position at the drop tile. */
+  span: number;
 }
 
 /** The power overlay, as last drawn. */
@@ -156,6 +161,8 @@ export interface BeltworksTestHook {
   selectedSlot(): number | null;
   /** The entity whose GUI is open, or 0. */
   openEntity(): number;
+  /** Power icons (no power, low power) the entity layer drew last. */
+  powerIcons(): number;
 }
 
 declare global {
@@ -278,5 +285,6 @@ export function installTestHook({
     },
     selectedSlot: () => build.selected,
     openEntity: () => entityPanel.entity,
+    powerIcons: () => view.entities.powerIcons,
   };
 }

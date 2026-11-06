@@ -4,15 +4,15 @@
  * in src/sim/snapshot.ts), with the held item at the arm's tip.
  *
  * The arm turns half a circle, clockwise, from pointing at the pickup tile
- * (arm position 0) to pointing at the drop tile (`INSERTER_SWING_TICKS`).
- * Between ticks it is drawn `swing × (1 − α)` ticks behind the snapshot's
+ * (arm position 0) to pointing at the drop tile (arm position `span`: 36
+ * ticks for a burner inserter, 26 ticks in 1/65536 units for an electric
+ * one). Between ticks it is drawn `swing × (1 − α)` behind the snapshot's
  * position, with `α` the fraction of a tick since the snapshot arrived, so it
  * rotates smoothly. The held item shows as its icon (src/render/itemIcons.ts),
  * the same as on belts.
  */
 
 import { Container, Graphics, Sprite } from 'pixi.js';
-import { INSERTER_SWING_TICKS } from '../sim/entities/inserter';
 import { decodeInserters, type InserterData } from '../sim/snapshot';
 import { TICKS_PER_SECOND } from '../worker/protocol';
 import { TILE_PX } from './camera';
@@ -43,8 +43,9 @@ export function armTip(
 
 /** Swing fraction to draw an inserter at, `alpha` of a tick after its snapshot. */
 export function swingFraction(inserter: InserterData, alpha: number): number {
+  if (inserter.span <= 0) return 0;
   const arm = inserter.arm - inserter.swing * (1 - alpha);
-  return Math.min(1, Math.max(0, arm / INSERTER_SWING_TICKS));
+  return Math.min(1, Math.max(0, arm / inserter.span));
 }
 
 export class InserterLayer {

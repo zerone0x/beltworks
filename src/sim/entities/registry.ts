@@ -10,6 +10,8 @@ import { PowerGrid } from '../power/grid';
 import { SteamEngineTable } from '../power/steamEngine';
 import { ChestTable } from './chest';
 import { DrillTable } from './drill';
+import { ElectricDrillTable } from './electricDrill';
+import { ElectricInserterTable } from './electricInserter';
 import { FurnaceTable } from './furnace';
 import { InserterTable } from './inserter';
 import type { EntityTypeTable } from './table';
@@ -25,5 +27,7 @@ export function createEntityTables(): EntityTypeTable[] {
     new PowerGrid(),
     new BoilerTable(),
     new SteamEngineTable(),
+    new ElectricDrillTable(),
+    new ElectricInserterTable(),
   ];
 }

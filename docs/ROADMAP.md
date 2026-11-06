@@ -35,7 +35,7 @@ Met: `tests/e2e/chain.spec.ts` builds that chain from a new game with real input
 - [x] Small electric poles with union-find power networks and the power solver (satisfaction per network, producers deliver what is drawn)
 - [x] Power items and recipes; trees and wood
 - [x] Boiler + steam engine
-- [ ] Electric mining drill, electric inserter
+- [x] Electric mining drill, electric inserter
 - [ ] Machines slow down in proportion to missing power; power panel with a supply/demand graph
 
 **Done when:** machines visibly slow down when power runs short and recover once more generators are added.

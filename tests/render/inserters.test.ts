@@ -36,7 +36,15 @@ describe('armTip', () => {
 });
 
 describe('swingFraction', () => {
-  const at = (arm: number, swing: number) => ({ x: 0, y: 0, dir: 0, arm, held: 0, swing });
+  const at = (arm: number, swing: number, span = INSERTER_SWING_TICKS) => ({
+    x: 0,
+    y: 0,
+    dir: 0,
+    arm,
+    held: 0,
+    swing,
+    span,
+  });
 
   it('draws the arm between its last two positions', () => {
     expect(swingFraction(at(18, 1), 1)).toBeCloseTo(0.5, 9);
@@ -44,6 +52,13 @@ describe('swingFraction', () => {
     expect(swingFraction(at(18, -1), 0.5)).toBeCloseTo(18.5 / INSERTER_SWING_TICKS, 9);
     expect(swingFraction(at(36, 0), 0)).toBe(1);
     expect(swingFraction(at(0, -1), 1)).toBe(0);
+  });
+
+  it('measures the arm against its own span (electric arms in 1/65536 ticks)', () => {
+    const span = 26 * 65_536;
+    expect(swingFraction(at(13 * 65_536, 32_768, span), 1)).toBeCloseTo(0.5, 9);
+    expect(swingFraction(at(13 * 65_536, 32_768, span), 0)).toBeCloseTo(12.5 / 26, 9);
+    expect(swingFraction(at(5, 1, 0), 0)).toBe(0);
   });
 });
 
@@ -75,8 +90,8 @@ describe('encodeInserters', () => {
     // In chunk order, like the entity records.
     expect(all).toEqual([
       // Without fuel: not moving.
-      { x: -2, y: -2, dir: South, arm: 0, held: 0, swing: 0 },
-      { x: 3, y: 0, dir: East, arm: 5, held: ItemId.IronPlate, swing: 1 },
+      { x: -2, y: -2, dir: South, arm: 0, held: 0, swing: 0, span: 36 },
+      { x: 3, y: 0, dir: East, arm: 5, held: ItemId.IronPlate, swing: 1, span: 36 },
     ]);
     const only = { cx0: 0, cy0: 0, cx1: 0, cy1: 0 };
     const some = decodeInserters(encodeInserters(state, only).buffer);

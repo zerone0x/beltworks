@@ -5,13 +5,10 @@
  * means "no entity". They must stay stable: changing an id breaks saves and
  * state hashes.
  *
- * Chests, furnaces, burner mining drills and burner inserters have their own
- * tables and behavior (src/sim/entities/), belts theirs in src/sim/belts/,
- * small electric poles (the power grid), boilers and steam engines theirs in
- * src/sim/power/. The other power entities (electric mining drill, electric
- * inserter) are prototype stubs for now: they carry the shared M2 design
- * numbers, but no table gives them behavior yet, so they are plain
- * placeholders when placed.
+ * Chests, furnaces, mining drills and inserters (burner and electric) have
+ * their own tables and behavior (src/sim/entities/), belts theirs in
+ * src/sim/belts/, small electric poles (the power grid), boilers and steam
+ * engines theirs in src/sim/power/.
  *
  * Energy is in integer joules; a burner entity burns `energyPerTick` joules on
  * every tick it works (60 ticks/s, so 1 500 J/tick is 90 kW). An electric
