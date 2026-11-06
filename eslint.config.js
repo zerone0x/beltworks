@@ -67,7 +67,16 @@ const simPurity = {
 };
 
 export default defineConfig(
-  { ignores: ['dist/', 'node_modules/', 'playwright-report/', 'test-results/', 'coverage/'] },
+  {
+    ignores: [
+      'dist/',
+      'node_modules/',
+      'playwright-report/',
+      'test-results/',
+      'coverage/',
+      'art/build/',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
@@ -88,7 +97,7 @@ export default defineConfig(
     languageOptions: { globals: globals['shared-node-browser'] },
   },
   {
-    files: ['*.config.{js,ts}', 'tests/**/*.ts'],
+    files: ['*.config.{js,ts}', 'tests/**/*.ts', 'tools/art/**/*.js'],
     languageOptions: { globals: globals.node },
   },
   {

@@ -1,5 +1,6 @@
 /**
- * Draws the entities (placeholder shapes in each prototype's color, with a
+ * Draws the entities: with their pre-rendered sprites where the atlas has a
+ * model for them (entitySprites.ts), otherwise as placeholder shapes in each prototype's color, with a
  * direction marker on rotatable ones, a firebox on furnaces and boilers that
  * glows while they work, a drill head on mining drills that lights up while they work,
  * a small platform for inserters, a post with a crossbar for electric
@@ -14,7 +15,7 @@
  * layer (assemblerLayer.ts).
  */
 
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite } from 'pixi.js';
 import {
   EntityTypeId,
   inserterReach,
@@ -23,12 +24,15 @@ import {
 } from '../data/entities';
 import type { Direction } from '../sim/entities/direction';
 import { isAssemblerType } from '../sim/entities/assembler';
+import { drillDropTileFor } from '../sim/entities/drill';
 import { inserterDropTile, inserterPickupTile } from '../sim/entities/inserter';
 import { MachineState } from '../sim/entities/machine';
 import { footprintSize } from '../sim/entities/store';
 import { TILE_PX } from './camera';
 import type { EntityIndex } from './entityIndex';
+import { EntitySpriteLayer, placeSprite } from './entitySprites';
 import { POLE_TOP } from './powerLayer';
+import { layerShown, modelDirection, type SpriteAtlas } from './sprites';
 
 /** Ghost tint when the entity can be placed, and when it can't. */
 export const GHOST_OK = 0x5ad15a;
@@ -236,14 +240,27 @@ export class EntityLayer {
   readonly container = new Container({ label: 'entities' });
   /** Power icons, above the inserter arms and the wires. */
   readonly iconContainer = new Container({ label: 'entity-icons' });
+  /** Entities with sprite models (and their shadows, in `sprites.shadowContainer`). */
+  readonly sprites = new EntitySpriteLayer();
   private readonly graphics = new Graphics({ label: 'buildings' });
   private readonly icons = new Graphics({ label: 'power-icons' });
   private drawn = -1;
   private iconCount = 0;
 
   constructor() {
-    this.container.addChild(this.graphics);
+    this.container.addChild(this.graphics, this.sprites.container);
     this.iconContainer.addChild(this.icons);
+  }
+
+  /** Shadows of the sprite entities; goes below every building. */
+  get shadowContainer(): Container {
+    return this.sprites.shadowContainer;
+  }
+
+  /** Draws the entities that have a model in `atlas` with sprites from now on. */
+  setAtlas(atlas: SpriteAtlas | null): void {
+    this.sprites.setAtlas(atlas);
+    this.drawn = -1;
   }
 
   /** Power icons drawn by the latest `draw`. */
@@ -251,8 +268,12 @@ export class EntityLayer {
     return this.iconCount;
   }
 
-  /** Redraws the entities if they changed since the last call. */
-  draw(index: EntityIndex): void {
+  /**
+   * Redraws the placeholder shapes if the entities changed since the last
+   * call, and draws the sprites (animated by `dtMs` milliseconds).
+   */
+  draw(index: EntityIndex, dtMs: number = 0): void {
+    this.sprites.draw(index, dtMs);
     if (index.version === this.drawn) {
       return;
     }
@@ -268,6 +289,7 @@ export class EntityLayer {
         this.iconCount++;
       }
       if (e.type === EntityTypeId.TransportBelt) continue;
+      if (this.sprites.modelFor(e.proto?.name)) continue;
       drawEntity(g, e.proto, e.x, e.y, e.dir, 1, e.status);
     }
   }
@@ -304,13 +326,38 @@ export function ghostInserterTiles(
   };
 }
 
+/** Opacity of a ghost's sprite. */
+const GHOST_SPRITE_ALPHA = 0.6;
+
+/** The tile a mining drill ghost would drop onto, or `null` for other entities. */
+export function ghostDrillDropTile(ghost: Ghost): { x: number; y: number } | null {
+  if (ghost.proto.miningTicks === undefined) return null;
+  return drillDropTileFor(ghost.proto, ghost.x, ghost.y, ghost.dir);
+}
+
 export class GhostLayer {
   readonly container = new Container({ label: 'ghost' });
   private readonly graphics = new Graphics({ label: 'ghost' });
+  /** The ghost's sprite layers, when its entity has a model. */
+  private readonly spriteContainer = new Container({ label: 'ghost-sprites' });
+  private readonly sprites: Sprite[] = [];
+  private atlas: SpriteAtlas | null = null;
   private key = '';
 
   constructor() {
-    this.container.addChild(this.graphics);
+    this.spriteContainer.alpha = GHOST_SPRITE_ALPHA;
+    this.container.addChild(this.spriteContainer, this.graphics);
+  }
+
+  /** Shows ghosts of entities that have a model in `atlas` with their sprite. */
+  setAtlas(atlas: SpriteAtlas | null): void {
+    this.atlas = atlas;
+    this.key = '';
+  }
+
+  /** Whether the ghost shown is drawn with a sprite. */
+  get spriteShown(): boolean {
+    return this.sprites.some((s) => s.visible);
   }
 
   /** Shows `ghost`, or hides the preview for `null`. Cheap when nothing changed. */
@@ -324,11 +371,33 @@ export class GhostLayer {
     this.key = key;
     const g = this.graphics;
     g.clear();
+    for (const s of this.sprites) s.visible = false;
     if (!ghost) {
       return;
     }
-    drawEntity(g, ghost.proto, ghost.x, ghost.y, ghost.dir, 0.55);
     const { w, h } = footprintSize(ghost.proto, ghost.dir);
+    const model = this.atlas?.model(ghost.proto.name) ?? null;
+    if (model) {
+      // The idle sprite, without its shadow.
+      const dir = modelDirection(model, ghost.dir);
+      const cx = (ghost.x + w / 2) * TILE_PX;
+      const cy = (ghost.y + h / 2) * TILE_PX;
+      let used = 0;
+      for (const layer of model.layers) {
+        if (!layerShown(layer, false)) continue;
+        let sprite = this.sprites[used];
+        if (!sprite) {
+          sprite = new Sprite();
+          this.sprites.push(sprite);
+          this.spriteContainer.addChild(sprite);
+        }
+        placeSprite(sprite, layer.frames[dir]![0]!, model.scale, cx, cy);
+        sprite.visible = true;
+        used++;
+      }
+    } else {
+      drawEntity(g, ghost.proto, ghost.x, ghost.y, ghost.dir, 0.55);
+    }
     const tint = ghost.valid ? GHOST_OK : GHOST_BLOCKED;
     g.rect(ghost.x * TILE_PX, ghost.y * TILE_PX, w * TILE_PX, h * TILE_PX)
       .fill({ color: tint, alpha: 0.3 })
@@ -342,6 +411,14 @@ export class GhostLayer {
         alpha: 0.9,
       });
       g.circle(center(tiles.drop.x), center(tiles.drop.y), TILE_PX * 0.18).fill({
+        color: DROP_MARKER,
+        alpha: 0.9,
+      });
+    }
+    const drop = ghostDrillDropTile(ghost);
+    if (drop) {
+      // Sprites show a drill's facing less boldly than the placeholder's arrow.
+      g.circle((drop.x + 0.5) * TILE_PX, (drop.y + 0.5) * TILE_PX, TILE_PX * 0.18).fill({
         color: DROP_MARKER,
         alpha: 0.9,
       });

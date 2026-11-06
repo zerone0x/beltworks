@@ -14,8 +14,8 @@
 
 ## Art
 
-- [Aseprite](https://github.com/aseprite/aseprite) / [Pixelorama](https://github.com/Orama-Interactive/Pixelorama): sprites, tilesets, animation
-- Until real art exists, use placeholders drawn in code (colored shapes) or generated images cleaned up by hand
+- [Blender](https://www.blender.org/) 4.2 LTS, headless: entity sprites are procedural `bpy` models under `art/blender/`, rendered and packed into `public/sprites/` by `npm run art` (D34; style guide, pipeline and how to add a model in docs/ART.md). Point the `BLENDER` environment variable at your Blender binary or a wrapper script; on the dev machine the default is `~/tools/blender.sh`. CI doesn't run Blender: the atlases are committed.
+- Entities without a model keep their placeholders drawn in code (colored shapes).
 
 ## Agent workflow
 

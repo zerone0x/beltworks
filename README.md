@@ -8,6 +8,8 @@ A factory-automation game for the browser, inspired by Factorio. All art and nam
 
 A new game starts between four ore patches (iron, copper, coal, stone) with a kit of belts, burner inserters, burner mining drills, stone furnaces, wooden chests and coal in the hotbar. The first goal: a drill on iron ore drops ore onto a belt, an inserter feeds it into a furnace, and another inserter moves the plates into a chest, all on their own once fuelled with coal.
 
+![Pre-rendered sprites of assembling machines 1 and 2, a lit stone furnace, an iron and a wooden chest, and burner mining drills facing all four ways](docs/screenshots/art-first.png)
+
 ![The M1 chain: a burner mining drill on iron ore, a belt, an inserter, a furnace, an inserter and a chest filling with iron plates](docs/screenshots/m1-chain.png)
 
 Press **H** in the game (or click the hint in the bottom-left corner) for a list of the controls. In full:
@@ -76,6 +78,7 @@ The debug overlay shows the tile under the mouse: its terrain, then a tree or th
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones and acceptance criteria |
 | [docs/TOOLING.md](docs/TOOLING.md) | Toolchain, references, development rules |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Decisions made and open questions |
+| [docs/ART.md](docs/ART.md) | Art style guide and the Blender sprite pipeline (`npm run art`) |
 
 ## Development
 
@@ -92,6 +95,7 @@ npm run bench      # headless tick-time benchmark (see docs/TOOLING.md, "Benchma
 npm run build      # production build into dist/ (set BASE_PATH to change the base URL, default /)
 npm run preview    # serve dist/
 npm run test:e2e   # Playwright tests against a fresh test-mode build (Chromium)
+npm run art        # re-render the Blender sprite models into public/sprites/ (needs Blender 4.2; see docs/ART.md)
 ```
 
 Run `npx playwright install chromium` once before the first `npm run test:e2e`. The screenshot baselines live in `tests/e2e/render.spec.ts-snapshots/`; after an intended visual change, regenerate them with `npx playwright test --update-snapshots` and check the new images.

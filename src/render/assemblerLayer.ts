@@ -2,10 +2,13 @@
  * Draws what is on top of the assembling machines (their bodies and work
  * area are drawn by the entity layer): the icon of the product of the recipe
  * each one is set to (the same icon as on belts and in the inventory, from
- * the snapshot's entity records), and a working animation, a ring of lights
- * around the work area with a bright one chasing around it, one turn per
- * `ASSEMBLER_TURN_SECONDS`, while the machine works (dimmer and at the speed
- * of its power on low power). Idle machines show the ring dark.
+ * the snapshot's entity records), and for machines without a sprite model a
+ * working animation, a ring of lights around the work area with a bright one
+ * chasing around it, one turn per `ASSEMBLER_TURN_SECONDS`, while the machine
+ * works (dimmer and at the speed of its power on low power). Idle machines
+ * show the ring dark. Machines drawn with sprites animate in their sprite
+ * (entitySprites.ts) and show the icon smaller, at their model's `icon`
+ * point (over the rotor's hub).
  *
  * Read-only: nothing here flows back into the simulation.
  */
@@ -17,6 +20,7 @@ import { MachineState } from '../sim/entities/machine';
 import { TILE_PX } from './camera';
 import type { EntityIndex } from './entityIndex';
 import { itemIconAtlas } from './itemIcons';
+import { modelDirection, type SpriteAtlas } from './sprites';
 
 /** Seconds per turn of the working animation at full speed. */
 export const ASSEMBLER_TURN_SECONDS = 1.5;
@@ -24,6 +28,8 @@ export const ASSEMBLER_TURN_SECONDS = 1.5;
 export const ASSEMBLER_LIGHTS = 12;
 /** The product icon's scale: 13 texels to 2.5 world pixels each, about a tile. */
 const ICON_SCALE = 2.5;
+/** On a sprite, over the rotor's hub: about 0.6 tile. */
+const SPRITE_ICON_SCALE = 1.5;
 const LIGHT_OFF = 0x2a2c30;
 const LIGHT_ON = 0x8fe07a;
 const LIGHT_LOW = 0xf2c230;
@@ -49,9 +55,15 @@ export class AssemblerLayer {
   /** Animation angle per machine id, in turns (0..1). */
   private readonly phase = new Map<number, number>();
   private shown: { id: number; item: number; speed: number }[] = [];
+  private atlas: SpriteAtlas | null = null;
 
   constructor() {
     this.container.addChild(this.graphics, this.icons);
+  }
+
+  /** Machines that have a model in `atlas` are drawn with sprites from now on. */
+  setAtlas(atlas: SpriteAtlas | null): void {
+    this.atlas = atlas;
   }
 
   /** The machines drawn last: product item (0 for none) and animation speed. */
@@ -76,11 +88,17 @@ export class AssemblerLayer {
       this.phase.set(e.id, turn);
       const item = assemblerIcon(e.recipe);
       shown.push({ id: e.id, item, speed });
-      const cx = (e.x + e.w / 2) * TILE_PX;
-      const cy = (e.y + e.h / 2) * TILE_PX;
+      let cx = (e.x + e.w / 2) * TILE_PX;
+      let cy = (e.y + e.h / 2) * TILE_PX;
+      const model = this.atlas?.model(e.proto?.name) ?? null;
+      const point = model?.points.icon?.[modelDirection(model, e.dir)];
+      if (model && point) {
+        cx += point[0] * model.scale;
+        cy += point[1] * model.scale;
+      }
       const r = TILE_PX * 1.1;
       const lead = Math.floor(turn * ASSEMBLER_LIGHTS);
-      for (let k = 0; k < ASSEMBLER_LIGHTS; k++) {
+      for (let k = 0; !model && k < ASSEMBLER_LIGHTS; k++) {
         const a = (k / ASSEMBLER_LIGHTS) * 2 * Math.PI - Math.PI / 2;
         // The lead light is brightest; the two behind it fade out.
         const behind = (lead - k + ASSEMBLER_LIGHTS) % ASSEMBLER_LIGHTS;
@@ -95,10 +113,10 @@ export class AssemblerLayer {
       if (!sprite) {
         sprite = new Sprite();
         sprite.anchor.set(0.5);
-        sprite.scale.set(ICON_SCALE);
         this.sprites.push(sprite);
         this.icons.addChild(sprite);
       }
+      sprite.scale.set(model ? SPRITE_ICON_SCALE : ICON_SCALE);
       sprite.texture = atlas.texture(item);
       sprite.position.set(cx, cy);
       sprite.visible = true;

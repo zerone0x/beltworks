@@ -18,7 +18,8 @@
     "test": "vitest run",
     "test:bench": "vitest run -c tools/bench/vitest.config.ts",
     "test:e2e": "playwright test",
-    "bench": "vite build -c tools/bench/vite.config.ts && node --expose-gc node_modules/.cache/beltworks-bench/run.js"
+    "bench": "vite build -c tools/bench/vite.config.ts && node --expose-gc node_modules/.cache/beltworks-bench/run.js",
+    "art": "node tools/art/art.js"
   },
   "dependencies": {
     "pixi.js": "^8.22.0"
