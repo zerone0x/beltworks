@@ -1,6 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ItemId } from '../../src/data/items';
-import { RecipeId } from '../../src/data/recipes';
 import { ResourceId } from '../../src/data/resources';
 import { STARTING_KIT } from '../../src/data/start';
 import { SUBTILES_PER_TILE } from '../../src/sim/fixed';
@@ -35,7 +34,7 @@ const countOf = async (page: Page, item: number) =>
   );
 const craftQueue = (page: Page) => page.evaluate(() => window.__beltworks!.craftQueue());
 
-test('mine stone, craft stone furnaces from it, and cancel one from the queue', async ({
+test('mine stone, craft stone furnaces from it, and cancel the rest from the queue', async ({
   page,
 }, testInfo) => {
   // Walking with the keyboard is slow on CI's software-rendered Chromium.
@@ -72,7 +71,8 @@ test('mine stone, craft stone furnaces from it, and cancel one from the queue', 
   }
   expect(tile, `no stone tile in reach of (${stand.x}, ${stand.y})`).not.toBeNull();
 
-  // Mine stone for seven furnaces (5 each), at one unit per 0.5 s.
+  // Mine stone for ten furnaces (5 each), at one unit per 0.5 s, so the queue below
+  // holds 5 s of crafting: plenty for the test steps that need it non-empty.
   const at = await page.evaluate(
     ([x, y]) => window.__beltworks!.tileToScreen(x!, y!),
     [tile!.x, tile!.y],
@@ -81,8 +81,8 @@ test('mine stone, craft stone furnaces from it, and cancel one from the queue', 
   await page.mouse.down({ button: 'right' });
   await expect.poll(async () => (await player(page)).mining).toBe(true);
   await expect
-    .poll(() => countOf(page, ItemId.Stone), { timeout: 30_000 })
-    .toBeGreaterThanOrEqual(35);
+    .poll(() => countOf(page, ItemId.Stone), { timeout: 40_000 })
+    .toBeGreaterThanOrEqual(50);
   await page.mouse.up({ button: 'right' });
   await expect.poll(async () => (await player(page)).mining).toBe(false);
   const stone = await countOf(page, ItemId.Stone);
@@ -97,36 +97,37 @@ test('mine stone, craft stone furnaces from it, and cancel one from the queue', 
     'data-craftable',
     '0',
   );
-  const strip = page.locator('#craft-queue');
-  await expect(strip).toBeHidden();
+  await expect(page.locator('#craft-queue')).toBeHidden();
 
-  // Shift-click queues five furnaces (2.5 s), and their stone is reserved at once.
+  // Shift-click queues five furnaces (0.5 s each), and their stone is reserved at once.
   await furnace.click({ modifiers: ['Shift'] });
   await expect.poll(() => countOf(page, ItemId.Stone)).toBe(stone - 25);
-  // A click queues one more behind them.
-  await furnace.click();
-  await expect.poll(() => countOf(page, ItemId.Stone)).toBe(stone - 30);
-  await expect(strip).toBeVisible();
+  // Another shift-click queues five more.
+  const more = Math.min(5, Math.floor((stone - 25) / 5));
+  await furnace.click({ modifiers: ['Shift'] });
+  await expect.poll(() => countOf(page, ItemId.Stone)).toBe(stone - 25 - 5 * more);
+  const queued = 5 + more;
+  // Crafts finish while the test runs (slowly on CI), so from here on only
+  // check what doesn't depend on timing.
+  const strip = page.locator('#craft-queue');
   const entries = strip.locator('.craft[data-recipe]');
-  await expect(entries).toHaveCount(2);
-  await expect(entries.nth(1)).toHaveAttribute('data-recipe', 'stone-furnace');
-  await expect(entries.nth(1)).toHaveAttribute('data-count', '1');
-  await expect(furnace).toHaveAttribute('data-craftable', String(Math.floor((stone - 30) / 5)));
+  await expect(entries.first()).toHaveAttribute('data-recipe', 'stone-furnace');
 
   const shot = testInfo.outputPath('m1-crafting.png');
   await page.screenshot({ path: shot });
   await testInfo.attach('crafting panel and queue', { path: shot, contentType: 'image/png' });
 
-  // Clicking the second entry cancels it and refunds its stone.
-  await entries.nth(1).click();
-  await expect.poll(() => countOf(page, ItemId.Stone)).toBe(stone - 25);
-  await expect(entries).toHaveCount(1);
-  const queue = await craftQueue(page);
-  expect(queue.entries).toHaveLength(1);
-  expect(queue.entries[0]).toMatchObject({ recipe: RecipeId.StoneFurnace, flags: 0 });
-
-  // The five furnaces land in the inventory and the strip empties.
-  await expect.poll(() => countOf(page, ItemId.StoneFurnace)).toBe(kitFurnaces + 5);
-  await expect(strip).toBeHidden();
+  // Clicking the front entry cancels the furnaces it has left and refunds their stone.
+  await entries.first().click();
+  await expect(strip).toBeHidden({ timeout: 10_000 });
+  expect((await craftQueue(page)).entries).toEqual([]);
+  const crafted = (await countOf(page, ItemId.StoneFurnace)) - kitFurnaces;
+  const left = await countOf(page, ItemId.Stone);
+  // Every unit of stone is either back in the inventory or in a furnace...
+  expect(left + 5 * crafted).toBe(stone);
+  // ...at least one furnace was made, and the cancel took some back.
+  expect(crafted).toBeGreaterThanOrEqual(1);
+  expect(crafted).toBeLessThan(queued);
+  await expect(furnace).toHaveAttribute('data-craftable', String(Math.floor(left / 5)));
   expect(errors).toEqual([]);
 });
