@@ -6,6 +6,7 @@
  * The simulation has no clock: the worker decides when to call `step()`.
  */
 
+import { beltTable } from './belts/belts';
 import { CommandQueue, validateCommand, type Command } from './commands';
 import { updateCrafting } from './crafting/queue';
 import { placeEntity, removeEntity, rotateEntity } from './entities/build';
@@ -30,7 +31,7 @@ export const SYSTEMS: readonly System[] = [
     name: 'drills',
     run: ({ state }) => drillTable(state.entities)?.update(state.entities, state.world),
   },
-  stub('belts'),
+  { name: 'belts', run: (sim) => beltTable(sim.state.entities)?.update() },
   stub('inserters'),
   { name: 'machines', run: (sim) => furnaceTable(sim.state.entities)?.update(sim.state.entities) },
   {

@@ -3,6 +3,7 @@
  * direction marker on rotatable ones, a firebox on furnaces that glows while
  * they work, and a drill head on mining drills that lights up while they
  * work) and the ghost preview of the entity about to be placed.
+ * Placed belts are drawn by the belt layer (beltLayer.ts) instead.
  */
 
 import { Container, Graphics } from 'pixi.js';
@@ -134,6 +135,7 @@ export class EntityLayer {
     const g = this.graphics;
     g.clear();
     for (const e of index.entities) {
+      if (e.type === EntityTypeId.TransportBelt) continue;
       drawEntity(g, e.proto, e.x, e.y, e.dir, 1, e.status);
     }
   }

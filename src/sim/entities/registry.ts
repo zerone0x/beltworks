@@ -4,6 +4,7 @@
  * plain placeholders that only exist in the generic store.
  */
 
+import { BeltTable } from '../belts/belts';
 import { ChestTable } from './chest';
 import { DrillTable } from './drill';
 import { FurnaceTable } from './furnace';
@@ -11,6 +12,6 @@ import type { EntityTypeTable } from './table';
 
 /** Creates a fresh set of per-type tables for a new `SimState`. */
 export function createEntityTables(): EntityTypeTable[] {
-  // Belt and inserter tables arrive with their behavior in later issues.
-  return [new ChestTable(), new FurnaceTable(), new DrillTable()];
+  // The inserter table arrives with its behavior in a later issue.
+  return [new ChestTable(), new FurnaceTable(), new DrillTable(), new BeltTable()];
 }

@@ -116,6 +116,11 @@ export interface SnapshotMessage {
    */
   entities: ArrayBuffer;
   /**
+   * The belts with their tile inside `chunkWindow` and the items on them, as
+   * int32s; see `encodeBelts` in src/sim/snapshot.ts.
+   */
+  belts: ArrayBuffer;
+  /**
    * The chunks the main thread should keep cached: the viewport plus
    * `CHUNK_MARGIN` chunks on each side. Cached chunks outside it can be
    * dropped; the worker sends them again if they come back into view. `null`

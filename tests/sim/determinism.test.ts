@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { EntityTypeId } from '../../src/data/entities';
 import { ItemId, MINED_ITEM } from '../../src/data/items';
 import { RecipeId } from '../../src/data/recipes';
+import { BeltShape, beltTable } from '../../src/sim/belts/belts';
+import { BeltLane } from '../../src/sim/belts/line';
 import { CRAFT_QUEUE_LENGTH } from '../../src/sim/crafting/queue';
 import { Direction } from '../../src/sim/entities/direction';
 import { DrillSlot } from '../../src/sim/entities/drill';
 import { FurnaceSlot } from '../../src/sim/entities/furnace';
 import { MachineState } from '../../src/sim/entities/machine';
 import {
+  DETERMINISM_BELTS,
   DETERMINISM_BUILD_TICKS,
   DETERMINISM_DRILL_CHEST,
   DETERMINISM_KIT,
@@ -106,7 +109,7 @@ describe('determinism', () => {
       const id = entities.at(x, y);
       return id && [entities.store.type(id), entities.store.dir(id)];
     };
-    expect(entities.count).toBe(4);
+    expect(entities.count).toBe(9);
     expect(at(2, -2)).toBe(0); // placed, then removed
     expect(at(4, 1)).toEqual([EntityTypeId.StoneFurnace, Direction.North]);
     expect(at(1, 2)).toEqual([EntityTypeId.TransportBelt, Direction.South]);
@@ -117,16 +120,44 @@ describe('determinism', () => {
     const inv = sim.state.players.inventory(0);
     expect(inv.count(ItemId.WoodenChest)).toBe(2);
     expect(inv.count(ItemId.StoneFurnace)).toBe(1);
-    expect(inv.count(ItemId.TransportBelt)).toBe(9);
+    expect(inv.count(ItemId.TransportBelt)).toBe(4);
     // The random phase builds too.
-    expect(runDeterminismScenario().entities).toBeGreaterThan(4);
+    expect(runDeterminismScenario().entities).toBeGreaterThan(9);
     // The spawn furnace got 4 coal and gave 1 back; nothing else was moved.
     expect(entities.slots(entities.at(3, 0))).toEqual([
       { item: 0, count: 0 },
       { item: ItemId.Coal, count: 3 },
       { item: 0, count: 0 },
     ]);
-    expect(inv.count(ItemId.Coal)).toBe(7);
+    // 4 went into the furnace and 1 came back; 2 went onto belts.
+    expect(inv.count(ItemId.Coal)).toBe(5);
+  });
+
+  it('lays a belt line through a curve with a side-loader, and runs coal to its end', () => {
+    const sim = createDeterminismSim();
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    for (let i = 0; i < DETERMINISM_BUILD_TICKS; i++) sim.step();
+    const { entities } = sim.state;
+    const belts = beltTable(entities)!;
+    const ids = [[1, 2], ...DETERMINISM_BELTS].map(([x, y]) => entities.at(x, y));
+    expect(ids).toEqual([3, 6, 7, 8, 9, 10]);
+    // (1, 2) and (1, 3) run south, (1, 4) turns east: one line; (2, 5) side-loads it.
+    expect(belts.lineCount).toBe(2);
+    const main = belts.line(belts.beltLine(3))!;
+    expect(main.belts).toEqual([9, 8, 7, 6, 3]);
+    expect(belts.shape(7)).toBe(BeltShape.CurveFromLeft);
+    const feeder = belts.line(belts.beltLine(10))!;
+    expect(feeder.out).toBe(main);
+    expect(feeder.outLane).toBe(BeltLane.Right);
+
+    while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
+    // The side-loaded coal got there first; both wait packed at the end of the right lane.
+    expect(Array.from(main.lanes[BeltLane.Right].gaps())).toEqual([0, 64]);
+    expect(Array.from(main.lanes[BeltLane.Right].items())).toEqual([ItemId.Coal, ItemId.Coal]);
+    expect(main.lanes[BeltLane.Left].count).toBe(0);
+    expect(feeder.lanes[0].count + feeder.lanes[1].count).toBe(0);
+    // Nothing moves any more: every lane sleeps.
+    expect(belts.activeLanes).toBe(0);
   });
 
   it('smelts the mined iron on the patch and stores plates in a chest', () => {
@@ -244,7 +275,7 @@ describe('determinism', () => {
       EntityTypeId.StoneFurnace,
     );
     expect(inv0.count(ItemId.IronGearWheel)).toBe(4);
-    expect(inv0.count(ItemId.TransportBelt)).toBe(9);
+    expect(inv0.count(ItemId.TransportBelt)).toBe(4);
     // KIT_PLATES_LEFT_0 plates were left; they went into the patch chest (see the smelting test).
     expect(inv0.count(ItemId.IronPlate)).toBe(1);
     const inv1 = sim.state.players.inventory(1);
