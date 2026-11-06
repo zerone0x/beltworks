@@ -1,12 +1,13 @@
 /**
  * Draws the entities (placeholder shapes in each prototype's color, with a
- * direction marker on rotatable ones) and the ghost preview of the entity
- * about to be placed.
+ * direction marker on rotatable ones, and a firebox on furnaces that glows
+ * while they work) and the ghost preview of the entity about to be placed.
  */
 
 import { Container, Graphics } from 'pixi.js';
-import type { EntityPrototype } from '../data/entities';
+import { EntityTypeId, type EntityPrototype } from '../data/entities';
 import type { Direction } from '../sim/entities/direction';
+import { MachineState } from '../sim/entities/machine';
 import { footprintSize } from '../sim/entities/store';
 import { TILE_PX } from './camera';
 import type { EntityIndex } from './entityIndex';
@@ -15,6 +16,10 @@ import type { EntityIndex } from './entityIndex';
 export const GHOST_OK = 0x5ad15a;
 export const GHOST_BLOCKED = 0xe0574f;
 const MISSING_COLOR = 0xff00ff;
+/** Furnace firebox when cold, and the glow of a working one. */
+const FIREBOX_COLD = 0x2a2420;
+const FIREBOX_GLOW = 0xff9a2e;
+const FIREBOX_CORE = 0xffe08a;
 
 /** Multiplies each channel of a 0xRRGGBB color by `f` (0..1). */
 function shade(rgb: number, f: number): number {
@@ -36,6 +41,7 @@ export function drawEntity(
   y: number,
   dir: Direction,
   alpha: number = 1,
+  status: number = MachineState.Idle,
 ): void {
   const { w, h } = proto ? footprintSize(proto, dir) : { w: 1, h: 1 };
   const color = proto?.color ?? MISSING_COLOR;
@@ -47,6 +53,9 @@ export function drawEntity(
   g.roundRect(left, top, width, height, 3)
     .fill({ color, alpha })
     .stroke({ width: 2, color: shade(color, 0.45), alpha });
+  if (proto?.id === EntityTypeId.StoneFurnace) {
+    drawFirebox(g, left, top, width, height, alpha, status === MachineState.Working);
+  }
   if (!proto?.rotatable) {
     return;
   }
@@ -64,6 +73,33 @@ export function drawEntity(
     cx + uy * r * 0.8 - ux * r * 0.3,
     cy - ux * r * 0.8 - uy * r * 0.3,
   ]).fill({ color: shade(color, 0.35), alpha });
+}
+
+/** The furnace's firebox: an opening in the lower half, lit while the furnace works. */
+function drawFirebox(
+  g: Graphics,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  alpha: number,
+  lit: boolean,
+): void {
+  const w = width * 0.5;
+  const h = height * 0.3;
+  const x = left + (width - w) / 2;
+  const y = top + height * 0.55;
+  if (lit) {
+    // A soft halo around the opening, then the fire itself.
+    g.roundRect(x - 4, y - 4, w + 8, h + 8, 6).fill({ color: FIREBOX_GLOW, alpha: 0.35 * alpha });
+    g.roundRect(x, y, w, h, 3).fill({ color: FIREBOX_GLOW, alpha });
+    g.roundRect(x + w * 0.2, y + h * 0.3, w * 0.6, h * 0.5, 2).fill({
+      color: FIREBOX_CORE,
+      alpha,
+    });
+  } else {
+    g.roundRect(x, y, w, h, 3).fill({ color: FIREBOX_COLD, alpha });
+  }
 }
 
 export class EntityLayer {
@@ -84,7 +120,7 @@ export class EntityLayer {
     const g = this.graphics;
     g.clear();
     for (const e of index.entities) {
-      drawEntity(g, e.proto, e.x, e.y, e.dir);
+      drawEntity(g, e.proto, e.x, e.y, e.dir, 1, e.status);
     }
   }
 

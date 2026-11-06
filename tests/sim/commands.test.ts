@@ -24,6 +24,12 @@ describe('validateCommandInput', () => {
     ).toBeNull();
     expect(validateCommandInput({ playerId: 0, type: 'Remove', x: -1, y: 0 })).toBeNull();
     expect(validateCommandInput({ playerId: 0, type: 'Rotate', x: 0, y: -(2 ** 31) })).toBeNull();
+    expect(
+      validateCommandInput({ playerId: 0, type: 'Insert', entity: 2 ** 32 - 1, item: 3, count: 1 }),
+    ).toBeNull();
+    expect(
+      validateCommandInput({ playerId: 0, type: 'Take', entity: 7, slot: 2, count: 0xffff }),
+    ).toBeNull();
   });
 
   it.each([
@@ -47,6 +53,13 @@ describe('validateCommandInput', () => {
     { playerId: 0, type: 'Place', x: 0, y: 0, dir: 0 },
     { playerId: 0, type: 'Remove', x: 0 },
     { playerId: 0, type: 'Rotate', x: 0, y: 0.5 },
+    { playerId: 0, type: 'Insert', entity: 1, item: 3, count: 0 },
+    { playerId: 0, type: 'Insert', entity: 1, item: 3, count: 0x1_0000 },
+    { playerId: 0, type: 'Insert', entity: -1, item: 3, count: 1 },
+    { playerId: 0, type: 'Insert', entity: 2 ** 32, item: 3, count: 1 },
+    { playerId: 0, type: 'Insert', entity: 1, count: 1 },
+    { playerId: 0, type: 'Take', entity: 1, slot: 0.5, count: 1 },
+    { playerId: 0, type: 'Take', entity: 1, slot: 0 },
   ])('rejects %j', (input) => {
     expect(validateCommandInput(input)).not.toBeNull();
   });

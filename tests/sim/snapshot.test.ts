@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest';
+import { EntityTypeId } from '../../src/data/entities';
 import { ItemId } from '../../src/data/items';
+import { RecipeId } from '../../src/data/recipes';
+import { placeEntity } from '../../src/sim/entities/build';
+import { Direction } from '../../src/sim/entities/direction';
+import { MachineState } from '../../src/sim/entities/machine';
+import { tileCenter } from '../../src/sim/fixed';
 import { PLAYER_INVENTORY_SLOTS } from '../../src/sim/inventory';
 import {
   CHUNK_RECORD_BYTES,
   decodeChunks,
+  decodeEntityDetail,
   decodeInventory,
   encodeChunks,
+  encodeEntityDetail,
   encodeInventory,
 } from '../../src/sim/snapshot';
 import { Sim } from '../../src/sim/tick';
@@ -55,5 +63,48 @@ describe('encodeInventory / decodeInventory', () => {
     // A copy: later changes don't show up in it.
     sim.state.players.inventory(1).remove(ItemId.Stone, 3);
     expect(decodeInventory(encoded.buffer)[2]).toEqual({ item: ItemId.Stone, count: 3 });
+  });
+});
+
+describe('encodeEntityDetail / decodeEntityDetail', () => {
+  it('round-trips the GUI data of a furnace and a chest', () => {
+    const sim = new Sim({ seed: 1, startingKit: [] });
+    const { state } = sim;
+    const inv = state.players.inventory(0);
+    inv.add(ItemId.StoneFurnace, 1);
+    inv.add(ItemId.WoodenChest, 1);
+    state.players.x[0] = tileCenter(0);
+    state.players.y[0] = tileCenter(0);
+    placeEntity(state, 0, ItemId.StoneFurnace, 2, 0, Direction.North);
+    placeEntity(state, 0, ItemId.WoodenChest, -2, 0, Direction.North);
+    const [furnace, chest] = [state.entities.at(2, 0), state.entities.at(-2, 0)];
+    state.entities.insert(furnace, ItemId.Coal, 2);
+    state.entities.insert(furnace, ItemId.IronOre, 4);
+    for (let i = 0; i < 10; i++) sim.step();
+    const detail = decodeEntityDetail(encodeEntityDetail(state, 0, furnace)!.buffer);
+    expect(detail).toEqual({
+      id: furnace,
+      type: EntityTypeId.StoneFurnace,
+      reachable: true,
+      status: MachineState.Working,
+      recipe: RecipeId.IronPlate,
+      progress: 10,
+      energy: 4_000_000 - 10 * 1_500,
+      burning: ItemId.Coal,
+      slots: [
+        { item: ItemId.IronOre, count: 3 },
+        { item: ItemId.Coal, count: 1 },
+        { item: 0, count: 0 },
+      ],
+    });
+    state.entities.insert(chest, ItemId.Stone, 3);
+    const chestDetail = decodeEntityDetail(encodeEntityDetail(state, 0, chest)!.buffer);
+    expect(chestDetail.status).toBe(MachineState.Idle);
+    expect(chestDetail.slots).toHaveLength(16);
+    expect(chestDetail.slots[0]).toEqual({ item: ItemId.Stone, count: 3 });
+    // Out of reach, and gone.
+    state.players.x[0] = tileCenter(-30);
+    expect(decodeEntityDetail(encodeEntityDetail(state, 0, chest)!.buffer).reachable).toBe(false);
+    expect(encodeEntityDetail(state, 0, 999)).toBeNull();
   });
 });

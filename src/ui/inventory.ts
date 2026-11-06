@@ -63,13 +63,16 @@ export function countByName(slots: readonly SlotData[], name: string): number {
   return n;
 }
 
-/** A row-major grid of slot elements that only touches the DOM for slots that changed. */
-class SlotGrid {
+/**
+ * A row-major grid of slot elements that only touches the DOM for slots that
+ * changed. With `onClick`, clicking a slot calls it with the slot index.
+ */
+export class SlotGrid {
   readonly element: HTMLElement;
   private readonly cells: { root: HTMLElement; swatch: HTMLElement; count: HTMLElement }[] = [];
   private readonly shown: (string | null)[] = [];
 
-  constructor(slots: number, columns: number) {
+  constructor(slots: number, columns: number, onClick?: (index: number) => void) {
     const el = document.createElement('div');
     el.className = 'slot-grid';
     Object.assign(el.style, {
@@ -112,6 +115,12 @@ class SlotGrid {
         textShadow: '0 0 2px #000, 0 0 2px #000',
       } satisfies Partial<CSSStyleDeclaration>);
       root.append(swatch, count);
+      if (onClick) {
+        root.style.cursor = 'pointer';
+        root.addEventListener('click', () => {
+          onClick(i);
+        });
+      }
       el.appendChild(root);
       this.cells.push({ root, swatch, count });
       this.shown.push(null);

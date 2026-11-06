@@ -48,8 +48,14 @@
   - **Per-type tables** implement `EntityTypeTable` (`table.ts`) and are registered in `createEntityTables` (`registry.ts`). They get hooks when an entity of their type is placed, rotated or removed, report its contents (refunded on removal, which is refused if they don't fit), can react to any entity being placed or removed (belts relinking, inserters finding their source and target), and are hashed in type id order.
   - **Occupancy** (`occupancy.ts`): per 32×32 chunk, the entity covering each tile and the entities whose origin lies in the chunk (to collect the entities around the viewport).
   - **Wake subscriptions** (`wake.ts`): an entity can subscribe to another; `Entities.notify(target)` hands each subscriber to its table's `wake` hook. Removing an entity wakes its subscribers. See "Machine sleep".
-- Prototypes (size, rotatable, placing item, placeholder color) are in `src/data/entities.ts`; footprints swap width and height when facing east or west.
+  - **Item hooks** (`slots`, `insertable`, `insert`, `take`, `outputSlot` on `EntityTypeTable`, forwarded by `Entities`): the one way items move in and out of entities, for the GUI commands now and drills and inserters later. `insert` routes items itself (a furnace puts ores into its input and fuel into its fuel slot); every change calls `notify`.
+- Per-type tables so far:
+  - **Wooden chest** (`chest.ts`): 16 slots per chest in two flat `Uint16Array`s; no per-tick work.
+  - **Stone furnace** (`furnace.ts`): input slot, burner, output slot (at most 100 units), the recipe in progress and its progress in ticks, and a `MachineState` (`machine.ts`: `Working | NoInput | NoFuel | OutputFull`). The recipe follows from the input item (the smelting recipe in `src/data/recipes.ts` that takes it). Each tick a furnace without a recipe in progress needs a full set of ingredients and room for the result, then burns its energy and only then takes the ingredients; after `ticks` working ticks the result lands in the output. A furnace that ends a tick not `Working` leaves the furnace system's active list and rejoins it when its slots change.
+  - **Burner** (`burner.ts`): the fuel component of every burner entity: one fuel slot and an energy buffer in integer joules. `consume(row, joules)` burns the next fuel unit when the buffer runs short and keeps any remainder, so one coal (4 MJ) runs a 1 500 J/tick furnace for exactly 2 666 ticks with 1 000 J carried over to the next unit. Fuel values are in `src/data/items.ts`, energy use per entity in `src/data/entities.ts`.
+- Prototypes (size, rotatable, placing item, placeholder color, energy use, slots) are in `src/data/entities.ts`; footprints swap width and height when facing east or west.
 - **Building** (`build.ts`, `placement.ts`): `Place {item, x, y, dir}` takes one item and needs the whole footprint inside the map, on buildable terrain, free of entities and of every player's collision box, and its center within build reach (10 tiles, an exact integer comparison of squared distances). `Remove {x, y}` and `Rotate {x, y}` act on the entity covering that tile and need reach too. Commands that don't apply are ignored without touching state. The renderer colors the ghost preview with the same `checkPlacement`, fed from its snapshot data. Players walk through entities for now.
+- **Entity GUI** (`transfer.ts`): `Insert {entity, item, count}` moves items from the player's inventory into an entity (wherever `insert` routes them) and `Take {entity, slot, count}` moves a slot's contents back, as many as fit. Entities are named by id (ids are never reused, so a stale id can't hit another entity) and must be within build reach; transfers that don't apply are ignored.
 - A new game gives every player the starting kit from `src/data/start.ts`.
 
 ### Update order (per tick)
@@ -75,10 +81,10 @@ This is Factorio's core optimization, and it has to be there from day one:
 - A full lane that can't move goes to sleep.
 
 ### Machine sleep
-- Entity state: `Working | NoInput | OutputFull | NoPower | Idle`.
+- Entity state (`MachineState` in `src/sim/entities/machine.ts`): `Idle | Working | NoInput | NoFuel | OutputFull`, more as machines need them (`NoPower`, a drill's `Depleted`).
 - An entity that isn't Working leaves the active list and waits on the event that would wake it (a chest gets a new item, an output slot is emptied, and so on). Once woken, it rejoins the active list.
 - An inserter waiting to pick up only wakes when the items at its source change.
-- The subscriptions live in `src/sim/entities/wake.ts` and are part of the state hash; the active lists are each system's own.
+- The subscriptions live in `src/sim/entities/wake.ts` and are part of the state hash; the active lists are each system's own (and hashed with its table). Furnaces need no subscriptions: only changes to their own slots can make them work again.
 
 ### Power
 - Poles are kept in connected networks with union-find, updated incrementally on placement (rebuilt locally on removal).
@@ -100,13 +106,14 @@ This is Factorio's core optimization, and it has to be there from day one:
 - Only chunks in the viewport, plus a one-chunk margin, are rendered. Chunks that leave that window are destroyed together with their textures, so memory stays flat while panning.
 - Camera (`src/render/camera.ts`): world position at the screen center plus a zoom clamped to 0.25×–4× (one tile is 32 px at 1×). Middle-mouse drag or arrow keys pan, the wheel zooms towards the cursor. Camera math lives only in the render layer.
 - Terrain: each chunk is baked into one texture (`src/render/chunkBake.ts`) and re-baked when it changes. The placeholder art is made of whole-texel blocks, so it is baked at 8 texels per tile and sampled with nearest filtering: crisp at every zoom level, at 1/16 of the memory of 32 px per tile. Bakes are spread over frames (a few per frame).
-- Entities: separate Containers per layer (ground → items on belts → buildings → inserters → overlays), with pooled sprites. For now `src/render/entityLayer.ts` draws placeholder blocks in each prototype's color (with a direction marker on rotatable ones), redrawn only when the snapshot's entities change, plus the ghost preview above the players.
+- Entities: separate Containers per layer (ground → items on belts → buildings → inserters → overlays), with pooled sprites. For now `src/render/entityLayer.ts` draws placeholder blocks in each prototype's color (with a direction marker on rotatable ones, and a firebox on furnaces that glows while they are `Working`), redrawn only when the snapshot's entities change, plus the ghost preview above the players.
+- Entity GUI (`src/ui/entityPanel.ts`): a left click on a chest or furnace with nothing to build selected opens a DOM panel with its slots, a furnace's state, progress and fuel, and the player's inventory. Clicks become `Insert`/`Take` commands; the panel redraws from the snapshot and closes when the entity is gone or out of reach.
 - Items on belts: the main thread computes their positions from the lane data in the snapshot, interpolating between ticks so motion looks smooth.
 - All textures are packed into atlases.
 - Zooming out past a threshold switches to a "map mode" of flat colors.
 
 ### Worker protocol
-- Messages are typed in `src/worker/protocol.ts`. Main → worker: `init {seed}`, `commands [...]`, `setViewport {x, y, w, h}` (tiles). Worker → main: `snapshot`, `stats {tick, tickMs, droppedTicks}`, `error`. Each snapshot carries every player (`encodePlayers`), the inventory of the local player (`encodeInventory`; the main thread is player `LOCAL_PLAYER_ID` = 0), and every entity whose origin lies in the chunk window (`encodeEntities`: id, type, top-left tile, direction).
+- Messages are typed in `src/worker/protocol.ts`. Main → worker: `init {seed}`, `commands [...]`, `setViewport {x, y, w, h}` (tiles), `inspect {entity}` (the entity whose GUI is open, 0 for none). Worker → main: `snapshot`, `stats {tick, tickMs, droppedTicks}`, `error`. Each snapshot carries every player (`encodePlayers`), the inventory of the local player (`encodeInventory`; the main thread is player `LOCAL_PLAYER_ID` = 0), every entity whose origin lies in the chunk window (`encodeEntities`: id, type, top-left tile, direction, machine state), and the inspected entity's GUI data (`encodeEntityDetail`: reachability, state, recipe, progress, burner energy, slots).
 - The main thread sends commands without a tick; the worker stamps each one with the next tick it will run, so a command can never land on a tick that already ran.
 - The worker loop (`src/worker/loop.ts`) accumulates wall time and runs whole 60 Hz ticks, at most 5 per wake-up; any further backlog is dropped.
 - **One snapshot per wake-up, not per tick.** When the worker catches up several ticks at once, only the newest state is useful for rendering; the snapshot carries `ticksRun` so the renderer can tell. At full speed a wake-up runs one tick, so this is usually one snapshot per tick.
@@ -162,7 +169,7 @@ src/
     snapshot.ts   # render snapshot encoding
     hash.ts
     rng.ts
-  data/           # prototypes (items, recipes, technologies)
+  data/           # prototypes (items, recipes, technologies), fuel values, energy use
   worker/         # Worker entry point and message protocol
   render/         # PixiJS rendering
   ui/             # DOM panels

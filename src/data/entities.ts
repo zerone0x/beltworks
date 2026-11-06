@@ -5,8 +5,12 @@
  * means "no entity". They must stay stable: changing an id breaks saves and
  * state hashes.
  *
- * The M1 entities are placeholders for now: they can be placed, rotated and
- * removed, and later issues give each type its own table and behavior.
+ * Chests and furnaces have their own tables and behavior (src/sim/entities/);
+ * drills, belts and inserters are still placeholders that can only be placed,
+ * rotated and removed.
+ *
+ * Energy is in integer joules; a burner entity burns `energyPerTick` joules on
+ * every tick it works (60 ticks/s, so 1 500 J/tick is 90 kW).
  */
 
 import { ItemId, type RealItemId } from './items';
@@ -41,7 +45,14 @@ export interface EntityPrototype {
   readonly item: RealItemId;
   /** Placeholder display color as 0xRRGGBB. */
   readonly color: number;
+  /** Joules a burner entity burns per tick while it works. */
+  readonly energyPerTick?: number;
+  /** Item slots of a container. */
+  readonly slots?: number;
 }
+
+/** Most units a stone furnace's output slot holds before it stops. */
+export const FURNACE_OUTPUT_LIMIT = 100;
 
 /** Entity prototypes keyed by id. There is no entry for id 0 ("no entity"). */
 export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
@@ -54,6 +65,7 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     rotatable: false,
     item: ItemId.WoodenChest,
     color: 0x9a6a3a,
+    slots: 16,
   },
   [EntityTypeId.StoneFurnace]: {
     id: EntityTypeId.StoneFurnace,
@@ -64,6 +76,8 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     rotatable: false,
     item: ItemId.StoneFurnace,
     color: 0x8c7f6a,
+    // 90 kW.
+    energyPerTick: 1_500,
   },
   [EntityTypeId.BurnerMiningDrill]: {
     id: EntityTypeId.BurnerMiningDrill,
@@ -75,6 +89,8 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     rotatable: true,
     item: ItemId.BurnerMiningDrill,
     color: 0x6d6f78,
+    // 150 kW.
+    energyPerTick: 2_500,
   },
   [EntityTypeId.TransportBelt]: {
     id: EntityTypeId.TransportBelt,
@@ -95,6 +111,8 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     rotatable: true,
     item: ItemId.BurnerInserter,
     color: 0xb5562f,
+    // 100 kW (100 000 / 60 ≈ 1 667 J/tick), only while moving.
+    energyPerTick: 1_667,
   },
 };
 

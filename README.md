@@ -12,7 +12,8 @@ Controls so far:
 - **1–0**: select a hotbar slot (press it again, or **Q**, to deselect). A new game starts with a kit of belts, inserters, drills, furnaces, chests and coal.
 - With a buildable item selected, a **ghost** follows the cursor: green where it can be placed, red where it can't (water, another entity, the player, or out of build reach, 10 tiles). **R** rotates it, **left click** places it (hold and drag to place a row).
 - **R** with nothing selected rotates the entity under the cursor.
-- **Right click** on an entity removes it and puts it back into the inventory (refused if there is no room); elsewhere the right button mines as above.
+- **Left click** on a chest or furnace with nothing to build selected opens its window: click a stack in your inventory to put it in (coal and wood go to a furnace's fuel slot, ores and stone to its input), click one of its slots to take the contents. **Esc** closes it. A furnace smelts iron ore, copper ore, or two stone into a plate or brick every 3.2 s while it has fuel; its firebox glows while it works.
+- **Right click** on an entity removes it and puts it back into the inventory, together with what it holds (refused if there is no room); elsewhere the right button mines as above.
 - **Middle-drag** or **arrow keys**: pan the camera freely; **F**: follow the player again.
 - **Mouse wheel**: zoom (towards the cursor with a free camera, around the player while following).
 
@@ -21,6 +22,8 @@ The debug overlay shows the tile under the mouse.
 ![The player mining copper ore with the inventory open](docs/screenshots/m0-player.png)
 
 ![Placed entities and the ghost preview of a transport belt](docs/screenshots/m1-placement.png)
+
+![A working stone furnace and its window](docs/screenshots/m1-furnace.png)
 
 ## Docs
 

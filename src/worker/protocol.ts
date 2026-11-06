@@ -1,12 +1,12 @@
 /**
  * Messages between the main thread and the simulation worker.
  *
- * Main → worker: `init`, `commands`, `setViewport`.
+ * Main → worker: `init`, `commands`, `setViewport`, `inspect`.
  * Worker → main: `snapshot`, `stats`, `error`.
  *
- * Commands include the build commands `Place`, `Remove` and `Rotate`; like
- * every command they are validated for shape here and ignored by the
- * simulation when they don't apply.
+ * Commands include the build commands `Place`, `Remove` and `Rotate` and the
+ * entity GUI's `Insert` and `Take`; like every command they are validated for
+ * shape here and ignored by the simulation when they don't apply.
  *
  * Bulk data travels in ArrayBuffers that are transferred, not copied.
  */
@@ -77,7 +77,16 @@ export interface SetViewportMessage {
   viewport: Viewport;
 }
 
-export type MainToWorker = InitMessage | CommandsMessage | SetViewportMessage;
+export interface InspectMessage {
+  type: 'inspect';
+  /**
+   * The entity whose GUI is open (a uint32 id), or 0 for none. Snapshots
+   * carry its slots and state from then on (see `SnapshotMessage.entityDetail`).
+   */
+  entity: number;
+}
+
+export type MainToWorker = InitMessage | CommandsMessage | SetViewportMessage | InspectMessage;
 
 /**
  * Render state after the latest tick. Sent once per worker wake-up that ran at
@@ -116,6 +125,14 @@ export interface SnapshotMessage {
    * src/sim/snapshot.ts). `null` when there are none.
    */
   chunks: ArrayBuffer | null;
+  /** The entity last asked for with `inspect`, or 0. */
+  inspected: number;
+  /**
+   * GUI data of the `inspected` entity (see `encodeEntityDetail` in
+   * src/sim/snapshot.ts); `null` when nothing is inspected or the entity no
+   * longer exists.
+   */
+  entityDetail: ArrayBuffer | null;
 }
 
 export interface StatsMessage {

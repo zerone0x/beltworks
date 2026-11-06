@@ -1,10 +1,11 @@
 import { Application } from 'pixi.js';
 import { PLAYER_INVENTORY_SLOTS } from './sim/inventory';
-import { decodeInventory, type SlotData } from './sim/snapshot';
+import { decodeEntityDetail, decodeInventory, type SlotData } from './sim/snapshot';
 import { BuildInput } from './render/buildInput';
 import { GameView } from './render/gameView';
 import { PlayerInput } from './render/playerInput';
 import { DebugOverlay } from './ui/debugOverlay';
+import { EntityPanel, hasEntityGui } from './ui/entityPanel';
 import { Hotbar, InventoryPanel } from './ui/inventory';
 import { SimClient } from './worker/client';
 import { LOCAL_PLAYER_ID } from './worker/protocol';
@@ -20,6 +21,17 @@ async function main(): Promise<void> {
   const overlay = new DebugOverlay(document.body);
   const hotbar = new Hotbar(document.body);
   const inventoryPanel = new InventoryPanel(document.body, PLAYER_INVENTORY_SLOTS);
+  const entityPanel = new EntityPanel(document.body, PLAYER_INVENTORY_SLOTS, {
+    insert: (entity, item, count) => {
+      client.sendCommands([{ type: 'Insert', playerId: LOCAL_PLAYER_ID, entity, item, count }]);
+    },
+    take: (entity, slot, count) => {
+      client.sendCommands([{ type: 'Take', playerId: LOCAL_PLAYER_ID, entity, slot, count }]);
+    },
+    inspect: (entity) => {
+      client.inspect(entity);
+    },
+  });
   client.onStats = (stats) => {
     overlay.update(stats);
   };
@@ -71,6 +83,9 @@ async function main(): Promise<void> {
     onSelect: (slot) => {
       hotbar.select(slot);
     },
+    onOpenEntity: (entity) => {
+      if (hasEntityGui(entity.type)) entityPanel.open(entity.id, entity.type);
+    },
   });
   // Every snapshot must reach the view, in order, or its chunk cache drifts from
   // what the worker thinks was sent. Snapshots before this point carry no
@@ -81,6 +96,8 @@ async function main(): Promise<void> {
     inventory = decodeInventory(snapshot.inventory);
     hotbar.update(inventory);
     inventoryPanel.update(inventory);
+    const detail = snapshot.entityDetail ? decodeEntityDetail(snapshot.entityDetail) : null;
+    entityPanel.update(snapshot.inspected, detail, inventory);
   };
   app.ticker.add((ticker) => {
     view.frame(ticker.deltaMS);
@@ -92,7 +109,14 @@ async function main(): Promise<void> {
 
   if (import.meta.env.DEV || import.meta.env.MODE === 'test') {
     const { installTestHook } = await import('./testHook');
-    installTestHook({ client, view, build, seed: WORLD_SEED, inventory: () => inventory });
+    installTestHook({
+      client,
+      view,
+      build,
+      entityPanel,
+      seed: WORLD_SEED,
+      inventory: () => inventory,
+    });
   }
 }
 

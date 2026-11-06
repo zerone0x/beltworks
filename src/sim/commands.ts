@@ -66,8 +66,37 @@ export interface RotateCommand extends CommandBase {
   readonly y: number;
 }
 
+/**
+ * Moves up to `count` units of `item` from the player's inventory into entity
+ * `entity` (an id), which puts them where they belong: fuel into the fuel
+ * slot, ores into a furnace's input, anything into a chest. Ignored if the
+ * entity doesn't exist, is out of reach, or has no room
+ * (see src/sim/entities/transfer.ts).
+ */
+export interface InsertCommand extends CommandBase {
+  readonly type: 'Insert';
+  readonly entity: number;
+  readonly item: number;
+  readonly count: number;
+}
+
+/** Moves up to `count` units out of slot `slot` of entity `entity` into the player's inventory. */
+export interface TakeCommand extends CommandBase {
+  readonly type: 'Take';
+  readonly entity: number;
+  readonly slot: number;
+  readonly count: number;
+}
+
 export type Command =
-  MoveCommand | MineStartCommand | MineStopCommand | PlaceCommand | RemoveCommand | RotateCommand;
+  | MoveCommand
+  | MineStartCommand
+  | MineStopCommand
+  | PlaceCommand
+  | RemoveCommand
+  | RotateCommand
+  | InsertCommand
+  | TakeCommand;
 export type CommandType = Command['type'];
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -81,6 +110,9 @@ const isAxis = (v: unknown): v is Axis => v === -1 || v === 0 || v === 1;
 const isTile = (v: unknown): boolean => typeof v === 'number' && isInt32(v);
 const isUint16 = (v: unknown): boolean =>
   typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffff;
+const isUint32 = (v: unknown): boolean =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffff_ffff;
+const isCount = (v: unknown): boolean => isUint16(v) && (v as number) > 0;
 
 /**
  * Checks the fields of a command that has no tick yet (e.g. one received from
@@ -114,6 +146,14 @@ export function validateCommandInput(input: unknown): string | null {
     case 'Remove':
     case 'Rotate':
       return isTile(c.x) && isTile(c.y) ? null : `${c.type} needs int32 x and y`;
+    case 'Insert':
+      return isUint32(c.entity) && isUint16(c.item) && isCount(c.count)
+        ? null
+        : 'Insert needs a uint32 entity, a uint16 item and a count in [1, 65535]';
+    case 'Take':
+      return isUint32(c.entity) && isUint16(c.slot) && isCount(c.count)
+        ? null
+        : 'Take needs a uint32 entity, a uint16 slot and a count in [1, 65535]';
     default:
       return `unknown command type ${String(c.type)}`;
   }

@@ -11,9 +11,10 @@ import { entityPrototype, type EntityPrototype } from '../../data/entities';
 import type { ItemStack } from '../../data/items';
 import { fnv1a32 } from '../hash';
 import type { Direction } from './direction';
+import { MachineState } from './machine';
 import { Occupancy } from './occupancy';
 import { EntityStore, footprintSize } from './store';
-import type { EntityTypeTable } from './table';
+import type { EntityDetail, EntityTypeTable, Slot } from './table';
 import { WakeSubscriptions } from './wake';
 
 /** The tiles an entity covers: top-left tile and size. */
@@ -135,6 +136,43 @@ export class Entities {
     this.byType.get(this.store.type(id))?.rotated?.(id, this);
   }
 
+  /** Machine state of entity `id` (Idle for types without one and for missing entities). */
+  status(id: number): MachineState {
+    return this.tableOf(id)?.status?.(id) ?? MachineState.Idle;
+  }
+
+  /** GUI details of entity `id`, or `undefined` if its type has none. */
+  detail(id: number): EntityDetail | undefined {
+    return this.tableOf(id)?.detail?.(id);
+  }
+
+  /** Item slots of entity `id`, in slot order; empty for types without slots and missing entities. */
+  slots(id: number): Slot[] {
+    return this.tableOf(id)?.slots?.(id) ?? [];
+  }
+
+  /** How many units of `item` entity `id` would accept right now (see `EntityTypeTable.insertable`). */
+  insertable(id: number, item: number): number {
+    return this.tableOf(id)?.insertable?.(id, item) ?? 0;
+  }
+
+  /** Inserts up to `count` units of `item` into entity `id`; returns how many went in. */
+  insert(id: number, item: number, count: number): number {
+    const table = this.tableOf(id);
+    return count > 0 ? (table?.insert?.(id, item, count, this) ?? 0) : 0;
+  }
+
+  /** Takes up to `count` units out of slot `slot` of entity `id`; returns how many came out. */
+  take(id: number, slot: number, count: number): number {
+    const table = this.tableOf(id);
+    return count > 0 ? (table?.take?.(id, slot, count, this) ?? 0) : 0;
+  }
+
+  /** The slot an inserter would pick up from, or -1 (see `EntityTypeTable.outputSlot`). */
+  outputSlot(id: number): number {
+    return this.tableOf(id)?.outputSlot?.(id) ?? -1;
+  }
+
   /** Entity `target` changed: wakes every entity subscribed to it (see wake.ts). */
   notify(target: number): void {
     for (const watcher of this.wake.watchersOf(target)) {
@@ -152,6 +190,10 @@ export class Entities {
       h = table.hashInto(h);
     }
     return this.wake.hashInto(h);
+  }
+
+  private tableOf(id: number): EntityTypeTable | undefined {
+    return this.byType.get(this.store.type(id));
   }
 
   private wakeOne(watcher: number): void {

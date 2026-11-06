@@ -3,6 +3,7 @@
  * typed arrays whose buffers can be transferred to the main thread.
  */
 
+import { reaches } from './entities/build';
 import type { ChunkRange } from './entities/occupancy';
 import type { SimState } from './state';
 import { CHUNK_AREA } from './world/chunk';
@@ -53,7 +54,7 @@ export function encodeInventory(state: SimState, playerId: number): Uint16Array<
 }
 
 /** Int32 fields per entity in {@link encodeEntities}. */
-export const ENTITY_STRIDE = 5;
+export const ENTITY_STRIDE = 6;
 /** Field offsets within one entity record. */
 export const EntityField = {
   id: 0,
@@ -61,12 +62,14 @@ export const EntityField = {
   x: 2,
   y: 3,
   dir: 4,
+  status: 5,
 } as const;
 
 /**
  * Encodes the entities whose origin (top-left tile) lies in the chunks of
- * `range` as `ENTITY_STRIDE` int32s each: `[id, type, x, y, dir]` (ids are
- * uint32s stored bit for bit; `x`, `y` is the top-left tile). Entities are
+ * `range` as `ENTITY_STRIDE` int32s each: `[id, type, x, y, dir, status]`
+ * (ids are uint32s stored bit for bit; `x`, `y` is the top-left tile; status
+ * is a `MachineState`, so the renderer can show working machines). Entities are
  * at most `MAX_ENTITY_SIZE` tiles wide, so a range with a one-chunk margin
  * around the viewport catches every entity that overlaps it.
  */
@@ -74,7 +77,8 @@ export function encodeEntities(state: SimState, range: ChunkRange | null): Int32
   if (range === null) {
     return new Int32Array(0);
   }
-  const { store, occupancy } = state.entities;
+  const { entities } = state;
+  const { store, occupancy } = entities;
   const ids = occupancy.originsIn(range);
   const out = new Int32Array(ids.length * ENTITY_STRIDE);
   ids.forEach((id, i) => {
@@ -84,8 +88,92 @@ export function encodeEntities(state: SimState, range: ChunkRange | null): Int32
     out[o + EntityField.x] = store.x(id);
     out[o + EntityField.y] = store.y(id);
     out[o + EntityField.dir] = store.dir(id);
+    out[o + EntityField.status] = entities.status(id);
   });
   return out;
+}
+
+/** Field offsets of the header of {@link encodeEntityDetail}; `[item, count]` slot pairs follow it. */
+export const DetailField = {
+  id: 0,
+  type: 1,
+  /** 1 if the player can reach the entity (to use its GUI), else 0. */
+  reachable: 2,
+  status: 3,
+  recipe: 4,
+  progress: 5,
+  energy: 6,
+  burning: 7,
+  slotCount: 8,
+} as const;
+const DETAIL_HEADER = 9;
+
+/**
+ * Encodes what the entity GUI shows about entity `id` for player `playerId`
+ * as int32s: the {@link DetailField} header, then one `[item, count]` pair per
+ * slot. `null` when there is no such entity.
+ */
+export function encodeEntityDetail(
+  state: SimState,
+  playerId: number,
+  id: number,
+): Int32Array<ArrayBuffer> | null {
+  const { entities } = state;
+  const type = entities.store.type(id);
+  if (type === 0) {
+    return null;
+  }
+  const slots = entities.slots(id);
+  const detail = entities.detail(id);
+  const out = new Int32Array(DETAIL_HEADER + 2 * slots.length);
+  out[DetailField.id] = id;
+  out[DetailField.type] = type;
+  out[DetailField.reachable] = reaches(state, playerId, id) ? 1 : 0;
+  out[DetailField.status] = entities.status(id);
+  out[DetailField.recipe] = detail?.recipe ?? 0;
+  out[DetailField.progress] = detail?.progress ?? 0;
+  out[DetailField.energy] = detail?.energy ?? 0;
+  out[DetailField.burning] = detail?.burning ?? 0;
+  out[DetailField.slotCount] = slots.length;
+  slots.forEach((slot, i) => {
+    out[DETAIL_HEADER + 2 * i] = slot.item;
+    out[DETAIL_HEADER + 2 * i + 1] = slot.count;
+  });
+  return out;
+}
+
+/** An entity's GUI data as decoded on the main thread. */
+export interface EntityDetailData {
+  id: number;
+  type: number;
+  reachable: boolean;
+  status: number;
+  recipe: number;
+  progress: number;
+  energy: number;
+  burning: number;
+  slots: SlotData[];
+}
+
+/** Unpacks a buffer made by {@link encodeEntityDetail}. */
+export function decodeEntityDetail(buffer: ArrayBuffer): EntityDetailData {
+  const v = new Int32Array(buffer);
+  const slots: SlotData[] = [];
+  const n = v[DetailField.slotCount] ?? 0;
+  for (let i = 0; i < n; i++) {
+    slots.push({ item: v[DETAIL_HEADER + 2 * i]!, count: v[DETAIL_HEADER + 2 * i + 1]! });
+  }
+  return {
+    id: v[DetailField.id]! >>> 0,
+    type: v[DetailField.type]!,
+    reachable: v[DetailField.reachable] === 1,
+    status: v[DetailField.status]!,
+    recipe: v[DetailField.recipe]!,
+    progress: v[DetailField.progress]!,
+    energy: v[DetailField.energy]!,
+    burning: v[DetailField.burning]!,
+    slots,
+  };
 }
 
 /** One inventory slot as decoded on the main thread; `item` 0 is an empty slot. */

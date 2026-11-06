@@ -4,11 +4,12 @@
  * plain placeholders that only exist in the generic store.
  */
 
+import { ChestTable } from './chest';
+import { FurnaceTable } from './furnace';
 import type { EntityTypeTable } from './table';
 
 /** Creates a fresh set of per-type tables for a new `SimState`. */
 export function createEntityTables(): EntityTypeTable[] {
-  // M1 placeholders: chest, furnace, drill, belt and inserter tables arrive
-  // with their behavior in later issues.
-  return [];
+  // Drill, belt and inserter tables arrive with their behavior in later issues.
+  return [new ChestTable(), new FurnaceTable()];
 }

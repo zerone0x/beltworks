@@ -9,6 +9,7 @@ import type { BuildInput } from './render/buildInput';
 import { TILE_PX } from './render/camera';
 import type { GameView } from './render/gameView';
 import type { TerrainStats, TileInfo } from './render/terrainLayer';
+import type { EntityPanel } from './ui/entityPanel';
 import { SUBTILES_PER_TILE } from './sim/fixed';
 import { runDeterminismScenario, type DeterminismResult } from './sim/scenarios/determinism';
 import { PlayerField, PLAYER_STRIDE, type SlotData } from './sim/snapshot';
@@ -46,6 +47,8 @@ export interface EntityState {
   w: number;
   h: number;
   dir: number;
+  /** Machine state (`MachineState`), e.g. 1 while a furnace works. */
+  status: number;
 }
 
 /** The ghost preview, as last drawn. */
@@ -90,6 +93,8 @@ export interface BeltworksTestHook {
   ghost(): GhostState | null;
   /** The hotbar slot selected for building, or `null`. */
   selectedSlot(): number | null;
+  /** The entity whose GUI is open, or 0. */
+  openEntity(): number;
 }
 
 declare global {
@@ -102,13 +107,21 @@ export interface TestHookContext {
   client: SimClient;
   view: GameView;
   build: BuildInput;
+  entityPanel: EntityPanel;
   /** The world seed the game runs with. */
   seed: number;
   /** The local player's inventory as last shown by the UI. */
   inventory: () => SlotData[];
 }
 
-export function installTestHook({ client, view, build, seed, inventory }: TestHookContext): void {
+export function installTestHook({
+  client,
+  view,
+  build,
+  entityPanel,
+  seed,
+  inventory,
+}: TestHookContext): void {
   let world: World | null = null;
   window.__beltworks = {
     runDeterminism: (ticks) => runDeterminismScenario(ticks),
@@ -166,11 +179,13 @@ export function installTestHook({ client, view, build, seed, inventory }: TestHo
         w: e.w,
         h: e.h,
         dir: e.dir,
+        status: e.status,
       })),
     ghost: () => {
       const g = build.ghost;
       return g && { name: g.proto.name, x: g.x, y: g.y, dir: g.dir, valid: g.valid };
     },
     selectedSlot: () => build.selected,
+    openEntity: () => entityPanel.entity,
   };
 }
