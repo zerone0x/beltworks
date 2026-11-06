@@ -25,6 +25,8 @@ export const MachineState = {
   WaitingForSource: 6,
   /** An inserter whose drop tile has no entity, or one that won't take the held item yet. */
   WaitingForTarget: 7,
+  /** A power producer (boiler, steam engine) that could deliver energy, but none is drawn. */
+  NoDemand: 8,
 } as const;
 
 export type MachineState = (typeof MachineState)[keyof typeof MachineState];

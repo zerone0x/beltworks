@@ -146,6 +146,8 @@ export interface BeltworksTestHook {
   dropOnBelt(x: number, y: number, item: number, count?: number): boolean;
   /** Electric poles around the view with their networks, the wires between them, and the networks. */
   power(): PowerData;
+  /** Steam engines around the view: flywheel speed (0..1, output over maximum) and angle (turns). */
+  generators(): { id: number; speed: number; phase: number }[];
   /** The pole whose supply area and wire reach the overlay shows, or `null`. */
   powerFocus(): PowerFocusState | null;
   /** The ghost preview, or `null` when none is shown. */
@@ -263,6 +265,7 @@ export function installTestHook({
       return true;
     },
     power: () => structuredClone(view.power.data),
+    generators: () => view.generators.engines,
     powerFocus: () => {
       const f = view.power.focus;
       return (

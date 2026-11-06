@@ -40,6 +40,8 @@ export interface EntityDetail {
   /** Joules left in the burner's buffer, and the fuel item they came from (0 for none). */
   energy: number;
   burning: number;
+  /** Joules per tick of electric power it delivered on the latest tick (generators, boilers). */
+  power?: number;
 }
 
 export interface EntityTypeTable {
@@ -137,6 +139,15 @@ export interface EntityTypeTable {
   // producer; either way its entities join the network of a pole whose
   // supply area covers them. The power system calls these once per tick per
   // connected entity, before the drills, belts, inserters and machines run.
+
+  /**
+   * Called once per tick on every table that has it, in type id order, at
+   * the start of the power system: before any `powerDemand`,
+   * `powerMaxOutput` or `powerDraw` of the tick. For per-tick setup that
+   * spans entities (steam engines sharing out their boilers' supply). The
+   * type doesn't have to be electric.
+   */
+  powerPrepare?(entities: Entities): void;
 
   /**
    * Joules entity `id` wants this tick at full speed (a non-negative

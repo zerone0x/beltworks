@@ -1,11 +1,12 @@
 /**
  * Draws the entities (placeholder shapes in each prototype's color, with a
- * direction marker on rotatable ones, a firebox on furnaces that glows while
- * they work, a drill head on mining drills that lights up while they work,
+ * direction marker on rotatable ones, a firebox on furnaces and boilers that
+ * glows while they work, a drill head on mining drills that lights up while they work,
  * a small platform for inserters, and a post with a crossbar for electric
  * poles) and the ghost preview of the entity
  * about to be placed. Placed belts are drawn by the belt layer (beltLayer.ts)
- * instead, and inserter arms by the inserter layer (inserterLayer.ts).
+ * instead, inserter arms by the inserter layer (inserterLayer.ts), and steam
+ * engine flywheels by the generator layer (generatorLayer.ts).
  */
 
 import { Container, Graphics } from 'pixi.js';
@@ -66,8 +67,22 @@ export function drawEntity(
   g.roundRect(left, top, width, height, 3)
     .fill({ color, alpha })
     .stroke({ width: 2, color: shade(color, 0.45), alpha });
+  const lit = status === MachineState.Working;
   if (proto?.id === EntityTypeId.StoneFurnace) {
-    drawFirebox(g, left, top, width, height, alpha, status === MachineState.Working);
+    // An opening in the lower half.
+    const w = width * 0.5;
+    const h = height * 0.3;
+    drawFirebox(g, left + (width - w) / 2, top + height * 0.55, w, h, alpha, lit);
+  }
+  if (proto?.id === EntityTypeId.Boiler) {
+    // Across the rear end, behind the direction marker.
+    const ux = [0, 1, 0, -1][dir]!;
+    const uy = [-1, 0, 1, 0][dir]!;
+    const w = ux === 0 ? width * 0.55 : width * 0.16;
+    const h = ux === 0 ? height * 0.16 : height * 0.55;
+    const cx = left + width / 2 - ux * width * 0.3;
+    const cy = top + height / 2 - uy * height * 0.3;
+    drawFirebox(g, cx - w / 2, cy - h / 2, w, h, alpha, lit);
   }
   if (proto?.id === EntityTypeId.BurnerMiningDrill) {
     // A ring around the direction marker.
@@ -119,20 +134,16 @@ function drawPole(g: Graphics, color: number, x: number, y: number, alpha: numbe
   }
 }
 
-/** The furnace's firebox: an opening in the lower half, lit while the furnace works. */
+/** A firebox (furnaces, boilers): an opening at `(x, y)` of `w × h`, lit while the entity works. */
 function drawFirebox(
   g: Graphics,
-  left: number,
-  top: number,
-  width: number,
-  height: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
   alpha: number,
   lit: boolean,
 ): void {
-  const w = width * 0.5;
-  const h = height * 0.3;
-  const x = left + (width - w) / 2;
-  const y = top + height * 0.55;
   if (lit) {
     // A soft halo around the opening, then the fire itself.
     g.roundRect(x - 4, y - 4, w + 8, h + 8, 6).fill({ color: FIREBOX_GLOW, alpha: 0.35 * alpha });

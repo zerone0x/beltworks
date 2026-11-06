@@ -7,8 +7,8 @@
  *
  * Chests, furnaces, burner mining drills and burner inserters have their own
  * tables and behavior (src/sim/entities/), belts theirs in src/sim/belts/,
- * small electric poles theirs (the power grid) in src/sim/power/. The other
- * power entities (boiler, steam engine, electric mining drill, electric
+ * small electric poles (the power grid), boilers and steam engines theirs in
+ * src/sim/power/. The other power entities (electric mining drill, electric
  * inserter) are prototype stubs for now: they carry the shared M2 design
  * numbers, but no table gives them behavior yet, so they are plain
  * placeholders when placed.
@@ -186,7 +186,7 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     // One pickup → drop → return cycle takes 2 × 36 = 72 ticks (1.2 s).
     swingTicks: 36,
   },
-  // Power (M2): prototype stubs with the shared design numbers.
+  // Power (M2), with the shared design numbers.
   [EntityTypeId.SmallElectricPole]: {
     id: EntityTypeId.SmallElectricPole,
     name: 'small-electric-pole',

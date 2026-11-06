@@ -4,7 +4,14 @@ import { ItemId } from '../../src/data/items';
 import { RecipeId } from '../../src/data/recipes';
 import { MachineState } from '../../src/sim/entities/machine';
 import type { EntityDetailData } from '../../src/sim/snapshot';
-import { machineBars, hasEntityGui, statusView } from '../../src/ui/entityPanel';
+import { engineSpeed } from '../../src/render/generatorLayer';
+import {
+  formatPower,
+  machineBars,
+  hasEntityGui,
+  powerView,
+  statusView,
+} from '../../src/ui/entityPanel';
 
 const detail = (fields: Partial<EntityDetailData>): EntityDetailData => ({
   id: 1,
@@ -15,12 +22,18 @@ const detail = (fields: Partial<EntityDetailData>): EntityDetailData => ({
   progress: 0,
   energy: 0,
   burning: 0,
+  power: 0,
+  network: 0,
+  satisfaction: 0,
   slots: [],
   ...fields,
 });
 
 describe('entity panel', () => {
-  it('opens for chests, furnaces, drills and inserters only', () => {
+  it('opens for chests, furnaces, drills, inserters, boilers and steam engines only', () => {
+    expect(hasEntityGui(EntityTypeId.Boiler)).toBe(true);
+    expect(hasEntityGui(EntityTypeId.SteamEngine)).toBe(true);
+    expect(hasEntityGui(EntityTypeId.SmallElectricPole)).toBe(false);
     expect(hasEntityGui(EntityTypeId.WoodenChest)).toBe(true);
     expect(hasEntityGui(EntityTypeId.StoneFurnace)).toBe(true);
     expect(hasEntityGui(EntityTypeId.BurnerMiningDrill)).toBe(true);
@@ -47,6 +60,12 @@ describe('entity panel', () => {
       text: 'Waiting for source',
     });
     expect(statusView(MachineState.WaitingForTarget).text).toBe('Waiting for target');
+    expect(statusView(MachineState.NoDemand)).toEqual({ key: 'no-demand', text: 'No demand' });
+    // A steam engine's input is steam.
+    expect(statusView(MachineState.NoInput, EntityTypeId.SteamEngine)).toEqual({
+      key: 'no-steam',
+      text: 'No steam',
+    });
     expect(statusView(MachineState.Idle).text).toBe('');
     expect(statusView(99).key).toBe('idle');
   });
@@ -84,5 +103,33 @@ describe('entity panel', () => {
       { progress: 0.25, fuel: 0.5 },
     );
     expect(machineBars(inserter({ progress: 36 })).progress).toBe(1);
+  });
+
+  it('writes power in W, kW and MW (60 ticks per second)', () => {
+    expect(formatPower(15_000)).toBe('900 kW');
+    expect(formatPower(30_000)).toBe('1.8 MW');
+    expect(formatPower(7)).toBe('420 W');
+    expect(formatPower(0)).toBe('0 W');
+    expect(formatPower(12_345)).toBe('740.7 kW');
+  });
+
+  it("shows a steam engine's output out of its maximum and its network's satisfaction", () => {
+    const engine = (fields: Partial<EntityDetailData>) =>
+      detail({ type: EntityTypeId.SteamEngine, ...fields });
+    expect(powerView(engine({ power: 7_500, network: 3, satisfaction: 32_768 }))).toEqual({
+      output: 0.5,
+      text: 'Output: 450 kW / 900 kW',
+      network: 'Network: 50% satisfied',
+    });
+    expect(powerView(engine({ power: 0, network: 0 })).network).toBe('Not connected');
+    const boiler = powerView(detail({ type: EntityTypeId.Boiler, power: 30_000 }));
+    expect(boiler).toEqual({ output: 1, text: 'Output: 1.8 MW / 1.8 MW', network: '' });
+  });
+
+  it('turns a steam engine flywheel with its output', () => {
+    expect(engineSpeed(15_000, 15_000)).toBe(1);
+    expect(engineSpeed(3_750, 15_000)).toBe(0.25);
+    expect(engineSpeed(0, 15_000)).toBe(0);
+    expect(engineSpeed(10, 0)).toBe(0);
   });
 });

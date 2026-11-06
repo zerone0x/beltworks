@@ -26,7 +26,8 @@
  *    on grass by its patch: four in one network, then it takes out the pole
  *    that bridges them (a split into three networks), puts it back (a merge
  *    into the lowest id) and adds one just out of wire reach (squared
- *    distance 50) that stays a network of its own.
+ *    distance 50) that stays a network of its own, and builds a fuelled
+ *    boiler with two steam engines among them.
  *    Meanwhile the players hand-craft from the plates, wood and stone of
  *    `DETERMINISM_KIT`: crafts with auto-queued intermediates, crafts cut
  *    short by missing items, and cancels (of a craft, of an intermediate in
@@ -341,6 +342,33 @@ function polePhase(x: number, y: number): Command[] {
   ];
 }
 
+/** Tick player 1 builds a boiler and two steam engines (after its poles). */
+export const DETERMINISM_STEAM_TICK = 926;
+/** Entity ids of the boiler and its engines (they follow the poles). */
+export const DETERMINISM_BOILER = 31;
+export const DETERMINISM_ENGINE_WEST = 32;
+export const DETERMINISM_ENGINE_EAST = 33;
+
+/**
+ * Player 1's steam power, built while it stands on tile `(x, y)` among its
+ * poles: a boiler facing north on `(x + 4..x + 5, y - 1..y + 1)` with two
+ * engines side by side in front of it, covered by the bridge and east poles
+ * (network 1). The boiler gets coal and gives one back; with no consumers
+ * yet it waits (`NoDemand`) and burns nothing.
+ */
+function steamPhase(x: number, y: number): Command[] {
+  const p = { playerId: 1 };
+  const t = DETERMINISM_STEAM_TICK;
+  const { North } = Direction;
+  return [
+    { ...p, tick: t, type: 'Place', item: ItemId.Boiler, x: x + 4, y: y - 1, dir: North },
+    { ...p, tick: t, type: 'Place', item: ItemId.SteamEngine, x: x + 2, y: y - 6, dir: North },
+    { ...p, tick: t + 1, type: 'Place', item: ItemId.SteamEngine, x: x + 5, y: y - 6, dir: North },
+    { ...p, tick: t + 2, type: 'Insert', entity: DETERMINISM_BOILER, item: ItemId.Coal, count: 3 },
+    { ...p, tick: t + 3, type: 'Take', entity: DETERMINISM_BOILER, slot: 0, count: 1 },
+  ];
+}
+
 /**
  * Hand-crafting while the players walk and mine (it only uses
  * `DETERMINISM_KIT` items, so the mined ore stays untouched).
@@ -464,6 +492,7 @@ function scriptedPhase(): Command[] {
     }
     if (id === 1) {
       commands.push(...polePhase(fixedToTile(w.x), fixedToTile(w.y)));
+      commands.push(...steamPhase(fixedToTile(w.x), fixedToTile(w.y)));
     }
   }
   return commands;

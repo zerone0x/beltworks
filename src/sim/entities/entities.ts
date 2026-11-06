@@ -53,6 +53,11 @@ export class Entities {
     return this.store.count;
   }
 
+  /** Every registered table, in type id order. */
+  get tables(): readonly EntityTypeTable[] {
+    return this.tableList;
+  }
+
   /** The table registered for entity type `type`, if any. */
   table(type: number): EntityTypeTable | undefined {
     return this.byType.get(type);

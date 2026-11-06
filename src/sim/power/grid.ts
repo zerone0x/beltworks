@@ -32,8 +32,10 @@
  * entity itself, can change its pole.
  *
  * **Solver** (`update`, the power system, run each tick before every
- * consumer): for each network, sum the demand of its consumers and the
- * maximum output of its producers; compute the satisfaction (solver.ts);
+ * consumer): first every table's `powerPrepare` hook (steam engines share
+ * out their boilers' supply there); then for each network, sum the demand
+ * of its consumers and the maximum output of its producers; compute the
+ * satisfaction (solver.ts);
  * then tell each producer its share of the load. Consumers read their
  * network's satisfaction back with `satisfaction(id)` when their own system
  * runs later in the tick. With no producers, a network with demand has
@@ -312,6 +314,7 @@ export class PowerGrid implements EntityTypeTable {
   /** Solves every network for this tick and tells the producers what to deliver. */
   update(entities: Entities): void {
     this.refreshNetworks();
+    for (const table of entities.tables) table.powerPrepare?.(entities);
     const nNets = this.nets.size;
     this.netDemand.fill(0, 0, nNets);
     this.netSupply.fill(0, 0, nNets);
