@@ -29,6 +29,12 @@ import {
   DETERMINISM_ENGINE_EAST,
   DETERMINISM_ENGINE_WEST,
   DETERMINISM_KIT,
+  DETERMINISM_LOGISTICS_FAST,
+  DETERMINISM_LOGISTICS_LONG,
+  DETERMINISM_LOGISTICS_MIDDLE,
+  DETERMINISM_LOGISTICS_SOURCE,
+  DETERMINISM_LOGISTICS_TARGET,
+  DETERMINISM_LOGISTICS_TICK,
   DETERMINISM_PATCH_CHEST,
   DETERMINISM_PATCH_FURNACE,
   DETERMINISM_PATCH_DRILL,
@@ -140,9 +146,10 @@ describe('determinism', () => {
       }
       if (id === 1) {
         // Player 1 mines coal and fuels its boiler with two, which has burnt
-        // one of them for the electric inserter's drain.
+        // one of them for the electric inserter's drain, and puts four into
+        // its logistics rig.
         expect(item).toBe(ItemId.Coal);
-        mined += sim.state.entities.slots(DETERMINISM_BOILER)[BoilerSlot.Fuel]!.count + 1;
+        mined += sim.state.entities.slots(DETERMINISM_BOILER)[BoilerSlot.Fuel]!.count + 1 + 4;
       }
       // 300 + 150 ticks of mining at 30 ticks per unit, on top of the starting kit.
       expect(mined).toBe(15);
@@ -591,7 +598,46 @@ describe('determinism', () => {
     expect(copper()).toBe(7);
     while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
     expect(entities.status(id)).toBe(MachineState.Working);
-    expect(grid.network(1)).toMatchObject({ demand: 1_250 + 7, load: 1_257 });
+    // With player 1's logistics rig on the same network: the long-handed
+    // inserter swinging (333 J) and the fast one asleep (its 15 J drain).
+    expect(grid.network(1)).toMatchObject({ demand: 1_250 + 7 + 333 + 15, load: 1_605 });
+  });
+
+  it("moves coal through player 1's iron chests with a long-handed and a fast inserter", () => {
+    const sim = createDeterminismSim();
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    const { entities } = sim.state;
+    const grid = powerGrid(entities)!;
+    while (sim.tick <= DETERMINISM_LOGISTICS_TICK + 1) sim.step();
+    const types = [
+      DETERMINISM_LOGISTICS_SOURCE,
+      DETERMINISM_LOGISTICS_LONG,
+      DETERMINISM_LOGISTICS_MIDDLE,
+      DETERMINISM_LOGISTICS_FAST,
+      DETERMINISM_LOGISTICS_TARGET,
+    ].map((id) => entities.store.type(id));
+    expect(types).toEqual([
+      EntityTypeId.IronChest,
+      EntityTypeId.LongHandedInserter,
+      EntityTypeId.IronChest,
+      EntityTypeId.FastInserter,
+      EntityTypeId.IronChest,
+    ]);
+    const long = DETERMINISM_LOGISTICS_LONG;
+    const fast = DETERMINISM_LOGISTICS_FAST;
+    // The long-handed inserter reaches 2 tiles each way, over the empty tiles between.
+    const { store } = entities;
+    expect(store.x(DETERMINISM_LOGISTICS_SOURCE)).toBe(store.x(long) - 2);
+    expect(store.x(DETERMINISM_LOGISTICS_MIDDLE)).toBe(store.x(long) + 2);
+    expect([grid.networkOf(long), grid.networkOf(fast)]).toEqual([1, 1]);
+    const coal = (id: number) => entities.contents(id).find((s) => s.item === ItemId.Coal)?.count;
+    while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
+    // Two of the four coal are on their way: one in the long hand, one already in the last chest.
+    expect(coal(DETERMINISM_LOGISTICS_SOURCE)).toBe(2);
+    expect(coal(long)).toBe(1);
+    expect(coal(DETERMINISM_LOGISTICS_MIDDLE)).toBeUndefined();
+    expect(coal(DETERMINISM_LOGISTICS_TARGET)).toBe(1);
+    expect(entities.status(fast)).toBe(MachineState.WaitingForSource);
   });
 
   it("puts player 2's electric drill and inserter on a network without power", () => {

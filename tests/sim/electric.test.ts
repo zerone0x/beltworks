@@ -546,6 +546,7 @@ describe('electric inserter', () => {
         held: PLATE,
         swing: SAT_ONE / 2,
         span: ELECTRIC_INSERTER_SWING_TICKS * SAT_ONE,
+        type: EntityTypeId.ElectricInserter,
       },
     ]);
     expect(d.entities.take(d.inserter, ElectricInserterSlot.Hand, 1)).toBe(1);

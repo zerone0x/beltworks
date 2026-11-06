@@ -31,7 +31,14 @@
  * of reach.
  */
 
-import { ENTITIES, EntityTypeId, SAT_ONE, craftingTicks, entityPrototype } from '../data/entities';
+import {
+  EntityTypeId,
+  SAT_ONE,
+  craftingTicks,
+  entityPrototype,
+  isChestPrototype,
+  isInserterPrototype,
+} from '../data/entities';
 import { fuelValue, itemPrototype } from '../data/items';
 import { recipePrototype, type Recipe } from '../data/recipes';
 import { isAssemblerType } from '../sim/entities/assembler';
@@ -56,13 +63,14 @@ import {
 const isDrill = (type: number | undefined): boolean =>
   type === EntityTypeId.BurnerMiningDrill || type === EntityTypeId.ElectricMiningDrill;
 const isInserter = (type: number | undefined): boolean =>
-  type === EntityTypeId.BurnerInserter || type === EntityTypeId.ElectricInserter;
+  type !== undefined && isInserterPrototype(entityPrototype(type));
+const isChest = (type: number): boolean => isChestPrototype(entityPrototype(type));
 const isElectric = (type: number): boolean => entityPrototype(type)?.energySource === 'electric';
 
 /** Entity types that have a GUI. */
 export function hasEntityGui(type: number): boolean {
   return (
-    type === EntityTypeId.WoodenChest ||
+    isChest(type) ||
     type === EntityTypeId.StoneFurnace ||
     isDrill(type) ||
     isInserter(type) ||
@@ -480,8 +488,8 @@ export class EntityPanel {
       this.buildAssembler();
       return;
     }
-    if (type === EntityTypeId.WoodenChest) {
-      const slots = ENTITIES[EntityTypeId.WoodenChest].slots ?? 0;
+    if (isChest(type)) {
+      const slots = entityPrototype(type)?.slots ?? 0;
       this.chestGrid = new SlotGrid(slots, CHEST_COLUMNS, (i, transfer) => {
         this.takeSlot(i, transfer);
       });

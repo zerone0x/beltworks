@@ -5,9 +5,9 @@
  * means "no entity". They must stay stable: changing an id breaks saves and
  * state hashes.
  *
- * Chests, furnaces, mining drills and inserters (burner and electric) and
- * assembling machines have their own tables and behavior
- * (src/sim/entities/), belts theirs in
+ * Chests (wooden and iron), furnaces, mining drills, inserters (burner,
+ * electric, fast and long-handed) and assembling machines have their own
+ * tables and behavior (src/sim/entities/), belts theirs in
  * src/sim/belts/, small electric poles (the power grid), boilers and steam
  * engines theirs in src/sim/power/.
  *
@@ -34,6 +34,10 @@ export const EntityTypeId = {
   ElectricInserter: 10,
   AssemblingMachine1: 11,
   AssemblingMachine2: 12,
+  // M3 logistics.
+  IronChest: 13,
+  FastInserter: 14,
+  LongHandedInserter: 15,
 } as const;
 
 export type EntityTypeId = (typeof EntityTypeId)[keyof typeof EntityTypeId];
@@ -91,7 +95,8 @@ export interface EntityPrototype {
   readonly beltSpeed?: number;
   /**
    * Ticks an inserter's arm takes to swing from its pickup tile to its drop
-   * tile (and as many to swing back).
+   * tile (and as many to swing back). Every inserter has it, and only
+   * inserters do (see {@link isInserterPrototype}).
    */
   readonly swingTicks?: number;
   /**
@@ -100,6 +105,12 @@ export interface EntityPrototype {
    * (see {@link craftingTicks}).
    */
   readonly craftingSpeed?: { readonly num: number; readonly den: number };
+  /**
+   * How far an inserter reaches, in tiles: it picks up from the tile `reach`
+   * tiles behind it and drops onto the tile `reach` tiles in front of it
+   * (1 when absent; 2 for the long-handed inserter).
+   */
+  readonly reach?: number;
 }
 
 /** Where an entity gets its energy from. */
@@ -321,6 +332,52 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     // Recipes take 4/3 of their ticks, rounded up.
     craftingSpeed: { num: 3, den: 4 },
   },
+  // Logistics (M3), with the shared design numbers.
+  [EntityTypeId.IronChest]: {
+    id: EntityTypeId.IronChest,
+    name: 'iron-chest',
+    label: 'Iron chest',
+    width: 1,
+    height: 1,
+    rotatable: false,
+    item: ItemId.IronChest,
+    color: 0x8f97a3,
+    slots: 32,
+  },
+  [EntityTypeId.FastInserter]: {
+    id: EntityTypeId.FastInserter,
+    name: 'fast-inserter',
+    label: 'Fast inserter',
+    width: 1,
+    height: 1,
+    rotatable: true,
+    item: ItemId.FastInserter,
+    color: 0xc8443c,
+    energySource: 'electric',
+    // 46.2 kW while moving, plus a 900 W drain while idle.
+    energyPerTick: 770,
+    drainPerTick: 15,
+    // One cycle takes 2 × 13 = 26 ticks.
+    swingTicks: 13,
+  },
+  [EntityTypeId.LongHandedInserter]: {
+    id: EntityTypeId.LongHandedInserter,
+    name: 'long-handed-inserter',
+    label: 'Long-handed inserter',
+    width: 1,
+    height: 1,
+    rotatable: true,
+    item: ItemId.LongHandedInserter,
+    color: 0x4f9a4a,
+    energySource: 'electric',
+    // 20 kW while moving (19.98), plus a 420 W drain while idle.
+    energyPerTick: 333,
+    drainPerTick: 7,
+    // One cycle takes 2 × 25 = 50 ticks.
+    swingTicks: 25,
+    // Picks up 2 tiles behind it and drops 2 tiles in front of it.
+    reach: 2,
+  },
 };
 
 /** Every real entity type id, in id order. */
@@ -337,7 +394,25 @@ export const ENTITY_TYPE_IDS: readonly RealEntityTypeId[] = [
   EntityTypeId.ElectricInserter,
   EntityTypeId.AssemblingMachine1,
   EntityTypeId.AssemblingMachine2,
+  EntityTypeId.IronChest,
+  EntityTypeId.FastInserter,
+  EntityTypeId.LongHandedInserter,
 ];
+
+/** Whether `proto` is an inserter (burner, electric, fast or long-handed). */
+export function isInserterPrototype(proto: EntityPrototype | undefined): boolean {
+  return proto?.swingTicks !== undefined;
+}
+
+/** How far inserter type `proto` reaches, in tiles (see {@link EntityPrototype.reach}). */
+export function inserterReach(proto: EntityPrototype): number {
+  return proto.reach ?? 1;
+}
+
+/** Whether `proto` is a chest (wooden or iron): the only entities with `slots`. */
+export function isChestPrototype(proto: EntityPrototype | undefined): boolean {
+  return proto?.slots !== undefined;
+}
 
 /** Largest footprint edge of any entity, in tiles (the steam engine's 5). */
 export const MAX_ENTITY_SIZE = 5;

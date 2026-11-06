@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { ENTITIES, EntityTypeId } from '../../src/data/entities';
 import { ItemId } from '../../src/data/items';
-import { ARM_LENGTH, armTip, swingFraction } from '../../src/render/inserterLayer';
+import { ghostInserterTiles } from '../../src/render/entityLayer';
+import {
+  ARM_LENGTH,
+  armColor,
+  armLength,
+  armTip,
+  swingFraction,
+} from '../../src/render/inserterLayer';
 import { BuildResult, placeEntity } from '../../src/sim/entities/build';
 import { Direction } from '../../src/sim/entities/direction';
 import { INSERTER_SWING_TICKS } from '../../src/sim/entities/inserter';
@@ -9,6 +17,7 @@ import { decodeInserters, encodeInserters } from '../../src/sim/snapshot';
 import { Sim } from '../../src/sim/tick';
 
 const { North, East, South, West } = Direction;
+const BURNER = EntityTypeId.BurnerInserter;
 
 const close = (p: { x: number; y: number }, x: number, y: number) => {
   expect(p.x).toBeCloseTo(x, 9);
@@ -35,6 +44,50 @@ describe('armTip', () => {
   });
 });
 
+describe('arm length and color', () => {
+  it('reaches into the neighbouring tile, or the one beyond for the long-handed inserter', () => {
+    expect(armLength(EntityTypeId.BurnerInserter)).toBeCloseTo(ARM_LENGTH, 9);
+    expect(armLength(EntityTypeId.ElectricInserter)).toBeCloseTo(ARM_LENGTH, 9);
+    expect(armLength(EntityTypeId.FastInserter)).toBeCloseTo(ARM_LENGTH, 9);
+    expect(armLength(EntityTypeId.LongHandedInserter)).toBeCloseTo(1 + ARM_LENGTH, 9);
+    close(armTip(East, 1, armLength(EntityTypeId.LongHandedInserter)), 1.8, 0);
+  });
+
+  it('gives fast and long-handed arms colors of their own', () => {
+    const colors = new Set(
+      [BURNER, EntityTypeId.FastInserter, EntityTypeId.LongHandedInserter].map(armColor),
+    );
+    expect(colors.size).toBe(3);
+    expect(armColor(EntityTypeId.ElectricInserter)).toBe(armColor(BURNER));
+  });
+});
+
+describe('ghostInserterTiles', () => {
+  const ghost = (type: keyof typeof ENTITIES, x: number, y: number, dir: Direction) => ({
+    proto: ENTITIES[type],
+    x,
+    y,
+    dir,
+    valid: true,
+  });
+
+  it('marks the pickup and drop tiles of an inserter ghost, by its reach', () => {
+    expect(ghostInserterTiles(ghost(EntityTypeId.FastInserter, 3, 0, East))).toEqual({
+      pickup: { x: 2, y: 0 },
+      drop: { x: 4, y: 0 },
+    });
+    expect(ghostInserterTiles(ghost(EntityTypeId.LongHandedInserter, 3, 0, East))).toEqual({
+      pickup: { x: 1, y: 0 },
+      drop: { x: 5, y: 0 },
+    });
+    expect(ghostInserterTiles(ghost(EntityTypeId.LongHandedInserter, 0, 0, North))).toEqual({
+      pickup: { x: 0, y: 2 },
+      drop: { x: 0, y: -2 },
+    });
+    expect(ghostInserterTiles(ghost(EntityTypeId.IronChest, 0, 0, North))).toBeNull();
+  });
+});
+
 describe('swingFraction', () => {
   const at = (arm: number, swing: number, span = INSERTER_SWING_TICKS) => ({
     x: 0,
@@ -44,6 +97,7 @@ describe('swingFraction', () => {
     held: 0,
     swing,
     span,
+    type: EntityTypeId.BurnerInserter,
   });
 
   it('draws the arm between its last two positions', () => {
@@ -90,8 +144,17 @@ describe('encodeInserters', () => {
     // In chunk order, like the entity records.
     expect(all).toEqual([
       // Without fuel: not moving.
-      { x: -2, y: -2, dir: South, arm: 0, held: 0, swing: 0, span: 36 },
-      { x: 3, y: 0, dir: East, arm: 5, held: ItemId.IronPlate, swing: 1, span: 36 },
+      { x: -2, y: -2, dir: South, arm: 0, held: 0, swing: 0, span: 36, type: BURNER },
+      {
+        x: 3,
+        y: 0,
+        dir: East,
+        arm: 5,
+        held: ItemId.IronPlate,
+        swing: 1,
+        span: 36,
+        type: BURNER,
+      },
     ]);
     const only = { cx0: 0, cy0: 0, cx1: 0, cy1: 0 };
     const some = decodeInserters(encodeInserters(state, only).buffer);

@@ -44,6 +44,9 @@ describe('entity panel', () => {
     expect(hasEntityGui(EntityTypeId.BurnerInserter)).toBe(true);
     expect(hasEntityGui(EntityTypeId.ElectricMiningDrill)).toBe(true);
     expect(hasEntityGui(EntityTypeId.ElectricInserter)).toBe(true);
+    expect(hasEntityGui(EntityTypeId.IronChest)).toBe(true);
+    expect(hasEntityGui(EntityTypeId.FastInserter)).toBe(true);
+    expect(hasEntityGui(EntityTypeId.LongHandedInserter)).toBe(true);
     expect(hasEntityGui(EntityTypeId.TransportBelt)).toBe(false);
     expect(hasEntityGui(EntityTypeId.SmallElectricPole)).toBe(false);
     expect(hasEntityGui(0)).toBe(false);
@@ -152,6 +155,10 @@ describe('entity panel', () => {
     expect(
       machineBars(detail({ type: EntityTypeId.ElectricInserter, progress: 13 })).progress,
     ).toBe(0.5);
+    expect(machineBars(detail({ type: EntityTypeId.FastInserter, progress: 13 })).progress).toBe(1);
+    expect(
+      machineBars(detail({ type: EntityTypeId.LongHandedInserter, progress: 5 })).progress,
+    ).toBe(0.2);
   });
 
   it("shows an electric consumer's draw out of its full-power draw and its network", () => {

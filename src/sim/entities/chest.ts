@@ -1,6 +1,7 @@
 /**
- * Wooden chests: a fixed number of item slots per chest (16, from
- * src/data/entities.ts), stored as two flat uint16 columns (item id and count
+ * Chests: a fixed number of item slots per chest (16 for the wooden chest, 32
+ * for the iron chest, from src/data/entities.ts; one `ChestTable` per chest
+ * type, built from its prototype), stored as two flat uint16 columns (item id and count
  * per slot), `slotsPerChest` consecutive slots per row in sparse-set order.
  *
  * Chests have no per-tick behavior. Items go in and out through the item
@@ -9,7 +10,12 @@
  * its contents (removal is refused if they don't fit; see build.ts).
  */
 
-import { ENTITIES, EntityTypeId } from '../../data/entities';
+import {
+  ENTITIES,
+  EntityTypeId,
+  type EntityPrototype,
+  type RealEntityTypeId,
+} from '../../data/entities';
 import { itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
 import { fnv1a32 } from '../hash';
 import { Inventory } from '../inventory';
@@ -18,11 +24,18 @@ import { SparseSet, growTo } from './sparseSet';
 import type { EntityTypeTable, Slot } from './table';
 
 export class ChestTable implements EntityTypeTable {
-  readonly type = EntityTypeId.WoodenChest;
-  readonly slotsPerChest = ENTITIES[EntityTypeId.WoodenChest].slots ?? 1;
+  readonly type: RealEntityTypeId;
+  readonly slotsPerChest: number;
+  private readonly proto: EntityPrototype;
   private readonly set = new SparseSet();
   private items = new Uint16Array(0);
   private counts = new Uint16Array(0);
+
+  constructor(proto: EntityPrototype = ENTITIES[EntityTypeId.WoodenChest]) {
+    this.proto = proto;
+    this.type = proto.id;
+    this.slotsPerChest = proto.slots ?? 1;
+  }
 
   /** Number of chests. */
   get count(): number {
@@ -124,7 +137,7 @@ export class ChestTable implements EntityTypeTable {
   private row(id: number): number {
     const row = this.set.indexOf(id);
     if (row < 0) {
-      throw new RangeError(`no chest ${String(id)}`);
+      throw new RangeError(`no ${this.proto.name} ${String(id)}`);
     }
     return row;
   }

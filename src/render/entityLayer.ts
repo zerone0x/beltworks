@@ -6,17 +6,24 @@
  * poles, and a recessed work area on assembling machines), a power icon over electric consumers without enough power (red
  * for no power, yellow for low power; in `iconContainer`, above the
  * inserter arms and wires), and the ghost preview of the entity about to be
- * placed. Placed belts are drawn by the belt layer (beltLayer.ts) instead,
- * inserter arms by the inserter layer (inserterLayer.ts), steam engine
- * flywheels by the generator layer (generatorLayer.ts), and assembling
- * machines' product icons and working lights by the assembler layer
- * (assemblerLayer.ts).
+ * placed (for inserters with markers on the tiles they would pick up from
+ * and drop onto). Placed belts are drawn by the belt layer (beltLayer.ts)
+ * instead, inserter arms by the inserter layer (inserterLayer.ts), steam
+ * engine flywheels by the generator layer (generatorLayer.ts), and
+ * assembling machines' product icons and working lights by the assembler
+ * layer (assemblerLayer.ts).
  */
 
 import { Container, Graphics } from 'pixi.js';
-import { EntityTypeId, type EntityPrototype } from '../data/entities';
+import {
+  EntityTypeId,
+  inserterReach,
+  isInserterPrototype,
+  type EntityPrototype,
+} from '../data/entities';
 import type { Direction } from '../sim/entities/direction';
 import { isAssemblerType } from '../sim/entities/assembler';
+import { inserterDropTile, inserterPickupTile } from '../sim/entities/inserter';
 import { MachineState } from '../sim/entities/machine';
 import { footprintSize } from '../sim/entities/store';
 import { TILE_PX } from './camera';
@@ -40,6 +47,9 @@ const WORK_AREA = 0x26282c;
 export const NO_POWER_COLOR = 0xe0473c;
 export const LOW_POWER_COLOR = 0xf2c230;
 const POWER_ICON_BACK = 0x1c1d21;
+/** Ghost markers of an inserter's pickup tile (a ring) and drop tile (a dot). */
+export const PICKUP_MARKER = 0x6fc3ff;
+export const DROP_MARKER = 0xffb347;
 
 /** Multiplies each channel of a 0xRRGGBB color by `f` (0..1). */
 function shade(rgb: number, f: number): number {
@@ -70,8 +80,7 @@ export function drawEntity(
   const { w, h } = proto ? footprintSize(proto, dir) : { w: 1, h: 1 };
   const color = proto?.color ?? MISSING_COLOR;
   // Inserters stand on a small platform, leaving room to see their arm swing.
-  const inserter =
-    proto?.id === EntityTypeId.BurnerInserter || proto?.id === EntityTypeId.ElectricInserter;
+  const inserter = isInserterPrototype(proto);
   const inset = inserter ? 7 : 2;
   const left = x * TILE_PX + inset;
   const top = y * TILE_PX + inset;
@@ -280,6 +289,21 @@ export interface Ghost {
   valid: boolean;
 }
 
+/**
+ * The tiles an inserter ghost would pick up from and drop onto (`reach`
+ * tiles behind and in front of it), or `null` for other entities.
+ */
+export function ghostInserterTiles(
+  ghost: Ghost,
+): { pickup: { x: number; y: number }; drop: { x: number; y: number } } | null {
+  if (!isInserterPrototype(ghost.proto)) return null;
+  const reach = inserterReach(ghost.proto);
+  return {
+    pickup: inserterPickupTile(ghost.x, ghost.y, ghost.dir, reach),
+    drop: inserterDropTile(ghost.x, ghost.y, ghost.dir, reach),
+  };
+}
+
 export class GhostLayer {
   readonly container = new Container({ label: 'ghost' });
   private readonly graphics = new Graphics({ label: 'ghost' });
@@ -309,6 +333,19 @@ export class GhostLayer {
     g.rect(ghost.x * TILE_PX, ghost.y * TILE_PX, w * TILE_PX, h * TILE_PX)
       .fill({ color: tint, alpha: 0.3 })
       .stroke({ width: 2, color: tint, alpha: 0.9 });
+    const tiles = ghostInserterTiles(ghost);
+    if (tiles) {
+      const center = (t: number): number => (t + 0.5) * TILE_PX;
+      g.circle(center(tiles.pickup.x), center(tiles.pickup.y), TILE_PX * 0.28).stroke({
+        width: 3,
+        color: PICKUP_MARKER,
+        alpha: 0.9,
+      });
+      g.circle(center(tiles.drop.x), center(tiles.drop.y), TILE_PX * 0.18).fill({
+        color: DROP_MARKER,
+        alpha: 0.9,
+      });
+    }
   }
 
   destroy(): void {
