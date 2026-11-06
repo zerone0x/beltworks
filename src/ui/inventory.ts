@@ -1,5 +1,6 @@
 /**
- * Inventory UI (plain DOM): the inventory panel, toggled with `E`, and the
+ * Inventory UI (plain DOM): the inventory panel, toggled with `E` (other
+ * panels such as crafting can add sections to it), and the
  * hotbar strip showing the first `HOTBAR_SLOTS` slots, with the slot selected
  * for building (keys `1`–`0`) highlighted. Both show each slot's item as a
  * colored swatch with its count.
@@ -15,8 +16,10 @@ import type { SlotData } from '../sim/snapshot';
 export const HOTBAR_SLOTS = 10;
 /** Columns in the inventory panel grid. */
 export const INVENTORY_COLUMNS = 10;
-const SLOT_PX = 36;
-const GAP_PX = 2;
+export const SLOT_PX = 36;
+export const GAP_PX = 2;
+/** Distance of the hotbar from the bottom of the screen. */
+export const HOTBAR_BOTTOM_PX = 8;
 const SLOT_BORDER = '1px solid rgba(232, 226, 208, 0.25)';
 /** Drawn as an outline inside the slot, so selecting doesn't shift its contents. */
 const SELECTED_OUTLINE = '2px solid #f2d36b';
@@ -168,7 +171,7 @@ export class Hotbar {
     el.id = 'hotbar';
     Object.assign(el.style, {
       position: 'fixed',
-      bottom: '8px',
+      bottom: `${String(HOTBAR_BOTTOM_PX)}px`,
       left: '50%',
       // Whole pixels, so the strip doesn't land on a half pixel and blur.
       marginLeft: `${String(-Math.round(barWidth(HOTBAR_SLOTS) / 2))}px`,
@@ -200,6 +203,7 @@ export class Hotbar {
 export class InventoryPanel {
   readonly element: HTMLElement;
   private readonly grid: SlotGrid;
+  private readonly body: HTMLElement;
 
   constructor(parent: HTMLElement, slots: number) {
     const el = document.createElement('div');
@@ -223,7 +227,13 @@ export class InventoryPanel {
     title.textContent = 'Inventory';
     Object.assign(title.style, { fontWeight: '600', marginBottom: '6px' });
     this.grid = new SlotGrid(slots, INVENTORY_COLUMNS);
-    el.append(title, this.grid.element);
+    // Sections (the inventory, then e.g. crafting) side by side.
+    this.body = document.createElement('div');
+    Object.assign(this.body.style, { display: 'flex', alignItems: 'flex-start', gap: '12px' });
+    const section = document.createElement('div');
+    section.append(title, this.grid.element);
+    this.body.appendChild(section);
+    el.appendChild(this.body);
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
     });
@@ -233,6 +243,11 @@ export class InventoryPanel {
     parent.appendChild(el);
     this.element = el;
     this.grid.update([]);
+  }
+
+  /** Adds a section to the right of the inventory grid (e.g. the crafting panel). */
+  addSection(section: HTMLElement): void {
+    this.body.appendChild(section);
   }
 
   get isOpen(): boolean {
@@ -252,6 +267,7 @@ export class InventoryPanel {
   }
 }
 
-function barWidth(slots: number): number {
+/** Outer width (and, for one slot, height) of a bar of `slots` slots like the hotbar. */
+export function barWidth(slots: number): number {
   return 2 * 4 + slots * SLOT_PX + (slots - 1) * GAP_PX;
 }

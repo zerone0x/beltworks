@@ -7,6 +7,7 @@
  */
 
 import { CommandQueue, validateCommand, type Command } from './commands';
+import { updateCrafting } from './crafting/queue';
 import { placeEntity, removeEntity, rotateEntity } from './entities/build';
 import { furnaceTable } from './entities/furnace';
 import { insertIntoEntity, takeFromEntity } from './entities/transfer';
@@ -28,15 +29,22 @@ export const SYSTEMS: readonly System[] = [
   stub('belts'),
   stub('inserters'),
   { name: 'machines', run: (sim) => furnaceTable(sim.state.entities)?.update(sim.state.entities) },
-  { name: 'players', run: (sim) => updatePlayers(sim.state.players, sim.state.world) },
+  {
+    name: 'players',
+    run: ({ state }) => {
+      // Movement and hand-mining of every player, then hand-crafting.
+      updatePlayers(state.players, state.world);
+      updateCrafting(state.crafting, state.players);
+    },
+  },
   // Snapshots are read by the worker after `step()` returns; events will be emitted here.
   stub('events'),
 ];
 
 /**
- * Applies one command. Commands for unknown players, and build and transfer
- * commands that don't apply (see src/sim/entities/build.ts and transfer.ts),
- * are ignored.
+ * Applies one command. Commands for unknown players, and build, transfer and
+ * crafting commands that don't apply (see src/sim/entities/build.ts,
+ * src/sim/entities/transfer.ts and src/sim/crafting/queue.ts), are ignored.
  */
 export function applyCommand(state: SimState, cmd: Command): void {
   const { players } = state;
@@ -67,6 +75,12 @@ export function applyCommand(state: SimState, cmd: Command): void {
       break;
     case 'Take':
       takeFromEntity(state, cmd.playerId, cmd.entity, cmd.slot, cmd.count);
+      break;
+    case 'Craft':
+      state.crafting.queue(cmd.playerId, players.inventory(cmd.playerId), cmd.recipe, cmd.count);
+      break;
+    case 'CancelCraft':
+      state.crafting.cancel(cmd.playerId, players.inventory(cmd.playerId), cmd.index);
       break;
   }
 }

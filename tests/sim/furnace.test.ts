@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENTITIES, EntityTypeId, FURNACE_OUTPUT_LIMIT } from '../../src/data/entities';
 import { ITEMS, ItemId, fuelValue, type ItemStack } from '../../src/data/items';
-import { RECIPES, RecipeId } from '../../src/data/recipes';
+import { RECIPES, RECIPE_IDS, RecipeId, smeltingRecipeFor } from '../../src/data/recipes';
 import { BuildResult, placeEntity, removeEntity } from '../../src/sim/entities/build';
 import { BurnerColumns } from '../../src/sim/entities/burner';
 import { Direction } from '../../src/sim/entities/direction';
@@ -11,7 +11,6 @@ import {
   FurnaceSlot,
   FurnaceTable,
   furnaceTable,
-  smeltingRecipeFor,
 } from '../../src/sim/entities/furnace';
 import { MachineState } from '../../src/sim/entities/machine';
 import type { EntityTypeTable } from '../../src/sim/entities/table';
@@ -69,19 +68,20 @@ describe('shared M1 numbers', () => {
   });
 
   it('define the smelting recipes', () => {
-    const smelting = RECIPES.filter((r) => r.category === 'smelting');
+    const recipes = RECIPE_IDS.map((id) => RECIPES[id]);
+    const smelting = recipes.filter((r) => r.category === 'smelting');
     expect(smelting.map((r) => [r.inputs, r.outputs, r.ticks])).toEqual([
       [[[ItemId.IronOre, 1]], [[ItemId.IronPlate, 1]], PLATE_TICKS],
       [[[ItemId.CopperOre, 1]], [[ItemId.CopperPlate, 1]], PLATE_TICKS],
       [[[ItemId.Stone, 2]], [[ItemId.StoneBrick, 1]], PLATE_TICKS],
     ]);
-    for (const r of RECIPES) {
+    for (const r of recipes) {
       for (const [item, count] of [...r.inputs, ...r.outputs]) {
         expect(ITEMS[item]).toBeDefined();
         expect(Number.isInteger(count) && count > 0).toBe(true);
       }
     }
-    expect(new Set(RECIPES.map((r) => r.id)).size).toBe(RECIPES.length);
+    expect(new Set(recipes.map((r) => r.id)).size).toBe(recipes.length);
     expect(smeltingRecipeFor(ItemId.IronOre)?.id).toBe(RecipeId.IronPlate);
     expect(smeltingRecipeFor(ItemId.Stone)?.id).toBe(RecipeId.StoneBrick);
     expect(smeltingRecipeFor(ItemId.Coal)).toBeUndefined();

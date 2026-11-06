@@ -5,8 +5,9 @@
  * Worker → main: `snapshot`, `stats`, `error`.
  *
  * Commands include the build commands `Place`, `Remove` and `Rotate` and the
- * entity GUI's `Insert` and `Take`; like every command they are validated for
- * shape here and ignored by the simulation when they don't apply.
+ * entity GUI's `Insert` and `Take` and the crafting commands `Craft` and
+ * `CancelCraft`; like every command they are validated for shape here and
+ * ignored by the simulation when they don't apply.
  *
  * Bulk data travels in ArrayBuffers that are transferred, not copied.
  */
@@ -106,6 +107,8 @@ export interface SnapshotMessage {
   players: ArrayBuffer;
   /** Inventory of `LOCAL_PLAYER_ID` as uint16 `[item, count]` pairs; see `encodeInventory`. */
   inventory: ArrayBuffer;
+  /** Crafting queue of `LOCAL_PLAYER_ID` as uint16s; see `encodeCraftQueue` in src/sim/snapshot.ts. */
+  craftQueue: ArrayBuffer;
   /**
    * Every entity with its origin inside `chunkWindow`, as int32 records; see
    * `ENTITY_STRIDE` and `encodeEntities` in src/sim/snapshot.ts. Empty before

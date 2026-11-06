@@ -6,6 +6,7 @@
 
 import type { ItemStack } from '../data/items';
 import { STARTING_KIT } from '../data/start';
+import { CraftingTable } from './crafting/queue';
 import { Entities } from './entities/entities';
 import { createEntityTables } from './entities/registry';
 import { FNV1A32_OFFSET_BASIS, fnv1a32 } from './hash';
@@ -19,6 +20,8 @@ export interface SimState {
   readonly seed: number;
   readonly rng: Rng;
   readonly players: PlayerTable;
+  /** Every player's hand-crafting queue (indexed like `players`). */
+  readonly crafting: CraftingTable;
   /** The map, generated lazily from `seed`. */
   readonly world: World;
   /** Every placed entity, with the occupancy index and the per-type tables. */
@@ -38,7 +41,7 @@ export interface SimOptions {
  * Bump when the hashed layout changes, so stale expected hashes fail loudly
  * instead of matching by accident.
  */
-export const STATE_HASH_VERSION = 5;
+export const STATE_HASH_VERSION = 6;
 
 export function createSimState(options: SimOptions): SimState {
   const seed = options.seed >>> 0;
@@ -55,6 +58,7 @@ export function createSimState(options: SimOptions): SimState {
     seed,
     rng: Rng.fromSeed(seed),
     players,
+    crafting: new CraftingTable(players.count),
     world: new World(seed),
     entities: new Entities(createEntityTables()),
   };
@@ -68,6 +72,7 @@ export function hashState(state: SimState): number {
   h = fnv1a32(Uint32Array.of(STATE_HASH_VERSION, tickLo, tickHi, state.seed), h);
   h = fnv1a32(state.rng.getState(), h);
   h = state.players.hashInto(h);
+  h = state.crafting.hashInto(h);
   h = state.world.hashInto(h);
   h = state.entities.hashInto(h);
   return h;

@@ -16,7 +16,7 @@
 
 import { ENTITIES, EntityTypeId, entityPrototype } from '../data/entities';
 import { fuelValue } from '../data/items';
-import { recipe } from '../data/recipes';
+import { recipePrototype } from '../data/recipes';
 import { FurnaceSlot } from '../sim/entities/furnace';
 import { MachineState } from '../sim/entities/machine';
 import type { EntityDetailData, SlotData } from '../sim/snapshot';
@@ -48,7 +48,7 @@ export function statusView(status: number): { key: string; text: string } {
 
 /** Fractions (0..1) for the furnace's progress and fuel bars. */
 export function furnaceBars(detail: EntityDetailData): { progress: number; fuel: number } {
-  const ticks = recipe(detail.recipe)?.ticks ?? 0;
+  const ticks = recipePrototype(detail.recipe)?.ticks ?? 0;
   const value = fuelValue(detail.burning);
   return {
     progress: ticks > 0 ? Math.min(1, detail.progress / ticks) : 0,
