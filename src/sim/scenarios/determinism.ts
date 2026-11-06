@@ -22,7 +22,11 @@
  *    front of it once the first ore is waiting, and keeps mining into phase 2.
  *    Player 2 builds the M1 automation chain on its stone patch (drill →
  *    belt → inserter → furnace → inserter → chest), which keeps making
- *    bricks into phase 2.
+ *    bricks into phase 2. Player 1, done mining, strings small electric poles
+ *    on grass by its patch: four in one network, then it takes out the pole
+ *    that bridges them (a split into three networks), puts it back (a merge
+ *    into the lowest id) and adds one just out of wire reach (squared
+ *    distance 50) that stays a network of its own.
  *    Meanwhile the players hand-craft from the plates, wood and stone of
  *    `DETERMINISM_KIT`: crafts with auto-queued intermediates, crafts cut
  *    short by missing items, and cancels (of a craft, of an intermediate in
@@ -294,6 +298,49 @@ function chainPhase(): Command[] {
   ];
 }
 
+/** Tick player 1 starts placing poles (after the chain, so the entity ids above stay put). */
+export const DETERMINISM_POLES_TICK = 920;
+/** Entity ids of the poles player 1 places, in placement order (they follow the chain). */
+export const DETERMINISM_POLE_WEST = 25;
+export const DETERMINISM_POLE_BRIDGE = 26;
+export const DETERMINISM_POLE_EAST = 27;
+export const DETERMINISM_POLE_SOUTH = 28;
+/** The bridge placed again after its removal, and the pole just out of reach. */
+export const DETERMINISM_POLE_REBRIDGE = 29;
+export const DETERMINISM_POLE_LONE = 30;
+
+/**
+ * Player 1's poles, placed while it stands on tile `(x, y)` after mining
+ * (all within build reach, on the grass by its patch): west, bridge and east
+ * 7 tiles apart in a row (wired in a chain), and south 7 below the bridge;
+ * then the bridge goes and comes back, and a lone pole goes 7 west and 1
+ * south of the south one, out of reach of every other.
+ */
+function polePhase(x: number, y: number): Command[] {
+  const p = { playerId: 1 };
+  const t = DETERMINISM_POLES_TICK;
+  const pole = (tick: number, dx: number, dy: number): Command => ({
+    ...p,
+    tick,
+    type: 'Place',
+    item: ItemId.SmallElectricPole,
+    x: x + dx,
+    y: y + dy,
+    dir: Direction.North,
+  });
+  return [
+    pole(t, -6, -3),
+    pole(t, 1, -3),
+    pole(t, 8, -3),
+    pole(t, 1, 4),
+    { ...p, tick: t + 1, type: 'Remove', x: x + 1, y: y - 3 },
+    pole(t + 2, 1, -3),
+    pole(t + 3, -6, 5),
+    // Ignored: the player stands there.
+    pole(t + 4, 0, 0),
+  ];
+}
+
 /**
  * Hand-crafting while the players walk and mine (it only uses
  * `DETERMINISM_KIT` items, so the mined ore stays untouched).
@@ -414,6 +461,9 @@ function scriptedPhase(): Command[] {
     }
     if (id === 0) {
       commands.push(...smeltPhase(w.tick, fixedToTile(w.x), fixedToTile(w.y)));
+    }
+    if (id === 1) {
+      commands.push(...polePhase(fixedToTile(w.x), fixedToTile(w.y)));
     }
   }
   return commands;

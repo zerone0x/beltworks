@@ -126,6 +126,12 @@ export interface SnapshotMessage {
    */
   inserters: ArrayBuffer;
   /**
+   * The electric poles with their tile inside `chunkWindow`, the wires
+   * between them and their networks, as int32s; see `encodePower` in
+   * src/sim/snapshot.ts.
+   */
+  power: ArrayBuffer;
+  /**
    * The chunks the main thread should keep cached: the viewport plus
    * `CHUNK_MARGIN` chunks on each side. Cached chunks outside it can be
    * dropped; the worker sends them again if they come back into view. `null`

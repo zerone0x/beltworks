@@ -2,7 +2,8 @@
  * Draws the entities (placeholder shapes in each prototype's color, with a
  * direction marker on rotatable ones, a firebox on furnaces that glows while
  * they work, a drill head on mining drills that lights up while they work,
- * and a small platform for inserters) and the ghost preview of the entity
+ * a small platform for inserters, and a post with a crossbar for electric
+ * poles) and the ghost preview of the entity
  * about to be placed. Placed belts are drawn by the belt layer (beltLayer.ts)
  * instead, and inserter arms by the inserter layer (inserterLayer.ts).
  */
@@ -14,6 +15,7 @@ import { MachineState } from '../sim/entities/machine';
 import { footprintSize } from '../sim/entities/store';
 import { TILE_PX } from './camera';
 import type { EntityIndex } from './entityIndex';
+import { POLE_TOP } from './powerLayer';
 
 /** Ghost tint when the entity can be placed, and when it can't. */
 export const GHOST_OK = 0x5ad15a;
@@ -49,6 +51,10 @@ export function drawEntity(
   alpha: number = 1,
   status: number = MachineState.Idle,
 ): void {
+  if (proto?.id === EntityTypeId.SmallElectricPole) {
+    drawPole(g, proto.color, x, y, alpha);
+    return;
+  }
   const { w, h } = proto ? footprintSize(proto, dir) : { w: 1, h: 1 };
   const color = proto?.color ?? MISSING_COLOR;
   // Inserters stand on a small platform, leaving room to see their arm swing.
@@ -90,6 +96,27 @@ export function drawEntity(
     cx + uy * r * 0.8 - ux * r * 0.3,
     cy - ux * r * 0.8 - uy * r * 0.3,
   ]).fill({ color: shade(color, 0.35), alpha });
+}
+
+/**
+ * A small electric pole on tile `(x, y)`: a footing, a post, and a crossbar
+ * with two insulators where the wires attach (`POLE_TOP` above the center).
+ */
+function drawPole(g: Graphics, color: number, x: number, y: number, alpha: number): void {
+  const cx = (x + 0.5) * TILE_PX;
+  const cy = (y + 0.5) * TILE_PX;
+  const top = cy - POLE_TOP * TILE_PX;
+  const dark = shade(color, 0.45);
+  g.roundRect(cx - 7, cy + 2, 14, 9, 2).fill({ color: 0x5a554c, alpha });
+  g.rect(cx - 2.5, top - 1, 5, cy + 6 - top)
+    .fill({ color, alpha })
+    .stroke({ width: 1, color: dark, alpha });
+  g.rect(cx - 10, top - 2, 20, 4)
+    .fill({ color, alpha })
+    .stroke({ width: 1, color: dark, alpha });
+  for (const dx of [-8, 8]) {
+    g.circle(cx + dx, top - 3, 2.2).fill({ color: 0xd8dde0, alpha });
+  }
 }
 
 /** The furnace's firebox: an opening in the lower half, lit while the furnace works. */

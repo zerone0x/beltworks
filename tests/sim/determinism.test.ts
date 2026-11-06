@@ -27,6 +27,13 @@ import {
   DETERMINISM_PATCH_FURNACE,
   DETERMINISM_PATCH_DRILL,
   DETERMINISM_PLAYERS,
+  DETERMINISM_POLES_TICK,
+  DETERMINISM_POLE_BRIDGE,
+  DETERMINISM_POLE_EAST,
+  DETERMINISM_POLE_LONE,
+  DETERMINISM_POLE_REBRIDGE,
+  DETERMINISM_POLE_SOUTH,
+  DETERMINISM_POLE_WEST,
   DETERMINISM_SCRIPTED_TICKS,
   DETERMINISM_SEED,
   DETERMINISM_SPAWN_CHEST,
@@ -39,6 +46,7 @@ import {
   nearestTree,
 } from '../../src/sim/scenarios/determinism';
 import { Sim } from '../../src/sim/tick';
+import { powerGrid } from '../../src/sim/power/grid';
 import { startingPatches } from '../../src/sim/world/generate';
 import { DETERMINISM_EXPECTED_HASH } from './determinism.expected';
 
@@ -427,6 +435,41 @@ describe('determinism', () => {
     ]);
     // Nothing but stone runs on the belt.
     expect(belts.itemsOn(20).every((i) => i.item === ItemId.Stone)).toBe(true);
+  });
+
+  it("strings poles on player 1's patch: a network, a split, a merge, and a lone pole", () => {
+    const sim = createDeterminismSim();
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    const { entities } = sim.state;
+    const grid = powerGrid(entities)!;
+    const net = (id: number) => grid.networkOfPole(id);
+    const [west, bridge, east, south] = [
+      DETERMINISM_POLE_WEST,
+      DETERMINISM_POLE_BRIDGE,
+      DETERMINISM_POLE_EAST,
+      DETERMINISM_POLE_SOUTH,
+    ];
+    while (sim.tick <= DETERMINISM_POLES_TICK) sim.step();
+    for (const id of [west, bridge, east, south]) {
+      expect(entities.store.type(id)).toBe(EntityTypeId.SmallElectricPole);
+      expect(net(id)).toBe(1);
+    }
+    expect(grid.neighbours(bridge)).toEqual([west, east, south]);
+    expect(grid.neighbours(west)).toEqual([bridge]);
+    sim.step();
+    // The bridge is gone: west keeps network 1, east and south get 2 and 3.
+    expect(entities.store.type(bridge)).toBe(0);
+    expect([net(west), net(east), net(south)]).toEqual([1, 2, 3]);
+    sim.step();
+    for (const id of [west, east, south, DETERMINISM_POLE_REBRIDGE]) expect(net(id)).toBe(1);
+    expect(grid.networkIds()).toEqual([1]);
+    sim.step();
+    expect(net(DETERMINISM_POLE_LONE)).toBe(4);
+    expect(grid.neighbours(DETERMINISM_POLE_LONE)).toEqual([]);
+    while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
+    expect(grid.poleCount).toBe(5);
+    expect(grid.networkCount).toBe(2);
+    expect(sim.state.players.inventory(1).count(ItemId.SmallElectricPole)).toBe(5);
   });
 
   it('matches the expected hash shared with the Chromium test', () => {

@@ -131,4 +131,26 @@ export interface EntityTypeTable {
    * pick up. With `accept`, only slots holding an item it accepts count.
    */
   outputSlot?(id: number, accept?: (item: number) => boolean): number;
+
+  // Power hooks (src/sim/power/). A type implementing `powerDemand` is an
+  // electric consumer, one implementing `powerMaxOutput` an electric
+  // producer; either way its entities join the network of a pole whose
+  // supply area covers them. The power system calls these once per tick per
+  // connected entity, before the drills, belts, inserters and machines run.
+
+  /**
+   * Joules entity `id` wants this tick at full speed (a non-negative
+   * integer; 0 while it sleeps or idles). It then reads its network's
+   * satisfaction back (`PowerGrid.satisfaction`) when its own system runs.
+   */
+  powerDemand?(id: number, entities: Entities): number;
+
+  /** Most joules producer `id` can deliver this tick (a non-negative integer). */
+  powerMaxOutput?(id: number, entities: Entities): number;
+
+  /**
+   * Producer `id` delivers `joules` this tick (at most its `powerMaxOutput`;
+   * 0 when nothing is drawn or it isn't connected): burn fuel for it.
+   */
+  powerDraw?(id: number, joules: number, entities: Entities): void;
 }

@@ -49,3 +49,21 @@ export function fixedToTile(fixed: number): number {
 export function fixedFrac(fixed: number): number {
   return fixed & SUBTILE_MASK;
 }
+
+/**
+ * `floor(a * b / c)` for non-negative integers `a`, `b` and a positive
+ * integer `c`, exact for any size: products past 2^53 (where doubles start
+ * rounding) are computed with BigInt.
+ */
+export function mulDiv(a: number, b: number, c: number): number {
+  const p = a * b;
+  if (p <= Number.MAX_SAFE_INTEGER) {
+    // Correctly rounded division can land on the next integer when the exact
+    // quotient is just below it; correct for that both ways.
+    let q = Math.floor(p / c);
+    if (q * c > p) q--;
+    else if ((q + 1) * c <= p) q++;
+    return q;
+  }
+  return Number((BigInt(a) * BigInt(b)) / BigInt(c));
+}
