@@ -13,7 +13,8 @@ Controls so far:
 - **1–0**: select a hotbar slot (press it again, or **Q**, to deselect). A new game starts with a kit of belts, inserters, drills, furnaces, chests and coal.
 - With a buildable item selected, a **ghost** follows the cursor: green where it can be placed, red where it can't (water, another entity, the player, or out of build reach, 10 tiles). **R** rotates it, **left click** places it (hold and drag to place a row).
 - **R** with nothing selected rotates the entity under the cursor.
-- **Left click** on a chest or furnace with nothing to build selected opens its window: click a stack in your inventory to put it in (coal and wood go to a furnace's fuel slot, ores and stone to its input), click one of its slots to take the contents. **Esc** closes it. A furnace smelts iron ore, copper ore, or two stone into a plate or brick every 3.2 s while it has fuel; its firebox glows while it works.
+- **Left click** on a chest, furnace or mining drill with nothing to build selected opens its window: click a stack in your inventory to put it in (coal and wood go to a furnace's or drill's fuel slot, ores and stone to a furnace's input), **right-click** it to put in half, click one of its slots to take the contents. **Esc** closes it. A furnace smelts iron ore, copper ore, or two stone into a plate or brick every 3.2 s while it has fuel; its firebox glows while it works.
+- A **burner mining drill** placed on ore mines one unit every 4 s while it has fuel, from the four tiles under it in turn, and puts it into the entity in front of it (the arrow shows which way it faces; a chest stores it, a furnace smelts it). With nothing there, or no room, it holds the unit and waits. Its ring lights up while it works; its window shows its fuel and whether it is working, out of fuel, blocked, or depleted.
 - **Right click** on an entity removes it and puts it back into the inventory, together with what it holds (refused if there is no room); elsewhere the right button mines as above.
 - **Middle-drag** or **arrow keys**: pan the camera freely; **F**: follow the player again.
 - **Mouse wheel**: zoom (towards the cursor with a free camera, around the player while following).
@@ -25,6 +26,8 @@ The debug overlay shows the tile under the mouse.
 ![Placed entities and the ghost preview of a transport belt](docs/screenshots/m1-placement.png)
 
 ![A working stone furnace and its window](docs/screenshots/m1-furnace.png)
+
+![A burner mining drill on iron ore feeding a furnace, with the drill's window](docs/screenshots/m1-drill.png)
 
 ![Hand-crafting stone furnaces from mined stone, with the queue above the hotbar](docs/screenshots/m1-crafting.png)
 

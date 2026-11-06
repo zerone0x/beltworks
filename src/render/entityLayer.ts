@@ -1,7 +1,8 @@
 /**
  * Draws the entities (placeholder shapes in each prototype's color, with a
- * direction marker on rotatable ones, and a firebox on furnaces that glows
- * while they work) and the ghost preview of the entity about to be placed.
+ * direction marker on rotatable ones, a firebox on furnaces that glows while
+ * they work, and a drill head on mining drills that lights up while they
+ * work) and the ghost preview of the entity about to be placed.
  */
 
 import { Container, Graphics } from 'pixi.js';
@@ -20,6 +21,9 @@ const MISSING_COLOR = 0xff00ff;
 const FIREBOX_COLD = 0x2a2420;
 const FIREBOX_GLOW = 0xff9a2e;
 const FIREBOX_CORE = 0xffe08a;
+/** Drill head when idle, and while the drill mines. */
+const DRILL_HEAD_IDLE = 0x3a3c42;
+const DRILL_HEAD_WORKING = 0xd8d2bf;
 
 /** Multiplies each channel of a 0xRRGGBB color by `f` (0..1). */
 function shade(rgb: number, f: number): number {
@@ -55,6 +59,16 @@ export function drawEntity(
     .stroke({ width: 2, color: shade(color, 0.45), alpha });
   if (proto?.id === EntityTypeId.StoneFurnace) {
     drawFirebox(g, left, top, width, height, alpha, status === MachineState.Working);
+  }
+  if (proto?.id === EntityTypeId.BurnerMiningDrill) {
+    // A ring around the direction marker.
+    const radius = Math.min(width, height) * 0.4;
+    const working = status === MachineState.Working;
+    g.circle(left + width / 2, top + height / 2, radius).stroke({
+      width: 3,
+      color: working ? DRILL_HEAD_WORKING : DRILL_HEAD_IDLE,
+      alpha,
+    });
   }
   if (!proto?.rotatable) {
     return;

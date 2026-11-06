@@ -4,13 +4,16 @@ import { ItemId, MINED_ITEM } from '../../src/data/items';
 import { RecipeId } from '../../src/data/recipes';
 import { CRAFT_QUEUE_LENGTH } from '../../src/sim/crafting/queue';
 import { Direction } from '../../src/sim/entities/direction';
+import { DrillSlot } from '../../src/sim/entities/drill';
 import { FurnaceSlot } from '../../src/sim/entities/furnace';
 import { MachineState } from '../../src/sim/entities/machine';
 import {
   DETERMINISM_BUILD_TICKS,
+  DETERMINISM_DRILL_CHEST,
   DETERMINISM_KIT,
   DETERMINISM_PATCH_CHEST,
   DETERMINISM_PATCH_FURNACE,
+  DETERMINISM_PATCH_DRILL,
   DETERMINISM_PLAYERS,
   DETERMINISM_SCRIPTED_TICKS,
   DETERMINISM_SEED,
@@ -149,6 +152,33 @@ describe('determinism', () => {
     expect(sim.state.players.inventory(0).count(ItemId.IronPlate)).toBe(1);
   });
 
+  it('mines the iron patch with a drill, which waits until a chest is in front of it', () => {
+    const sim = createDeterminismSim();
+    const script = buildDeterminismScript();
+    script.forEach((c) => sim.enqueue(c));
+    const { entities } = sim.state;
+    const drill = DETERMINISM_PATCH_DRILL;
+    const chest = DETERMINISM_DRILL_CHEST;
+    // The drill's chest is player 0's last chest placed in the scripted phase.
+    const chestTick = Math.max(
+      ...script
+        .filter((c) => c.type === 'Place' && c.playerId === 0 && c.item === ItemId.WoodenChest)
+        .filter((c) => c.tick < DETERMINISM_SCRIPTED_TICKS)
+        .map((c) => c.tick),
+    );
+    while (sim.tick < chestTick) sim.step();
+    expect(entities.store.type(drill)).toBe(EntityTypeId.BurnerMiningDrill);
+    expect(entities.store.type(chest)).toBe(0);
+    // Its first ore is mined and waits in the output slot.
+    expect(entities.status(drill)).toBe(MachineState.OutputFull);
+    expect(entities.slots(drill)[DrillSlot.Output]).toEqual({ item: ItemId.IronOre, count: 1 });
+    sim.step();
+    expect(entities.store.type(chest)).toBe(EntityTypeId.WoodenChest);
+    expect(entities.contents(chest)).toEqual([{ item: ItemId.IronOre, count: 1 }]);
+    expect(entities.status(drill)).toBe(MachineState.Working);
+    expect(entities.slots(drill)[DrillSlot.Fuel]).toEqual({ item: ItemId.Coal, count: 1 });
+  });
+
   it('hand-crafts with intermediates, partial crafts and cancels', () => {
     const sim = createDeterminismSim();
     buildDeterminismScript().forEach((c) => sim.enqueue(c));
@@ -204,10 +234,11 @@ describe('determinism', () => {
     expect(inv0.count(ItemId.IronPlate)).toBe(KIT_PLATES_LEFT_0);
 
     while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
-    // The kit's two drills, one of them placed, and two crafted.
-    expect(inv0.count(ItemId.BurnerMiningDrill)).toBe(3);
-    // Two chests and the first furnace were crafted; one of each went onto the iron patch.
-    expect(inv0.count(ItemId.WoodenChest)).toBe(3);
+    // The kit's two drills and two crafted ones; one went to the spawn, one onto the iron patch.
+    expect(inv0.count(ItemId.BurnerMiningDrill)).toBe(2);
+    // The kit's two chests and two crafted ones; two went onto the iron patch. The
+    // first furnace crafted went there too.
+    expect(inv0.count(ItemId.WoodenChest)).toBe(2);
     expect(inv0.count(ItemId.StoneFurnace)).toBe(0);
     expect(sim.state.entities.store.type(DETERMINISM_PATCH_FURNACE)).toBe(
       EntityTypeId.StoneFurnace,

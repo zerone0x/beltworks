@@ -5,9 +5,9 @@
  * means "no entity". They must stay stable: changing an id breaks saves and
  * state hashes.
  *
- * Chests and furnaces have their own tables and behavior (src/sim/entities/);
- * drills, belts and inserters are still placeholders that can only be placed,
- * rotated and removed.
+ * Chests, furnaces and burner mining drills have their own tables and
+ * behavior (src/sim/entities/); belts and inserters are still placeholders
+ * that can only be placed, rotated and removed.
  *
  * Energy is in integer joules; a burner entity burns `energyPerTick` joules on
  * every tick it works (60 ticks/s, so 1 500 J/tick is 90 kW).
@@ -49,6 +49,8 @@ export interface EntityPrototype {
   readonly energyPerTick?: number;
   /** Item slots of a container. */
   readonly slots?: number;
+  /** Working ticks a mining drill takes per unit it mines. */
+  readonly miningTicks?: number;
 }
 
 /** Most units a stone furnace's output slot holds before it stops. */
@@ -91,6 +93,8 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     color: 0x6d6f78,
     // 150 kW.
     energyPerTick: 2_500,
+    // 0.25 units/s.
+    miningTicks: 240,
   },
   [EntityTypeId.TransportBelt]: {
     id: EntityTypeId.TransportBelt,

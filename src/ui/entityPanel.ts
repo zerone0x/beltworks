@@ -1,10 +1,11 @@
 /**
- * The entity GUI (plain DOM): opened by left-clicking a chest or furnace with
- * nothing to build in hand. It shows the entity's slots (and, for a furnace,
- * its state, smelting progress and remaining fuel) next to the player's
- * inventory:
- * - clicking an inventory stack inserts it into the entity (`Insert`; the
- *   simulation routes fuel to the fuel slot and ores to the input),
+ * The entity GUI (plain DOM): opened by left-clicking a chest, furnace or
+ * mining drill with nothing to build in hand. It shows the entity's slots
+ * (and, for a furnace or drill, its state, smelting or mining progress and
+ * remaining fuel) next to the player's inventory:
+ * - clicking an inventory stack inserts it into the entity, right-clicking
+ *   inserts half of it, rounded up (`Insert`; the simulation routes fuel to
+ *   the fuel slot and ores to the input; a drill only takes fuel),
  * - clicking one of the entity's slots takes its contents (`Take`).
  *
  * Everything goes through commands, so the panel never changes state itself;
@@ -17,6 +18,7 @@
 import { ENTITIES, EntityTypeId, entityPrototype } from '../data/entities';
 import { fuelValue } from '../data/items';
 import { recipePrototype } from '../data/recipes';
+import { DRILL_MINING_TICKS, DrillSlot } from '../sim/entities/drill';
 import { FurnaceSlot } from '../sim/entities/furnace';
 import { MachineState } from '../sim/entities/machine';
 import type { EntityDetailData, SlotData } from '../sim/snapshot';
@@ -24,7 +26,11 @@ import { INVENTORY_COLUMNS, SlotGrid } from './inventory';
 
 /** Entity types that have a GUI. */
 export function hasEntityGui(type: number): boolean {
-  return type === EntityTypeId.WoodenChest || type === EntityTypeId.StoneFurnace;
+  return (
+    type === EntityTypeId.WoodenChest ||
+    type === EntityTypeId.StoneFurnace ||
+    type === EntityTypeId.BurnerMiningDrill
+  );
 }
 
 /** Columns of the chest grid. */
@@ -41,14 +47,23 @@ export function statusView(status: number): { key: string; text: string } {
       return { key: 'no-fuel', text: 'No fuel' };
     case MachineState.OutputFull:
       return { key: 'output-full', text: 'Output full' };
+    case MachineState.Depleted:
+      return { key: 'depleted', text: 'Depleted' };
     default:
       return { key: 'idle', text: '' };
   }
 }
 
-/** Fractions (0..1) for the furnace's progress and fuel bars. */
-export function furnaceBars(detail: EntityDetailData): { progress: number; fuel: number } {
-  const ticks = recipePrototype(detail.recipe)?.ticks ?? 0;
+/**
+ * Fractions (0..1) for the progress and fuel bars of a furnace (progress on
+ * the recipe being smelted) or a mining drill (progress on the unit being
+ * mined).
+ */
+export function machineBars(detail: EntityDetailData): { progress: number; fuel: number } {
+  const ticks =
+    detail.type === EntityTypeId.BurnerMiningDrill
+      ? DRILL_MINING_TICKS
+      : (recipePrototype(detail.recipe)?.ticks ?? 0);
   const value = fuelValue(detail.burning);
   return {
     progress: ticks > 0 ? Math.min(1, detail.progress / ticks) : 0,
@@ -96,7 +111,7 @@ class Bar {
   }
 }
 
-/** One labeled furnace slot. */
+/** One labeled machine slot. */
 interface LabeledSlot {
   grid: SlotGrid;
   slot: number;
@@ -113,7 +128,8 @@ export class EntityPanel {
   private inventory: readonly SlotData[] = [];
   private entitySlots: readonly SlotData[] = [];
   private chestGrid: SlotGrid | null = null;
-  private furnace: { slots: LabeledSlot[]; progress: Bar; fuel: Bar } | null = null;
+  /** A furnace's or drill's labeled slots and bars. */
+  private machine: { slots: LabeledSlot[]; progress: Bar; fuel: Bar } | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -174,12 +190,23 @@ export class EntityPanel {
     const invTitle = document.createElement('div');
     invTitle.textContent = 'Inventory';
     Object.assign(invTitle.style, { fontWeight: '600', marginBottom: '4px' });
-    this.inventoryGrid = new SlotGrid(inventorySlots, INVENTORY_COLUMNS, (i) => {
+    const insert = (i: number, half: boolean): void => {
       const stack = this.inventory[i];
       if (this.entityId !== 0 && stack && stack.count > 0) {
-        this.options.insert(this.entityId, stack.item, stack.count);
+        const count = half ? Math.ceil(stack.count / 2) : stack.count;
+        this.options.insert(this.entityId, stack.item, count);
       }
-    });
+    };
+    this.inventoryGrid = new SlotGrid(
+      inventorySlots,
+      INVENTORY_COLUMNS,
+      (i) => {
+        insert(i, false);
+      },
+      (i) => {
+        insert(i, true);
+      },
+    );
     this.inventoryGrid.element.classList.add('player-inventory');
 
     el.append(header, this.body, invTitle, this.inventoryGrid.element);
@@ -253,13 +280,13 @@ export class EntityPanel {
     if (this.chestGrid) {
       this.chestGrid.update(detail.slots);
     }
-    if (this.furnace) {
-      for (const { grid, slot } of this.furnace.slots) {
+    if (this.machine) {
+      for (const { grid, slot } of this.machine.slots) {
         grid.update([detail.slots[slot] ?? { item: 0, count: 0 }]);
       }
-      const bars = furnaceBars(detail);
-      this.furnace.progress.set(bars.progress);
-      this.furnace.fuel.set(bars.fuel);
+      const bars = machineBars(detail);
+      this.machine.progress.set(bars.progress);
+      this.machine.fuel.set(bars.fuel);
     }
   }
 
@@ -279,7 +306,7 @@ export class EntityPanel {
   private buildBody(type: number): void {
     this.body.replaceChildren();
     this.chestGrid = null;
-    this.furnace = null;
+    this.machine = null;
     if (type === EntityTypeId.WoodenChest) {
       const slots = ENTITIES[EntityTypeId.WoodenChest].slots ?? 0;
       this.chestGrid = new SlotGrid(slots, CHEST_COLUMNS, (i) => {
@@ -289,7 +316,9 @@ export class EntityPanel {
       this.body.appendChild(this.chestGrid.element);
       return;
     }
-    // Furnace: input and fuel on the left, the progress arrow, the output on the right.
+    // Furnace: input and fuel on the left, the progress and fuel bars, the
+    // output on the right. Drill: the same without an input (it mines what is
+    // under it); the output holds the unit waiting to be dropped.
     const row = document.createElement('div');
     Object.assign(row.style, {
       display: 'flex',
@@ -310,8 +339,10 @@ export class EntityPanel {
       row.appendChild(box);
       return { grid, slot };
     };
-    const input = labeled(FurnaceSlot.Input, 'input', 'Input');
-    const fuel = labeled(FurnaceSlot.Fuel, 'fuel', 'Fuel');
+    const drill = type === EntityTypeId.BurnerMiningDrill;
+    const slots: LabeledSlot[] = [];
+    if (!drill) slots.push(labeled(FurnaceSlot.Input, 'input', 'Input'));
+    slots.push(labeled(drill ? DrillSlot.Fuel : FurnaceSlot.Fuel, 'fuel', 'Fuel'));
     const middle = document.createElement('div');
     Object.assign(middle.style, {
       width: '96px',
@@ -324,8 +355,8 @@ export class EntityPanel {
     const fuelBar = new Bar('fuel', '#ff9a2e');
     middle.append(progress.element, fuelBar.element);
     row.appendChild(middle);
-    const output = labeled(FurnaceSlot.Output, 'output', 'Output');
-    this.furnace = { slots: [input, fuel, output], progress, fuel: fuelBar };
+    slots.push(labeled(drill ? DrillSlot.Output : FurnaceSlot.Output, 'output', 'Output'));
+    this.machine = { slots, progress, fuel: fuelBar };
     this.body.appendChild(row);
   }
 }

@@ -68,14 +68,21 @@ export function countByName(slots: readonly SlotData[], name: string): number {
 
 /**
  * A row-major grid of slot elements that only touches the DOM for slots that
- * changed. With `onClick`, clicking a slot calls it with the slot index.
+ * changed. With `onClick`, clicking a slot calls it with the slot index;
+ * with `onRightClick`, so does a right click (which then opens no context
+ * menu).
  */
 export class SlotGrid {
   readonly element: HTMLElement;
   private readonly cells: { root: HTMLElement; swatch: HTMLElement; count: HTMLElement }[] = [];
   private readonly shown: (string | null)[] = [];
 
-  constructor(slots: number, columns: number, onClick?: (index: number) => void) {
+  constructor(
+    slots: number,
+    columns: number,
+    onClick?: (index: number) => void,
+    onRightClick?: (index: number) => void,
+  ) {
     const el = document.createElement('div');
     el.className = 'slot-grid';
     Object.assign(el.style, {
@@ -122,6 +129,12 @@ export class SlotGrid {
         root.style.cursor = 'pointer';
         root.addEventListener('click', () => {
           onClick(i);
+        });
+      }
+      if (onRightClick) {
+        root.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          onRightClick(i);
         });
       }
       el.appendChild(root);
