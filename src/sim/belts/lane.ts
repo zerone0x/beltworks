@@ -216,6 +216,17 @@ export class Lane {
     return speed - rem;
   }
 
+  /**
+   * Distance from the end of the first item that moved on the last step
+   * (after it moved). O(1): the items between item 0 and it are packed at
+   * exactly `spacing`, or it is item 0. Only meaningful after a step that
+   * moved something.
+   */
+  firstMovedPosition(): number {
+    if (this.movedAll > 0 || this.movedFrom === 0) return this.gap(0);
+    return this.gap(0) + (this.movedFrom - 1) * this.spacing + this.gap(this.movedFrom);
+  }
+
   /** Clears the movement record (the lane didn't step this tick). */
   clearMoved(): void {
     this.movedAll = 0;

@@ -53,6 +53,12 @@ export class WakeSubscriptions {
     return this.byTarget.has(target);
   }
 
+  /** Whether `watcher`'s one and only subscription is to `target`. */
+  watchesOnly(watcher: number, target: number): boolean {
+    const targets = this.byWatcher.get(watcher);
+    return targets?.length === 1 && targets[0] === target;
+  }
+
   /** The watchers of `target`, in subscription order (a copy). */
   watchersOf(target: number): number[] {
     return this.byTarget.get(target)?.slice() ?? [];

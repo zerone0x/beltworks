@@ -23,7 +23,7 @@
  */
 
 import { ENTITIES, EntityTypeId, FURNACE_OUTPUT_LIMIT } from '../../data/entities';
-import { itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
+import { fuelValue, itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
 import { recipePrototype, smeltingRecipeFor, type Recipe } from '../../data/recipes';
 import { fnv1a32 } from '../hash';
 import { BurnerColumns } from './burner';
@@ -142,6 +142,11 @@ export class FurnaceTable implements EntityTypeTable {
     return this.inputRoom(row, item) + this.burner.insertable(row, item);
   }
 
+  /** Ores (anything with a smelting recipe) and fuel. */
+  accepts(_id: number, item: number): boolean {
+    return smeltingRecipeFor(item) !== undefined || fuelValue(item) > 0;
+  }
+
   /** Ingredients go into the input slot; fuel into the fuel slot (also when the input has no room). */
   insert(id: number, item: number, count: number, entities: Entities): number {
     const row = this.row(id);
@@ -171,8 +176,10 @@ export class FurnaceTable implements EntityTypeTable {
     return n;
   }
 
-  outputSlot(id: number): number {
-    return this.outputCount[this.row(id)]! > 0 ? FurnaceSlot.Output : -1;
+  outputSlot(id: number, accept?: (item: number) => boolean): number {
+    const row = this.row(id);
+    const ok = this.outputCount[row]! > 0 && (!accept || accept(this.outputItem[row]!));
+    return ok ? FurnaceSlot.Output : -1;
   }
 
   /** The furnace system: steps every active furnace by one tick. */

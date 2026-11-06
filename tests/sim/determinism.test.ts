@@ -8,6 +8,7 @@ import { CRAFT_QUEUE_LENGTH } from '../../src/sim/crafting/queue';
 import { Direction } from '../../src/sim/entities/direction';
 import { DrillSlot } from '../../src/sim/entities/drill';
 import { FurnaceSlot } from '../../src/sim/entities/furnace';
+import { InserterSlot, InserterState, inserterTable } from '../../src/sim/entities/inserter';
 import { MachineState } from '../../src/sim/entities/machine';
 import {
   DETERMINISM_BELTS,
@@ -20,6 +21,8 @@ import {
   DETERMINISM_PLAYERS,
   DETERMINISM_SCRIPTED_TICKS,
   DETERMINISM_SEED,
+  DETERMINISM_SPAWN_CHEST,
+  DETERMINISM_SPAWN_INSERTER,
   DETERMINISM_TICKS,
   buildDeterminismScript,
   createDeterminismSim,
@@ -109,20 +112,23 @@ describe('determinism', () => {
       const id = entities.at(x, y);
       return id && [entities.store.type(id), entities.store.dir(id)];
     };
-    expect(entities.count).toBe(9);
+    expect(entities.count).toBe(11);
     expect(at(2, -2)).toBe(0); // placed, then removed
     expect(at(4, 1)).toEqual([EntityTypeId.StoneFurnace, Direction.North]);
     expect(at(1, 2)).toEqual([EntityTypeId.TransportBelt, Direction.South]);
     expect(at(-3, 1)).toEqual([EntityTypeId.BurnerMiningDrill, Direction.North]);
     expect(at(-1, 2)).toEqual([EntityTypeId.BurnerInserter, Direction.East]);
+    expect(at(4, 4)).toEqual([EntityTypeId.BurnerInserter, Direction.East]);
+    expect(at(5, 4)).toEqual([EntityTypeId.WoodenChest, Direction.North]);
     expect(at(0, 0)).toBe(0);
     expect(at(15, 0)).toBe(0);
     const inv = sim.state.players.inventory(0);
-    expect(inv.count(ItemId.WoodenChest)).toBe(2);
+    expect(inv.count(ItemId.WoodenChest)).toBe(1);
+    expect(inv.count(ItemId.BurnerInserter)).toBe(2);
     expect(inv.count(ItemId.StoneFurnace)).toBe(1);
     expect(inv.count(ItemId.TransportBelt)).toBe(4);
     // The random phase builds too.
-    expect(runDeterminismScenario().entities).toBeGreaterThan(9);
+    expect(runDeterminismScenario().entities).toBeGreaterThan(11);
     // The spawn furnace got 4 coal and gave 1 back; nothing else was moved.
     expect(entities.slots(entities.at(3, 0))).toEqual([
       { item: 0, count: 0 },
@@ -133,7 +139,7 @@ describe('determinism', () => {
     expect(inv.count(ItemId.Coal)).toBe(5);
   });
 
-  it('lays a belt line through a curve with a side-loader, and runs coal to its end', () => {
+  it('lays a belt line through a curve with a side-loader, and runs coal to an inserter at its end', () => {
     const sim = createDeterminismSim();
     buildDeterminismScript().forEach((c) => sim.enqueue(c));
     for (let i = 0; i < DETERMINISM_BUILD_TICKS; i++) sim.step();
@@ -151,13 +157,19 @@ describe('determinism', () => {
     expect(feeder.outLane).toBe(BeltLane.Right);
 
     while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
-    // The side-loaded coal got there first; both wait packed at the end of the right lane.
-    expect(Array.from(main.lanes[BeltLane.Right].gaps())).toEqual([0, 64]);
-    expect(Array.from(main.lanes[BeltLane.Right].items())).toEqual([ItemId.Coal, ItemId.Coal]);
-    expect(main.lanes[BeltLane.Left].count).toBe(0);
+    // Both coal ran to the end of the right lane, where the unfuelled inserter
+    // burnt the first and moved the second into the chest.
+    expect(main.lanes[BeltLane.Right].count + main.lanes[BeltLane.Left].count).toBe(0);
     expect(feeder.lanes[0].count + feeder.lanes[1].count).toBe(0);
-    // Nothing moves any more: every lane sleeps.
+    const inserter = DETERMINISM_SPAWN_INSERTER;
+    expect(entities.contents(DETERMINISM_SPAWN_CHEST)).toEqual([{ item: ItemId.Coal, count: 1 }]);
+    expect(entities.slots(inserter)[InserterSlot.Hand]!.count).toBe(0);
+    expect(entities.detail(inserter)!.burning).toBe(ItemId.Coal);
+    expect(entities.status(inserter)).toBe(InserterState.WaitingForSource);
+    expect(entities.wake.watchersOf(9)).toEqual([inserter]);
+    // Nothing moves any more: every lane and both inserters sleep.
     expect(belts.activeLanes).toBe(0);
+    expect(inserterTable(entities)!.activeCount).toBe(0);
   });
 
   it('smelts the mined iron on the patch and stores plates in a chest', () => {
@@ -267,9 +279,9 @@ describe('determinism', () => {
     while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
     // The kit's two drills and two crafted ones; one went to the spawn, one onto the iron patch.
     expect(inv0.count(ItemId.BurnerMiningDrill)).toBe(2);
-    // The kit's two chests and two crafted ones; two went onto the iron patch. The
-    // first furnace crafted went there too.
-    expect(inv0.count(ItemId.WoodenChest)).toBe(2);
+    // The kit's two chests and two crafted ones; one went to the spawn, two onto
+    // the iron patch. The first furnace crafted went there too.
+    expect(inv0.count(ItemId.WoodenChest)).toBe(1);
     expect(inv0.count(ItemId.StoneFurnace)).toBe(0);
     expect(sim.state.entities.store.type(DETERMINISM_PATCH_FURNACE)).toBe(
       EntityTypeId.StoneFurnace,

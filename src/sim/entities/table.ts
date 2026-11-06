@@ -11,12 +11,11 @@
  * Systems (drills, belts, inserters, machines in src/sim/tick.ts) walk their
  * table directly; nothing here runs per tick.
  *
- * Types that hold items (chests, furnaces, belts, later drills and inserters) also
+ * Types that hold items (chests, furnaces, drills, belts, inserters) also
  * implement the item hooks, which everything that moves items goes through:
  * the player's GUI commands (`Insert`/`Take`, src/sim/entities/transfer.ts),
- * and later drills dropping their output and inserters picking up and
- * dropping. `Entities` forwards to them (`entities.insert(id, ...)` and so
- * on). A table whose contents change through these hooks (or through its own
+ * drills dropping their output, and inserters picking up and dropping.
+ * `Entities` forwards to them (`entities.insert(id, ...)` and so on). A table whose contents change through these hooks (or through its own
  * system) calls `entities.notify(id)`, so subscribers waiting on it wake up.
  */
 
@@ -112,6 +111,14 @@ export interface EntityTypeTable {
    */
   insertable?(id: number, item: number): number;
 
+  /**
+   * Whether the entity takes `item` at all, however full it is right now (a
+   * chest takes anything, a furnace ores and fuel, a drill fuel). Inserters
+   * only pick up items their target accepts, so they never get stuck holding
+   * something it will never take.
+   */
+  accepts?(id: number, item: number): boolean;
+
   /** Inserts up to `count` units of `item`; returns how many went in. */
   insert?(id: number, item: number, count: number, entities: Entities): number;
 
@@ -121,7 +128,7 @@ export interface EntityTypeTable {
   /**
    * The slot an inserter picking up from the entity takes from (a chest's
    * first non-empty slot, a furnace's output), or -1 when there is nothing to
-   * pick up.
+   * pick up. With `accept`, only slots holding an item it accepts count.
    */
-  outputSlot?(id: number): number;
+  outputSlot?(id: number, accept?: (item: number) => boolean): number;
 }

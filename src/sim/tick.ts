@@ -12,6 +12,7 @@ import { updateCrafting } from './crafting/queue';
 import { placeEntity, removeEntity, rotateEntity } from './entities/build';
 import { drillTable } from './entities/drill';
 import { furnaceTable } from './entities/furnace';
+import { inserterTable } from './entities/inserter';
 import { insertIntoEntity, takeFromEntity } from './entities/transfer';
 import { updatePlayers } from './player';
 import { createSimState, hashState, type SimOptions, type SimState } from './state';
@@ -32,7 +33,10 @@ export const SYSTEMS: readonly System[] = [
     run: ({ state }) => drillTable(state.entities)?.update(state.entities, state.world),
   },
   { name: 'belts', run: (sim) => beltTable(sim.state.entities)?.update() },
-  stub('inserters'),
+  {
+    name: 'inserters',
+    run: (sim) => inserterTable(sim.state.entities)?.update(sim.state.entities),
+  },
   { name: 'machines', run: (sim) => furnaceTable(sim.state.entities)?.update(sim.state.entities) },
   {
     name: 'players',

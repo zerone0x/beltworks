@@ -69,6 +69,19 @@ export interface BeltState {
   items: { lane: number; offset: number; item: number }[];
 }
 
+/** An inserter as known to the renderer. */
+export interface InserterView {
+  x: number;
+  y: number;
+  dir: number;
+  /** Arm position in ticks: 0 at the pickup tile, 36 at the drop tile. */
+  arm: number;
+  /** The item in the hand, or 0. */
+  held: number;
+  /** How the arm moved on the last tick: +1 out, -1 back, 0 not at all. */
+  swing: number;
+}
+
 /** The ghost preview, as last drawn. */
 export interface GhostState {
   name: string;
@@ -111,6 +124,8 @@ export interface BeltworksTestHook {
   entities(): EntityState[];
   /** Belts around the view and their items, from the latest snapshot. */
   belts(): BeltState[];
+  /** Inserters around the view with their arm and hand, from the latest snapshot. */
+  inserters(): InserterView[];
   /**
    * Drops `count` of `item` from the local player's inventory onto the belt
    * on tile `(x, y)` (an `Insert` command, as a hand would; at most one per
@@ -221,6 +236,7 @@ export function installTestHook({
         shape: b.shape,
         items: b.items.map(({ lane, offset, item }) => ({ lane, offset, item })),
       })),
+    inserters: () => view.inserters.data.map((i) => ({ ...i })),
     dropOnBelt: (x, y, item, count = 1) => {
       const entity = view.entityIndex.at(x, y);
       if (entity?.type !== EntityTypeId.TransportBelt) return false;

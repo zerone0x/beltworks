@@ -20,10 +20,11 @@ const detail = (fields: Partial<EntityDetailData>): EntityDetailData => ({
 });
 
 describe('entity panel', () => {
-  it('opens for chests, furnaces and drills only', () => {
+  it('opens for chests, furnaces, drills and inserters only', () => {
     expect(hasEntityGui(EntityTypeId.WoodenChest)).toBe(true);
     expect(hasEntityGui(EntityTypeId.StoneFurnace)).toBe(true);
     expect(hasEntityGui(EntityTypeId.BurnerMiningDrill)).toBe(true);
+    expect(hasEntityGui(EntityTypeId.BurnerInserter)).toBe(true);
     expect(hasEntityGui(EntityTypeId.TransportBelt)).toBe(false);
     expect(hasEntityGui(0)).toBe(false);
   });
@@ -34,6 +35,11 @@ describe('entity panel', () => {
     expect(statusView(MachineState.NoFuel).text).toBe('No fuel');
     expect(statusView(MachineState.OutputFull).text).toBe('Output full');
     expect(statusView(MachineState.Depleted)).toEqual({ key: 'depleted', text: 'Depleted' });
+    expect(statusView(MachineState.WaitingForSource)).toEqual({
+      key: 'waiting-for-source',
+      text: 'Waiting for source',
+    });
+    expect(statusView(MachineState.WaitingForTarget).text).toBe('Waiting for target');
     expect(statusView(MachineState.Idle).text).toBe('');
     expect(statusView(99).key).toBe('idle');
   });
@@ -62,5 +68,14 @@ describe('entity panel', () => {
       fuel: 0.75,
     });
     expect(machineBars(drill({ progress: 0 })).progress).toBe(0);
+  });
+
+  it("shows an inserter's arm position out of its 36-tick swing", () => {
+    const inserter = (fields: Partial<EntityDetailData>) =>
+      detail({ type: EntityTypeId.BurnerInserter, ...fields });
+    expect(machineBars(inserter({ progress: 9, energy: 2_000_000, burning: ItemId.Coal }))).toEqual(
+      { progress: 0.25, fuel: 0.5 },
+    );
+    expect(machineBars(inserter({ progress: 36 })).progress).toBe(1);
   });
 });

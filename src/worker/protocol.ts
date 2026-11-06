@@ -121,6 +121,11 @@ export interface SnapshotMessage {
    */
   belts: ArrayBuffer;
   /**
+   * The inserters with their tile inside `chunkWindow`, with their arm and
+   * hand, as int32s; see `encodeInserters` in src/sim/snapshot.ts.
+   */
+  inserters: ArrayBuffer;
+  /**
    * The chunks the main thread should keep cached: the viewport plus
    * `CHUNK_MARGIN` chunks on each side. Cached chunks outside it can be
    * dropped; the worker sends them again if they come back into view. `null`
