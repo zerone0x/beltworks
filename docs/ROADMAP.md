@@ -30,15 +30,18 @@ Met: `tests/e2e/player.spec.ts` and `render.spec.ts` (walking, zooming, hand-min
 
 Met: `tests/e2e/chain.spec.ts` builds that chain from a new game with real input, fuels it through the entity windows, and waits for plates in the chest ([screenshot](screenshots/m1-chain.png)); the determinism scenario runs the same chain on stone (bricks) in Node and Chromium; `tests/sim/belts.test.ts` measures exactly 7.5 items/s per lane and 15 per belt, also end to end with drills saturating a belt. Deviations from the plan are recorded in [DECISIONS.md](DECISIONS.md) (D10–D17).
 
-## M2 — Power
+## M2 — Power (done)
 
 - [x] Small electric poles with union-find power networks and the power solver (satisfaction per network, producers deliver what is drawn)
 - [x] Power items and recipes; trees and wood
 - [x] Boiler + steam engine
 - [x] Electric mining drill, electric inserter
-- [ ] Machines slow down in proportion to missing power; power panel with a supply/demand graph
+- [x] Machines slow down in proportion to missing power; power panel with a supply/demand graph
+- [x] Benchmark scene with power (`power`: boilers, engines, poles, electric drills and inserters, two networks overloaded)
 
 **Done when:** machines visibly slow down when power runs short and recover once more generators are added.
+
+Met: `tests/e2e/overload.spec.ts` builds a boiler, a steam engine, poles and eight electric drills into chests with real input and measures their rate from the ore reaching a chest (one unit per drill every 2 s); with eight more drills the network is overloaded (62% satisfied, every drill shows the yellow low-power bolt) and the rate drops to about 0.62 of that; a second boiler and engine bring it back to full speed. The power panel shows each step and the last minute as a graph ([screenshot](screenshots/m2-power.png)). `tests/sim/electric.test.ts` checks the exact rates at satisfaction 1, 1/2 and 0, and the determinism scenario (Node == Chromium) covers poles, steam power and electric machines. Deviations from the plan are recorded in [DECISIONS.md](DECISIONS.md) (D18–D31).
 
 Power comes before production chains because assemblers and labs are electric ([DECISIONS.md](DECISIONS.md), D20).
 

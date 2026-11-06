@@ -309,6 +309,21 @@ export class PowerGrid implements EntityTypeTable {
     };
   }
 
+  /**
+   * The electric entities on network `net` as of the latest tick, in row
+   * order (a scan over every electric entity; for the power panel, not for
+   * hot paths).
+   */
+  membersOf(net: number): number[] {
+    const out: number[] = [];
+    if (net === 0) return out;
+    this.refreshNetworks();
+    for (let i = 0; i < this.members.size; i++) {
+      if (this.memNet[i] === net) out.push(this.members.idAt(i));
+    }
+    return out;
+  }
+
   // The power system.
 
   /** Solves every network for this tick and tells the producers what to deliver. */

@@ -1,10 +1,12 @@
 import { Application } from 'pixi.js';
+import { isPolePrototypeOf } from './sim/power/geometry';
 import type { CommandInput } from './sim/commands';
 import { PLAYER_INVENTORY_SLOTS } from './sim/inventory';
 import {
   decodeCraftQueue,
   decodeEntityDetail,
   decodeInventory,
+  decodeNetworkDetail,
   type SlotData,
 } from './sim/snapshot';
 import { BuildInput, isPlaceableSlot } from './render/buildInput';
@@ -15,6 +17,8 @@ import { DebugOverlay } from './ui/debugOverlay';
 import { EntityPanel, hasEntityGui } from './ui/entityPanel';
 import { HelpPanel } from './ui/help';
 import { Hotbar, InventoryPanel } from './ui/inventory';
+import { PowerHistory } from './ui/powerHistory';
+import { PowerPanel } from './ui/powerPanel';
 import { SimClient } from './worker/client';
 import { LOCAL_PLAYER_ID } from './worker/protocol';
 
@@ -25,7 +29,10 @@ const WORLD_SEED = 1;
 async function main(): Promise<void> {
   const root = document.getElementById('app') ?? document.body;
 
-  const client = new SimClient(WORLD_SEED);
+  // Dev and test builds only: the test hook (installed below) and its `?kit=` starting kit.
+  const testHook =
+    import.meta.env.DEV || import.meta.env.MODE === 'test' ? await import('./testHook') : null;
+  const client = new SimClient(WORLD_SEED, testHook?.startingKitFromUrl(window.location.search));
   const overlay = new DebugOverlay(document.body);
   /** The local player's inventory as of the latest snapshot. */
   let inventory: SlotData[] = [];
@@ -72,6 +79,10 @@ async function main(): Promise<void> {
   const craftingPanel = new CraftingPanel(crafting);
   inventoryPanel.addSection(craftingPanel.element);
   const craftQueue = new CraftQueueStrip(document.body, crafting);
+  const powerHistory = new PowerHistory();
+  const powerPanel = new PowerPanel(document.body, powerHistory, (pole) => {
+    client.inspect(pole);
+  });
   new HelpPanel(document.body);
   client.onStats = (stats) => {
     overlay.update(stats);
@@ -136,7 +147,14 @@ async function main(): Promise<void> {
       inventoryPanel.select(slot);
     },
     onOpenEntity: (entity) => {
+      // Both windows use the worker's one `inspect` slot: close the other one first.
+      if (isPolePrototypeOf(entity.proto)) {
+        entityPanel.close();
+        powerPanel.open(entity.id);
+        return;
+      }
       if (!hasEntityGui(entity.type)) return;
+      powerPanel.close();
       // The entity window shows the inventory too; one is enough.
       inventoryPanel.close();
       entityPanel.open(entity.id, entity.type);
@@ -157,6 +175,13 @@ async function main(): Promise<void> {
     inventoryPanel.update(inventory);
     const detail = snapshot.entityDetail ? decodeEntityDetail(snapshot.entityDetail) : null;
     entityPanel.update(snapshot.inspected, detail, inventory);
+    const network = snapshot.networkDetail ? decodeNetworkDetail(snapshot.networkDetail) : null;
+    const figures = view.power.data.networks.filter((n) => n.id !== network?.network);
+    powerHistory.record(
+      snapshot.tick,
+      network ? [...figures, { id: network.network, ...network }] : figures,
+    );
+    powerPanel.update(snapshot.inspected, network);
     const queue = decodeCraftQueue(snapshot.craftQueue);
     craftQueue.update(queue);
     if (inventoryPanel.isOpen) {
@@ -171,13 +196,13 @@ async function main(): Promise<void> {
     overlay.updateTile(view.hoveredTile());
   });
 
-  if (import.meta.env.DEV || import.meta.env.MODE === 'test') {
-    const { installTestHook } = await import('./testHook');
-    installTestHook({
+  if (testHook) {
+    testHook.installTestHook({
       client,
       view,
       build,
       entityPanel,
+      powerPanel,
       seed: WORLD_SEED,
       inventory: () => inventory,
     });

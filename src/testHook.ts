@@ -6,11 +6,13 @@
  */
 
 import { EntityTypeId } from './data/entities';
+import { ITEM_IDS, ITEMS, MAX_STACK_SIZE, type ItemStack } from './data/items';
 import type { BuildInput } from './render/buildInput';
 import { TILE_PX } from './render/camera';
 import type { GameView } from './render/gameView';
 import type { TerrainStats, TileInfo } from './render/terrainLayer';
 import type { EntityPanel } from './ui/entityPanel';
+import type { PowerPanel } from './ui/powerPanel';
 import { SUBTILES_PER_TILE } from './sim/fixed';
 import { runDeterminismScenario, type DeterminismResult } from './sim/scenarios/determinism';
 import {
@@ -161,6 +163,8 @@ export interface BeltworksTestHook {
   selectedSlot(): number | null;
   /** The entity whose GUI is open, or 0. */
   openEntity(): number;
+  /** The pole whose power panel is open, or 0. */
+  openPowerPanel(): number;
   /** Power icons (no power, low power) the entity layer drew last. */
   powerIcons(): number;
 }
@@ -171,11 +175,38 @@ declare global {
   }
 }
 
+const ITEM_BY_NAME = new Map(ITEM_IDS.map((id) => [ITEMS[id].name, id]));
+
+/**
+ * The starting kit asked for by a `kit` URL parameter (dev and test builds
+ * only), replacing the default kit: comma-separated `name:count` pairs in
+ * hotbar order, e.g. `?kit=electric-mining-drill:16,coal:20`. For end-to-end
+ * tests that need more than the default kit has (docs/DECISIONS.md, D29).
+ * `undefined` without the parameter; throws on an unknown item or a bad count.
+ */
+export function startingKitFromUrl(search: string): ItemStack[] | undefined {
+  const param = new URLSearchParams(search).get('kit');
+  if (param === null) return undefined;
+  return param
+    .split(',')
+    .filter((part) => part !== '')
+    .map((part) => {
+      const [name = '', countText = ''] = part.split(':');
+      const item = ITEM_BY_NAME.get(name);
+      const count = Number(countText);
+      if (item === undefined || !Number.isInteger(count) || count < 1 || count > MAX_STACK_SIZE) {
+        throw new Error(`bad kit entry "${part}"`);
+      }
+      return { item, count };
+    });
+}
+
 export interface TestHookContext {
   client: SimClient;
   view: GameView;
   build: BuildInput;
   entityPanel: EntityPanel;
+  powerPanel: PowerPanel;
   /** The world seed the game runs with. */
   seed: number;
   /** The local player's inventory as last shown by the UI. */
@@ -187,6 +218,7 @@ export function installTestHook({
   view,
   build,
   entityPanel,
+  powerPanel,
   seed,
   inventory,
 }: TestHookContext): void {
@@ -285,6 +317,7 @@ export function installTestHook({
     },
     selectedSlot: () => build.selected,
     openEntity: () => entityPanel.entity,
+    openPowerPanel: () => powerPanel.pole,
     powerIcons: () => view.entities.powerIcons,
   };
 }

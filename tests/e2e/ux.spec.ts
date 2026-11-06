@@ -350,11 +350,14 @@ test('items on belts and in inserter hands are readable icons at 1×', async ({
     ).toBe(true);
   }
 
-  // Shot while the inserter holds an item and the line is still spread out.
+  // Shot while the inserter holds an item and items are still on at least
+  // two belts. (Requiring items west of x = 0 raced the last drop's trip down
+  // the line, about 2 s, against the arm's swing on slow machines; the queue
+  // in front of the inserter lasts for most of its 15 items × 1.2 s.)
   await page.waitForFunction(
     () =>
       window.__beltworks!.inserters().some((i) => i.held !== 0 && i.arm > 6 && i.arm < 30) &&
-      window.__beltworks!.belts().some((b) => b.x <= 0 && b.items.length > 0),
+      window.__beltworks!.belts().filter((b) => b.items.length > 0).length >= 2,
     undefined,
     { timeout: 30_000, polling: 'raf' },
   );

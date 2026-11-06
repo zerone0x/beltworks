@@ -55,8 +55,9 @@ Other options: `--warmup <ticks>`, `--ticks <ticks>`, `--runs <n>`, `--warmup-ru
 | Scene | Contents | Target mean |
 |---|---|---|
 | `1k` | 1 000 entities on seed `0xbe4c01`: 48 fuelled `drill → belt → inserter → furnace → inserter → chest` cells on the four starting ore patches, and 18 closed two-row belt loops (432 belts, 432 coal) with 56 exchange units below them (`loop → inserter → chest → inserter → chest → inserter → loop`), so coal keeps circulating; those inserters refuel from the coal they move. In total 480 belts, 264 burner inserters, 160 chests, 48 drills, 48 furnaces | < 1 ms |
+| `power` | 959 entities on seed `0xbe4c02`: four electric districts, one around each starting ore patch and each its own network (districts are kept at least two blocks apart so their poles never connect), built from 5×5 blocks with a small electric pole on every block: plants (a boiler with steam engines end to end), 23 electric drills into chests with an electric inserter moving the ore on, and rings of four chests and four electric inserters passing coal around. Districts 0 and 2 have one engine (900 kW) and run overloaded (about 50% and 44% satisfaction), 1 and 3 two plants of two engines and power to spare. In total 10 steam engines, 6 boilers, 131 poles, 383 electric inserters, 23 electric drills, 406 chests | < 1 ms |
 
-The scene is built by four players (one per ore patch plus a quarter of the belt blocks) because one 40-slot inventory can't carry all its items and coal; every player gets the same starting kit, sized for the busiest builder.
+Both scenes are built by four players (in the 1k scene one per ore patch plus a quarter of the belt blocks, in the power scene one per district) because one 40-slot inventory can't carry all the items and coal; every player gets the same starting kit, sized for the busiest builder. The power scene fuels its boilers last, once every district stands, so none burns coal during the build. Its report's `activity.powerSatisfaction` lists every network's satisfaction (percent, by network id).
 
 **Rules for scenes:**
 
