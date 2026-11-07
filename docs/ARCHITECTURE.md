@@ -294,6 +294,8 @@ Implemented in `src/sim/research/`; technologies in `src/data/technologies.ts` (
 | 10k entities + 50k items on belts | < 8 ms |
 | 50k entities | < 16 ms (if missed, evaluate moving to WASM) |
 
+Each target has a benchmark scene (`npm run bench -- 1k`, `10k`, `50k`; docs/TOOLING.md, "Benchmarks"), and `--profile` breaks the tick down per system.
+
 ## Directory layout
 
 ```

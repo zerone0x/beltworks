@@ -1,0 +1,499 @@
+{
+  "version": 1,
+  "createdAt": "2026-11-07T16:05:05.248Z",
+  "commit": "eb1a33d615a2126bbc04a6e535035928f926f708",
+  "environment": {
+    "node": "v22.23.4",
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "cpus": 2
+  },
+  "scenes": [
+    {
+      "name": "10k",
+      "description": "About 10 000 entities and 50 000 belt items: a steam-powered factory of 16×15 blocks (assembly lines making red and green science, belt loops carrying cable between inserters, labs researching, smelting on the ore), all belt tiers, undergrounds and splitters, built by a crew of players",
+      "entities": 10037,
+      "entityCounts": {
+        "steam-engine": 85,
+        "boiler": 72,
+        "small-electric-pole": 776,
+        "transport-belt": 2674,
+        "underground-belt": 76,
+        "splitter": 19,
+        "electric-inserter": 208,
+        "fast-inserter": 336,
+        "fast-transport-belt": 2346,
+        "fast-underground-belt": 60,
+        "fast-splitter": 15,
+        "express-transport-belt": 2556,
+        "express-underground-belt": 72,
+        "express-splitter": 18,
+        "long-handed-inserter": 128,
+        "assembling-machine-1": 52,
+        "burner-inserter": 204,
+        "wooden-chest": 152,
+        "iron-chest": 52,
+        "assembling-machine-2": 52,
+        "electric-mining-drill": 12,
+        "stone-furnace": 24,
+        "burner-mining-drill": 24,
+        "lab": 24
+      },
+      "beltItems": 52504,
+      "setupTicks": 1393,
+      "warmupTicks": 1200,
+      "measuredTicks": 3600,
+      "warmupRuns": 0,
+      "targetMeanMs": 8,
+      "meanMs": 0.4659227419444349,
+      "p50Ms": 0.4567269999997734,
+      "p99Ms": 0.7100519999994503,
+      "maxMs": 0.8852710000001025,
+      "ticksPerSecond": 2146.278577917663,
+      "runs": [
+        {
+          "meanMs": 0.4595538116666677,
+          "p50Ms": 0.44690300000002026,
+          "p99Ms": 0.7361810000002151,
+          "maxMs": 0.9214050000000498,
+          "ticksPerSecond": 2176.0237313086177
+        },
+        {
+          "meanMs": 0.4659227419444349,
+          "p50Ms": 0.4567269999997734,
+          "p99Ms": 0.7100519999994503,
+          "maxMs": 0.8852710000001025,
+          "ticksPerSecond": 2146.278577917663
+        },
+        {
+          "meanMs": 0.47987448555554896,
+          "p50Ms": 0.4579990000001999,
+          "p99Ms": 0.7366510000001654,
+          "maxMs": 1.7515950000006342,
+          "ticksPerSecond": 2083.8782433750434
+        }
+      ],
+      "activity": {
+        "machineStates": {
+          "steam-engine": {
+            "Working": 85
+          },
+          "boiler": {
+            "Working": 72
+          },
+          "small-electric-pole": {
+            "Idle": 776
+          },
+          "transport-belt": {
+            "Idle": 2674
+          },
+          "underground-belt": {
+            "Idle": 76
+          },
+          "splitter": {
+            "Idle": 19
+          },
+          "electric-inserter": {
+            "WaitingForTarget": 208
+          },
+          "fast-inserter": {
+            "WaitingForTarget": 311,
+            "WaitingForSource": 24,
+            "Working": 1
+          },
+          "fast-transport-belt": {
+            "Idle": 2346
+          },
+          "fast-underground-belt": {
+            "Idle": 60
+          },
+          "fast-splitter": {
+            "Idle": 15
+          },
+          "express-transport-belt": {
+            "Idle": 2556
+          },
+          "express-underground-belt": {
+            "Idle": 72
+          },
+          "express-splitter": {
+            "Idle": 18
+          },
+          "long-handed-inserter": {
+            "WaitingForTarget": 88,
+            "WaitingForSource": 35,
+            "Working": 5
+          },
+          "assembling-machine-1": {
+            "Working": 52
+          },
+          "burner-inserter": {
+            "WaitingForSource": 117,
+            "WaitingForTarget": 39,
+            "NoFuel": 9,
+            "Working": 39
+          },
+          "wooden-chest": {
+            "Idle": 152
+          },
+          "iron-chest": {
+            "Idle": 52
+          },
+          "assembling-machine-2": {
+            "Working": 52
+          },
+          "electric-mining-drill": {
+            "Working": 12
+          },
+          "stone-furnace": {
+            "NoInput": 12,
+            "Working": 12
+          },
+          "burner-mining-drill": {
+            "Working": 24
+          },
+          "lab": {
+            "Working": 24
+          }
+        },
+        "activeBeltLanes": 776,
+        "powerSatisfaction": [100, 100, 100]
+      },
+      "hash": "0x9da1a62a",
+      "work": {
+        "before": {
+          "beltItems": 50430,
+          "madeItems": 259,
+          "researchUnits": 0
+        },
+        "after": {
+          "beltItems": 50076,
+          "madeItems": 1091,
+          "researchUnits": 48
+        }
+      },
+      "profile": {
+        "ticks": 3600,
+        "meanMs": 0.7097005697222206,
+        "stages": [
+          {
+            "name": "commands",
+            "system": "commands",
+            "meanMs": 0.0007298777777709297,
+            "share": 0.0010284305929986874
+          },
+          {
+            "name": "power",
+            "system": "power",
+            "meanMs": 0.09422452111111347,
+            "share": 0.132766585136029
+          },
+          {
+            "name": "drills (burner)",
+            "system": "drills",
+            "meanMs": 0.001958210833327535,
+            "share": 0.0027592070753078104
+          },
+          {
+            "name": "drills (electric)",
+            "system": "drills",
+            "meanMs": 0.0015441975000178192,
+            "share": 0.002175843680979746
+          },
+          {
+            "name": "belts",
+            "system": "belts",
+            "meanMs": 0.38792681194442896,
+            "share": 0.546606313274153
+          },
+          {
+            "name": "inserters",
+            "system": "inserters",
+            "meanMs": 0.2048216480555574,
+            "share": 0.2886029077526672
+          },
+          {
+            "name": "furnaces",
+            "system": "machines",
+            "meanMs": 0.0017095494444412098,
+            "share": 0.0024088320023616916
+          },
+          {
+            "name": "assemblers",
+            "system": "machines",
+            "meanMs": 0.011688166666662659,
+            "share": 0.01646915215417884
+          },
+          {
+            "name": "labs",
+            "system": "machines",
+            "meanMs": 0.002703860000021147,
+            "share": 0.0038098602641385053
+          },
+          {
+            "name": "players",
+            "system": "players",
+            "meanMs": 0.0014983130555447132,
+            "share": 0.002111190436455699
+          },
+          {
+            "name": "crafting",
+            "system": "players",
+            "meanMs": 0.0007028536111101857,
+            "share": 0.000990352327581314
+          },
+          {
+            "name": "events",
+            "system": "events",
+            "meanMs": 0.00019255972222456167,
+            "share": 0.00027132530314852397
+          }
+        ]
+      }
+    },
+    {
+      "name": "50k",
+      "description": "About 50 000 entities: the 10k factory five times over (same blocks and mix, more of them, further from the spawn)",
+      "entities": 49984,
+      "entityCounts": {
+        "steam-engine": 413,
+        "boiler": 346,
+        "small-electric-pole": 3732,
+        "transport-belt": 13158,
+        "underground-belt": 372,
+        "splitter": 93,
+        "electric-inserter": 1076,
+        "fast-inserter": 1644,
+        "fast-transport-belt": 12500,
+        "fast-underground-belt": 344,
+        "fast-splitter": 86,
+        "express-transport-belt": 12792,
+        "express-underground-belt": 360,
+        "express-splitter": 90,
+        "long-handed-inserter": 568,
+        "assembling-machine-1": 268,
+        "burner-inserter": 876,
+        "wooden-chest": 608,
+        "iron-chest": 268,
+        "assembling-machine-2": 268,
+        "electric-mining-drill": 18,
+        "stone-furnace": 36,
+        "burner-mining-drill": 36,
+        "lab": 32
+      },
+      "beltItems": 267916,
+      "setupTicks": 2627,
+      "warmupTicks": 1200,
+      "measuredTicks": 3600,
+      "warmupRuns": 0,
+      "targetMeanMs": 16,
+      "meanMs": 3.0460932647222703,
+      "p50Ms": 2.9647709999990184,
+      "p99Ms": 4.202354000000923,
+      "maxMs": 6.988702999995439,
+      "ticksPerSecond": 328.2893572502534,
+      "runs": [
+        {
+          "meanMs": 3.0417482355555117,
+          "p50Ms": 2.963880999999674,
+          "p99Ms": 4.697090000001481,
+          "maxMs": 8.478772000002209,
+          "ticksPerSecond": 328.75830692061567
+        },
+        {
+          "meanMs": 3.0460932647222703,
+          "p50Ms": 2.9647709999990184,
+          "p99Ms": 4.202354000000923,
+          "maxMs": 6.988702999995439,
+          "ticksPerSecond": 328.2893572502534
+        },
+        {
+          "meanMs": 3.1215189791667117,
+          "p50Ms": 3.04548000000068,
+          "p99Ms": 4.513213000012911,
+          "maxMs": 8.396840000001248,
+          "ticksPerSecond": 320.3568540425628
+        }
+      ],
+      "activity": {
+        "machineStates": {
+          "steam-engine": {
+            "Working": 413
+          },
+          "boiler": {
+            "Working": 346
+          },
+          "small-electric-pole": {
+            "Idle": 3732
+          },
+          "transport-belt": {
+            "Idle": 13158
+          },
+          "underground-belt": {
+            "Idle": 372
+          },
+          "splitter": {
+            "Idle": 93
+          },
+          "electric-inserter": {
+            "WaitingForTarget": 1076
+          },
+          "fast-inserter": {
+            "WaitingForTarget": 1553,
+            "Working": 56,
+            "WaitingForSource": 35
+          },
+          "fast-transport-belt": {
+            "Idle": 12500
+          },
+          "fast-underground-belt": {
+            "Idle": 344
+          },
+          "fast-splitter": {
+            "Idle": 86
+          },
+          "express-transport-belt": {
+            "Idle": 12792
+          },
+          "express-underground-belt": {
+            "Idle": 360
+          },
+          "express-splitter": {
+            "Idle": 90
+          },
+          "long-handed-inserter": {
+            "WaitingForTarget": 467,
+            "WaitingForSource": 74,
+            "Working": 27
+          },
+          "assembling-machine-1": {
+            "Working": 268
+          },
+          "burner-inserter": {
+            "WaitingForSource": 508,
+            "WaitingForTarget": 201,
+            "NoFuel": 12,
+            "Working": 155
+          },
+          "wooden-chest": {
+            "Idle": 608
+          },
+          "iron-chest": {
+            "Idle": 268
+          },
+          "assembling-machine-2": {
+            "Working": 268
+          },
+          "electric-mining-drill": {
+            "Working": 18
+          },
+          "stone-furnace": {
+            "NoInput": 19,
+            "Working": 17
+          },
+          "burner-mining-drill": {
+            "Working": 25,
+            "Depleted": 11
+          },
+          "lab": {
+            "Working": 32
+          }
+        },
+        "activeBeltLanes": 4000,
+        "powerSatisfaction": [100, 100]
+      },
+      "hash": "0x29fdff40",
+      "work": {
+        "before": {
+          "beltItems": 261440,
+          "madeItems": 660,
+          "researchUnits": 0
+        },
+        "after": {
+          "beltItems": 259507,
+          "madeItems": 2863,
+          "researchUnits": 64
+        }
+      },
+      "profile": {
+        "ticks": 3600,
+        "meanMs": 3.261772918333348,
+        "stages": [
+          {
+            "name": "commands",
+            "system": "commands",
+            "meanMs": 0.00023370916691217442,
+            "share": 0.00007165096184304321
+          },
+          {
+            "name": "power",
+            "system": "power",
+            "meanMs": 0.28811689499988763,
+            "share": 0.08833137750959846
+          },
+          {
+            "name": "drills (burner)",
+            "system": "drills",
+            "meanMs": 0.0018295652778316353,
+            "share": 0.000560911296904899
+          },
+          {
+            "name": "drills (electric)",
+            "system": "drills",
+            "meanMs": 0.0017225533331657061,
+            "share": 0.0005281033892591979
+          },
+          {
+            "name": "belts",
+            "system": "belts",
+            "meanMs": 1.7967604952779017,
+            "share": 0.5508539497580915
+          },
+          {
+            "name": "inserters",
+            "system": "inserters",
+            "meanMs": 1.124110691666566,
+            "share": 0.3446318060182274
+          },
+          {
+            "name": "furnaces",
+            "system": "machines",
+            "meanMs": 0.0015578266667135823,
+            "share": 0.00047760120208171244
+          },
+          {
+            "name": "assemblers",
+            "system": "machines",
+            "meanMs": 0.03681610861103561,
+            "share": 0.011287146448517133
+          },
+          {
+            "name": "labs",
+            "system": "machines",
+            "meanMs": 0.0025721727778404277,
+            "share": 0.0007885811925726326
+          },
+          {
+            "name": "players",
+            "system": "players",
+            "meanMs": 0.0036226769445986268,
+            "share": 0.0011106465824879336
+          },
+          {
+            "name": "crafting",
+            "system": "players",
+            "meanMs": 0.004103393333146717,
+            "share": 0.0012580254468613982
+          },
+          {
+            "name": "events",
+            "system": "events",
+            "meanMs": 0.0003268302777481343,
+            "share": 0.00010020019355459397
+          }
+        ]
+      }
+    }
+  ]
+}

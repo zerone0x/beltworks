@@ -1,25 +1,42 @@
 name: Benchmark
 
 # Runs the headless benchmark (tools/bench) and reports tick times against
-# tools/bench/baseline.json. Informational only: it never blocks a PR. A mean
+# the committed baselines. Informational only: it never blocks a PR. A mean
 # tick time more than 20% over the baseline shows up as a warning annotation,
-# in the job summary and in the PR comment.
+# in the job summary and (for PRs) in the PR comment.
+#
+# - `bench`: the quick scenes (1k, power) on every PR and push to main,
+#   against tools/bench/baseline.json.
+# - `bench-nightly`: the heavy scenes (10k, 50k; minutes per run) every night
+#   and on demand (workflow_dispatch, on any branch), against
+#   tools/bench/baseline-nightly.json.
+#
+# Both add per-system timings (`--profile`) and upload their results as an
+# artifact; refresh a baseline by copying the artifact's result.json over it.
 
 on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      quick:
+        description: 'Also run the quick scenes (1k, power)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: bench-${{ github.ref }}
+  group: bench-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   bench:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || inputs.quick }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Non-blocking: a failing benchmark run doesn't fail the workflow.
@@ -41,6 +58,7 @@ jobs:
       - name: Run benchmark
         run: >-
           npm run bench --
+          --profile
           --json bench-results/result.json
           --md bench-results/result.md
           --baseline tools/bench/baseline.json
@@ -99,3 +117,50 @@ jobs:
           else
             gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file bench-results/comment.md
           fi
+
+  bench-nightly:
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    # About 2 minutes on a 2-core runner; the timeout leaves room for slower runners and growth.
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run benchmark
+        run: >-
+          npm run bench -- 10k 50k
+          --profile
+          --json bench-results/result.json
+          --md bench-results/result.md
+          --baseline tools/bench/baseline-nightly.json
+          --compare-md bench-results/compare.md
+
+      - name: Write job summary
+        if: ${{ !cancelled() && hashFiles('bench-results/result.md') != '' }}
+        run: |
+          {
+            echo '## Benchmark (10k, 50k)'
+            echo
+            cat bench-results/result.md
+            echo
+            echo '### Compared with `tools/bench/baseline-nightly.json`'
+            echo
+            cat bench-results/compare.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: ${{ !cancelled() && hashFiles('bench-results/result.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-results-nightly
+          path: bench-results/
+          retention-days: 30
