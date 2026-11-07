@@ -258,11 +258,6 @@ export class AssemblerTable implements EntityTypeTable {
     return this.inputIndex(this.row(id), item) >= 0;
   }
 
-  /** Ingredients with room in their input slot (D45). */
-  wants(id: number, item: number): boolean {
-    return this.insertable(id, item) > 0;
-  }
-
   /** Ingredients go into their input slot, up to its limit. */
   insert(id: number, item: number, count: number, entities: Entities): number {
     const row = this.row(id);

@@ -28,9 +28,9 @@
  * green, 30 s a unit, so it can't finish within a run), with its
  * prerequisites researched from the start (`SimOptions.researched`). The
  * boilers are fuelled last, so nothing electric runs while the scene is
- * built. All four inserter types, both machines that take inserters'
- * ingredients (D45), belts, undergrounds and splitters stay busy for the
- * whole run.
+ * built. Every inserter carries one kind of item. All four inserter types,
+ * assembling machines, labs, belts, undergrounds and splitters stay busy
+ * for the whole run.
  *
  * The scene is built by ten players, one per column.
  */

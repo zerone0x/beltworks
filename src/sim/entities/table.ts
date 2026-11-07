@@ -148,17 +148,6 @@ export interface EntityTypeTable {
    */
   accepts?(id: number, item: number): boolean;
 
-  /**
-   * Whether an inserter should pick up `item` for the entity right now
-   * (without the hook: whatever it `accepts`). Machines with a slot per
-   * ingredient (assembling machines, labs) only want what they have room
-   * for, so an inserter feeding them from a source with several of their
-   * ingredients (a mixed chest or belt) never holds one they can't take
-   * while another runs out (docs/DECISIONS.md, D45). An inserter that finds
-   * nothing wanted but something accepted also waits on its target.
-   */
-  wants?(id: number, item: number): boolean;
-
   /** Inserts up to `count` units of `item`; returns how many went in. */
   insert?(id: number, item: number, count: number, entities: Entities): number;
 

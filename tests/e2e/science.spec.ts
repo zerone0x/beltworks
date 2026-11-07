@@ -8,8 +8,8 @@
  * - **Red**: iron plates in a chest → inserter → assembling machine making
  *   gears → inserter → assembling machine making automation science packs
  *   (copper plates from a second chest) → inserter → lab.
- * - **Green**: electric inserters and transport belts in a chest → inserter →
- *   assembling machine making logistic science packs → inserter → a belt →
+ * - **Green**: electric inserters and transport belts, each in its own chest →
+ *   inserter → assembling machine making logistic science packs → inserter → a belt →
  *   inserter → the same lab.
  *
  * The page starts with a test kit (`?kit=`, docs/DECISIONS.md, D29) holding
@@ -31,7 +31,7 @@ import { fastForward } from './timeScale';
 
 /** The test kit, in hotbar order (keys 1–0); the copper plates go past the hotbar. */
 const KIT =
-  'assembling-machine-1:3,lab:1,electric-inserter:50,iron-chest:3,small-electric-pole:5,' +
+  'assembling-machine-1:3,lab:1,electric-inserter:50,iron-chest:4,small-electric-pole:5,' +
   'transport-belt:50,steam-engine:1,boiler:1,coal:50,iron-plate:100,copper-plate:50';
 const RESEARCHED = 'automation,electronics,logistic-science-pack';
 const KEY = {
@@ -63,13 +63,15 @@ const RIG = {
   boiler: { x: 2, y: 0, w: 2, h: 3 },
   ironChest: at1(-8, -5),
   copperChest: at1(-4, -5),
-  greenChest: at1(6, 5),
+  inserterChest: at1(6, 5),
+  beltChest: at1(6, 4),
   inserters: [
     { ...at1(-8, -4), dir: South }, // iron plates → gears
     { ...at1(-6, -2), dir: East }, // gears → red packs
     { ...at1(-4, -4), dir: South }, // copper plates → red packs
     { ...at1(-4, 0), dir: South }, // red packs → lab
-    { ...at1(5, 5), dir: West }, // inserters and belts → green packs
+    { ...at1(5, 5), dir: West }, // electric inserters → green packs
+    { ...at1(5, 4), dir: West }, // transport belts → green packs
     { ...at1(1, 5), dir: West }, // green packs → belt
     { ...at1(-4, 4), dir: North }, // belt → lab
   ],
@@ -158,7 +160,7 @@ test('automated red and green science research automation 2 without further inpu
   await place(KEY.assembler, RIG.red, 'assembling-machine-1');
   await place(KEY.assembler, RIG.green, 'assembling-machine-1');
   await place(KEY.lab, RIG.lab, 'lab');
-  for (const chest of [RIG.ironChest, RIG.copperChest, RIG.greenChest]) {
+  for (const chest of [RIG.ironChest, RIG.copperChest, RIG.inserterChest, RIG.beltChest]) {
     await place(KEY.chest, chest, 'iron-chest');
   }
   for (const ins of RIG.inserters) await place(KEY.inserter, ins, 'electric-inserter', ins.dir);
@@ -198,8 +200,11 @@ test('automated red and green science research automation 2 without further inpu
   await putIn('iron-plate');
   await openAt(RIG.copperChest, 'iron-chest');
   await putIn('copper-plate');
-  await openAt(RIG.greenChest, 'iron-chest');
+  // One ingredient per inserter: an inserter fed both from one chest can
+  // stall the machine holding one it has no room for (#82).
+  await openAt(RIG.inserterChest, 'iron-chest');
   await putIn('electric-inserter');
+  await openAt(RIG.beltChest, 'iron-chest');
   await putIn('transport-belt');
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
