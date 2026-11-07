@@ -174,14 +174,17 @@ def add_ground(shadow_catcher):
     return ground
 
 
-def screen_bounds(footprint, height, margin=0.25, shadow=True):
+def screen_bounds(footprint, height, margin=0.25, shadow=True, extent=0.0):
     """
     The part of the screen a model of `footprint` (w, h tiles) up to `height`
     tiles tall can cover, with its shadow: (left, top, right, bottom) in
     screen tiles around the projected origin, snapped outwards to whole
-    pairs of texels (so the origin lands on an even texel).
+    pairs of texels (so the origin lands on an even texel). `extent` widens
+    the ground area to at least that many tiles around the center.
     """
     w, h = footprint
+    w = max(w, 2 * extent)
+    h = max(h, 2 * extent)
     up = height * HEIGHT_ON_SCREEN
     reach = height * 1.6 if shadow else 0.0
     left = -w / 2 - margin

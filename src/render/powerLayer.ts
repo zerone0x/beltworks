@@ -1,7 +1,10 @@
 /**
  * Draws the electric grid from the snapshot's power records (`encodePower`
  * in src/sim/snapshot.ts): the wires between connected poles (above the
- * buildings), and an overlay for the pole in focus (below the ghost):
+ * buildings), sagging between the insulators of the poles' sprites (their
+ * `wire-west` / `wire-east` points, docs/ART.md) or the placeholder poles'
+ * crossbars, with their shadows on the ground (below the buildings, like
+ * the sprites' shadows), and an overlay for the pole in focus (below the ghost):
  * - while a pole ghost is held: every pole's supply area faintly, the
  *   ghost's supply area and wire reach, and a preview of the wires it would
  *   get (the poles it would connect to, judged with the simulation's own
@@ -19,6 +22,7 @@ import { decodePower, type PoleData, type PowerData } from '../sim/snapshot';
 import { TILE_PX, type Point } from './camera';
 import type { EntityView } from './entityIndex';
 import type { Ghost } from './entityLayer';
+import { HEIGHT_ON_SCREEN, SHADOW_ALPHA, SHADOW_OFFSET, type SpriteAtlas } from './sprites';
 
 /** Height of a pole's crossbar above its center, in tiles: where the wires hang. */
 export const POLE_TOP = 0.3;
@@ -42,12 +46,77 @@ export interface PowerFocus {
   connects: number[];
 }
 
-/** Where wires attach to a pole with its top-left tile at `(x, y)`, in world pixels. */
+/** Where wires attach to a placeholder pole with its top-left tile at `(x, y)`, in world pixels. */
 export function poleTop(proto: EntityPrototype, x: number, y: number): Point {
   return {
     x: (x + proto.width / 2) * TILE_PX,
     y: (y + proto.height / 2 - POLE_TOP) * TILE_PX,
   };
+}
+
+/**
+ * A wire's end: the point on the ground under it and how high above the
+ * ground it shows on screen (world pixels).
+ */
+export interface WireEnd {
+  x: number;
+  y: number;
+  lift: number;
+}
+
+/**
+ * Where a wire leaving a pole of `proto` at `(x, y)` (top-left tile)
+ * towards `toward` (world x) attaches: the insulator on that side of the
+ * pole's sprite in `atlas` (east when straight above or below), or the
+ * placeholder's crossbar.
+ */
+export function wireEnd(
+  atlas: SpriteAtlas | null,
+  proto: EntityPrototype,
+  x: number,
+  y: number,
+  toward: number,
+): WireEnd {
+  const cx = (x + proto.width / 2) * TILE_PX;
+  const cy = (y + proto.height / 2) * TILE_PX;
+  const model = atlas?.model(proto.name) ?? null;
+  const point = model?.points[toward < cx ? 'wire-west' : 'wire-east']?.[0];
+  if (model && point) {
+    // Pole points sit on the pole's east-west axis: x is along the ground, y all height.
+    return { x: cx + point[0] * model.scale, y: cy, lift: -point[1] * model.scale };
+  }
+  return { x: cx, y: cy, lift: POLE_TOP * TILE_PX };
+}
+
+/** Opacity of the wires' shadows (half the buildings' `SHADOW_ALPHA`). */
+const WIRE_SHADOW_ALPHA = SHADOW_ALPHA / 2;
+/** Segments of a drawn wire. */
+const WIRE_STEPS = 12;
+/** How far a wire sags in its middle, per tile it spans (tiles of height). */
+export const WIRE_SAG = 0.05;
+
+/**
+ * Points along a wire from `a` to `b` hanging in a parabola (a catenary this
+ * shallow is one), on screen and, with `shadow`, its shadow on the ground
+ * (world pixels, flattened `[x0, y0, x1, y1, ...]`).
+ */
+export function wirePath(a: WireEnd, b: WireEnd, shadow = false): number[] {
+  const span = Math.hypot(b.x - a.x, b.y - a.y);
+  const sag = WIRE_SAG * span * HEIGHT_ON_SCREEN;
+  const out: number[] = [];
+  for (let i = 0; i <= WIRE_STEPS; i++) {
+    const s = i / WIRE_STEPS;
+    const gx = a.x + (b.x - a.x) * s;
+    const gy = a.y + (b.y - a.y) * s;
+    const lift = a.lift + (b.lift - a.lift) * s - sag * 4 * s * (1 - s);
+    if (shadow) {
+      const height = lift / HEIGHT_ON_SCREEN;
+      out.push(gx + height * SHADOW_OFFSET.x, gy + height * SHADOW_OFFSET.y);
+    } else {
+      out.push(gx, gy - lift);
+    }
+  }
+  return out;
 }
 
 /**
@@ -92,7 +161,11 @@ export class PowerLayer {
   readonly container = new Container({ label: 'wires' });
   /** Supply areas, reach and wire previews, below the ghost. */
   readonly overlayContainer = new Container({ label: 'power-overlay' });
+  /** The wires' shadows on the ground; goes with the buildings' shadows. */
+  readonly shadowContainer = new Container({ label: 'wire-shadows' });
   private readonly wireGraphics = new Graphics({ label: 'wires' });
+  private readonly shadowGraphics = new Graphics({ label: 'wire-shadows' });
+  private atlas: SpriteAtlas | null = null;
   private readonly overlayGraphics = new Graphics({ label: 'power-overlay' });
   private records = new Int32Array(0);
   private power: PowerData = EMPTY;
@@ -105,6 +178,16 @@ export class PowerLayer {
   constructor() {
     this.container.addChild(this.wireGraphics);
     this.overlayContainer.addChild(this.overlayGraphics);
+    this.shadowContainer.addChild(this.shadowGraphics);
+    // A thin wire's shadow is soft: fainter than the buildings'.
+    this.shadowContainer.alpha = WIRE_SHADOW_ALPHA;
+  }
+
+  /** Hangs wires from the insulators of the poles' sprites in `atlas` from now on. */
+  setAtlas(atlas: SpriteAtlas | null): void {
+    this.atlas = atlas;
+    this.drawnVersion = -1;
+    this.overlayKey = '';
   }
 
   /** The grid around the view from the latest snapshot. */
@@ -133,8 +216,16 @@ export class PowerLayer {
     this.drawnVersion = this.version;
     const g = this.wireGraphics;
     g.clear();
+    this.shadowGraphics.clear();
     for (const [a, b] of this.power.wires) {
       this.wire(g, a, b, WIRE_COLOR, 1.5);
+      const ends = this.ends(a, b);
+      if (ends) {
+        this.shadowGraphics.poly(wirePath(ends[0], ends[1], true), false).stroke({
+          width: 1.2,
+          color: 0x000000,
+        });
+      }
     }
   }
 
@@ -157,7 +248,6 @@ export class PowerLayer {
       }
     }
     this.supplyArea(g, focus.proto, focus.x, focus.y, 0.18, 0.8);
-    const top = poleTop(focus.proto, focus.x, focus.y);
     const center = {
       x: (focus.x + focus.proto.width / 2) * TILE_PX,
       y: (focus.y + focus.proto.height / 2) * TILE_PX,
@@ -171,9 +261,11 @@ export class PowerLayer {
       const other = this.byId.get(id);
       const proto = other && entityPrototype(other.type);
       if (!other || !proto) continue;
-      const end = poleTop(proto, other.x, other.y);
       if (focus.kind === 'ghost') {
-        g.moveTo(top.x, top.y).lineTo(end.x, end.y).stroke({
+        const otherCenter = (other.x + proto.width / 2) * TILE_PX;
+        const from = wireEnd(this.atlas, focus.proto, focus.x, focus.y, otherCenter);
+        const to = wireEnd(this.atlas, proto, other.x, other.y, center.x);
+        g.poly(wirePath(from, to), false).stroke({
           width: 2.5,
           color: WIRE_PREVIEW,
           alpha: 0.9,
@@ -189,19 +281,26 @@ export class PowerLayer {
     this.overlayContainer.destroy({ children: true });
   }
 
-  /** A wire between poles `a` and `b`, sagging a little. */
-  private wire(g: Graphics, a: number, b: number, color: number, width: number): void {
+  /** The ends of the wire between poles `a` and `b`, or `null` if one isn't around. */
+  private ends(a: number, b: number): [WireEnd, WireEnd] | null {
     const pa = this.byId.get(a);
     const pb = this.byId.get(b);
     const protoA = pa && entityPrototype(pa.type);
     const protoB = pb && entityPrototype(pb.type);
-    if (!pa || !pb || !protoA || !protoB) return;
-    const s = poleTop(protoA, pa.x, pa.y);
-    const e = poleTop(protoB, pb.x, pb.y);
-    const sag = Math.hypot(e.x - s.x, e.y - s.y) * 0.08;
-    g.moveTo(s.x, s.y)
-      .quadraticCurveTo((s.x + e.x) / 2, (s.y + e.y) / 2 + sag, e.x, e.y)
-      .stroke({ width, color, alpha: 0.95 });
+    if (!pa || !pb || !protoA || !protoB) return null;
+    const ax = (pa.x + protoA.width / 2) * TILE_PX;
+    const bx = (pb.x + protoB.width / 2) * TILE_PX;
+    return [
+      wireEnd(this.atlas, protoA, pa.x, pa.y, bx === ax ? ax + 1 : bx),
+      wireEnd(this.atlas, protoB, pb.x, pb.y, bx === ax ? bx + 1 : ax),
+    ];
+  }
+
+  /** A wire between poles `a` and `b`, sagging between their insulators. */
+  private wire(g: Graphics, a: number, b: number, color: number, width: number): void {
+    const ends = this.ends(a, b);
+    if (!ends) return;
+    g.poly(wirePath(ends[0], ends[1]), false).stroke({ width, color, alpha: 0.95, join: 'round' });
   }
 
   private supplyArea(

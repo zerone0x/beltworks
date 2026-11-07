@@ -52,7 +52,7 @@ export class GameView {
   readonly generators = new GeneratorLayer();
   /** Belts and the items on them, below the other entities. */
   readonly belts = new BeltLayer();
-  /** Inserter arms and what they hold, above the buildings. */
+  /** Inserter arm poses; placeholder arms and what they hold, above the buildings. */
   readonly inserters = new InserterLayer();
   /** Wires between poles, and the supply area / reach overlay of the pole in focus. */
   readonly power = new PowerLayer();
@@ -79,7 +79,9 @@ export class GameView {
       this.terrain.container,
       this.belts.container,
       this.belts.itemContainer,
+      this.belts.coverContainer,
       this.entities.shadowContainer,
+      this.power.shadowContainer,
       this.entities.container,
       this.assemblers.container,
       this.generators.container,
@@ -108,6 +110,9 @@ export class GameView {
     this.entities.setAtlas(atlas);
     this.ghost.setAtlas(atlas);
     this.assemblers.setAtlas(atlas);
+    this.belts.setAtlas(atlas);
+    this.inserters.setAtlas(atlas);
+    this.power.setAtlas(atlas);
   }
 
   /** Names of the sprite models in use (empty without an atlas). */
@@ -159,8 +164,10 @@ export class GameView {
    * and the reach and partner of an underground belt ghost.
    */
   drawGhost(ghost: Ghost | null): void {
-    this.ghost.draw(ghost);
     this.belts.drawOverlay(ghost);
+    // An underground belt's ghost shows the hood of what it would be: an entrance or an exit.
+    const mode = this.belts.ghostInfo?.mode;
+    this.ghost.draw(ghost && mode !== undefined ? { ...ghost, mode } : ghost);
     const tile = this.hoveredTile();
     const hovered = tile && this.entityIndex.at(tile.x, tile.y);
     this.power.drawOverlay(powerFocus(ghost, hovered, this.power.data));
@@ -192,10 +199,11 @@ export class GameView {
     this.applyCamera();
     this.terrain.update();
     this.belts.draw(now);
-    this.entities.draw(this.entityIndex, dtMs);
+    // Arm poses first: inserters with sprites are drawn with the buildings.
+    this.inserters.draw(now);
+    this.entities.draw(this.entityIndex, dtMs, this.inserters.poses);
     this.assemblers.draw(this.entityIndex, dtMs);
     this.generators.draw(this.entityIndex, this.power.data, dtMs);
-    this.inserters.draw(now);
     this.power.drawWires();
     this.players.draw(this.track, now);
   }

@@ -15,7 +15,7 @@ import {
 import { BuildInput, isPlaceableSlot } from './render/buildInput';
 import { GameView } from './render/gameView';
 import { PlayerInput } from './render/playerInput';
-import { loadSpriteAtlas } from './render/sprites';
+import { SPRITE_ATLASES, loadSpriteAtlases } from './render/sprites';
 import { CraftQueueStrip, CraftingPanel } from './ui/crafting';
 import { DebugOverlay } from './ui/debugOverlay';
 import { EntityPanel, hasEntityGui } from './ui/entityPanel';
@@ -118,7 +118,9 @@ async function main(): Promise<void> {
     client.setViewport(viewport);
   });
   // Pre-rendered sprites (docs/ART.md); placeholders until (or unless) they load.
-  void loadSpriteAtlas(`${import.meta.env.BASE_URL}sprites/entities.json`).then((atlas) => {
+  void loadSpriteAtlases(
+    SPRITE_ATLASES.map((name) => `${import.meta.env.BASE_URL}sprites/${name}.json`),
+  ).then((atlas) => {
     view.setSprites(atlas);
   });
   const input = new PlayerInput({
