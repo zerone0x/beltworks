@@ -28,6 +28,7 @@ import { ItemId } from '../../src/data/items';
 import { Direction } from '../../src/sim/entities/direction';
 import { MachineState } from '../../src/sim/entities/machine';
 import { fastForward } from './timeScale';
+import { closeWindows } from './windows';
 
 /** The test kit, in hotbar order (keys 1–0); the copper plates go past the hotbar. */
 const KIT =
@@ -131,7 +132,7 @@ test('automated red and green science research automation 2 without further inpu
   };
   /** Opens the window of the entity covering `r`, with nothing in hand. */
   const openAt = async (r: Rect, name: string) => {
-    await page.keyboard.press('Escape');
+    await closeWindows(page);
     if ((await selectedSlot(page)) !== null) {
       await page.keyboard.press('q');
       await expect.poll(() => selectedSlot(page)).toBeNull();
@@ -178,7 +179,7 @@ test('automated red and green science research automation 2 without further inpu
   await pickRecipe('logistic-science-pack');
 
   // Research: automation 2 takes red and green packs.
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await page.keyboard.press('t');
   await expect(tree).toBeVisible();
   const automation2 = tree.locator('.tech[data-tech="automation-2"]');
@@ -206,7 +207,7 @@ test('automated red and green science research automation 2 without further inpu
   await putIn('electric-inserter');
   await openAt(RIG.beltChest, 'iron-chest');
   await putIn('transport-belt');
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await expect(panel).toBeHidden();
 
   const machine = async (r: Rect) => (await entityAt(page, r.x, r.y))?.status;

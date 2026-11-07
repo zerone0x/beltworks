@@ -31,6 +31,7 @@ import { MachineState } from '../entities/machine';
 import { SparseSet, growTo } from '../entities/sparseSet';
 import type { EntityDetail, EntityTypeTable, Slot } from '../entities/table';
 import { fnv1a32 } from '../hash';
+import type { SaveReader, SaveWriter } from '../save/codec';
 
 /** Slot indices of a boiler, in the order `slots` lists them. */
 export const BoilerSlot = {
@@ -188,6 +189,22 @@ export class BoilerTable implements EntityTypeTable {
       h = fnv1a32(c.subarray(0, n), h);
     }
     return this.burner.hashInto(h, n);
+  }
+
+  save(w: SaveWriter): void {
+    const n = this.set.size;
+    w.sparseSet(this.set);
+    for (const c of [this.supplyCol, this.outputCol, this.state]) w.column(c, n);
+    this.burner.save(w, n);
+  }
+
+  load(r: SaveReader): void {
+    r.sparseSet(this.set);
+    const n = this.set.size;
+    this.supplyCol = r.column(this.supplyCol, n);
+    this.outputCol = r.column(this.outputCol, n);
+    this.state = r.column(this.state, n);
+    this.burner.load(r, n);
   }
 
   private row(id: number): number {

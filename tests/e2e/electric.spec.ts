@@ -11,6 +11,7 @@ import { PLAYER_HALF_SIZE } from '../../src/sim/player';
 import { startingPatches } from '../../src/sim/world/generate';
 import { World } from '../../src/sim/world/world';
 import { walkNear } from './walk';
+import { closeWindows } from './windows';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -139,7 +140,7 @@ test('an electric drill shows no power until a boiler and steam engine power it'
   };
   /** Opens the window of the entity covering `r`, with nothing in hand. */
   const openAt = async (r: Rect, name: string) => {
-    await page.keyboard.press('Escape');
+    await closeWindows(page);
     // Q only deselects with something selected; with nothing, it is the pipette.
     if ((await page.evaluate(() => window.__beltworks!.selectedSlot())) !== null) {
       await page.keyboard.press('q');
@@ -176,7 +177,7 @@ test('an electric drill shows no power until a boiler and steam engine power it'
     path: dark,
     contentType: 'image/png',
   });
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
 
   // Steam power west of it: an engine, its boiler and a pole over the engine and the drill.
   await place(ItemId.SteamEngine, rig.engine, Direction.North, 'steam-engine');

@@ -99,6 +99,7 @@ import type { Entities } from '../entities/entities';
 import { SparseSet, growTo } from '../entities/sparseSet';
 import type { EntityTypeTable } from '../entities/table';
 import { fnv1a32 } from '../hash';
+import { SaveError, type SaveReader, type SaveWriter } from '../save/codec';
 import type { Lane, LaneOutlet } from './lane';
 import { BELT_LENGTH, BeltLane, LineLane, TransportLine } from './line';
 import { splitterHalfTile } from './splitter';
@@ -545,6 +546,114 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       order[2 * i + 1] = lane.index;
     });
     return fnv1a32(order, h);
+  }
+
+  /**
+   * Saves the belt rows, every line with its links (by line id), watched
+   * belts and lanes, and the active list in order. Everything not saved is
+   * scratch that only lives within one call.
+   */
+  save(w: SaveWriter): void {
+    const n = this.set.size;
+    w.u53(this.tick);
+    w.u32(this.nextLine);
+    w.sparseSet(this.set);
+    for (const c of [
+      this.lineCol,
+      this.indexCol,
+      this.shapeCol,
+      this.speedCol,
+      this.modeCol,
+      this.partnerCol,
+      this.splitCol,
+      this.line2Col,
+      this.nextCol,
+      this.dirCol,
+    ]) {
+      w.column(c, n);
+    }
+    w.u32(this.lineMap.size);
+    for (const line of this.lineMap.values()) {
+      w.u32(line.id);
+      w.ids(line.belts);
+      w.u32(line.lanes[0].minSpacing);
+      w.u32(line.speed);
+      w.u32(line.out?.id ?? 0);
+      w.i32(line.outLane);
+      w.u32(line.outPos);
+      w.i32(line.outOnly);
+      w.ids(line.feeders.map((f) => f.id));
+      w.u8(line.turn);
+      w.ids(line.watched);
+      w.u32(line.splitter);
+      w.u8(line.half);
+      w.i32(line.tileX);
+      w.i32(line.tileY);
+      w.u32(line.sibling?.id ?? 0);
+      for (const lane of line.lanes) lane.save(w);
+    }
+    w.u32(this.active.length);
+    for (const lane of this.active) {
+      w.u32(lane.line.id);
+      w.u8(lane.index);
+    }
+  }
+
+  load(r: SaveReader, entities: Entities): void {
+    this.entities = entities;
+    this.tick = r.u53();
+    this.nextLine = r.u32();
+    r.sparseSet(this.set);
+    const n = this.set.size;
+    this.lineCol = r.column(this.lineCol, n);
+    this.indexCol = r.column(this.indexCol, n);
+    this.shapeCol = r.column(this.shapeCol, n);
+    this.speedCol = r.column(this.speedCol, n);
+    this.modeCol = r.column(this.modeCol, n);
+    this.partnerCol = r.column(this.partnerCol, n);
+    this.splitCol = r.column(this.splitCol, n);
+    this.line2Col = r.column(this.line2Col, n);
+    this.nextCol = r.column(this.nextCol, n);
+    this.dirCol = r.column(this.dirCol, n);
+    // Lines first, then the links between them (by id).
+    const links: { line: TransportLine; out: number; feeders: number[]; sibling: number }[] = [];
+    for (let i = r.u32(); i > 0; i--) {
+      const id = r.u32();
+      const belts = r.ids();
+      const spacing = r.u32();
+      const line = new TransportLine(id, belts, spacing, r.u32());
+      const out = r.u32();
+      line.outLane = r.i32();
+      line.outPos = r.u32();
+      line.outOnly = r.i32();
+      const feeders = r.ids();
+      line.turn = r.u8() === 1 ? BeltLane.Right : BeltLane.Left;
+      line.watched.push(...r.ids());
+      line.splitter = r.u32();
+      line.half = r.u8();
+      line.tileX = r.i32();
+      line.tileY = r.i32();
+      const sibling = r.u32();
+      for (const lane of line.lanes) lane.load(r);
+      this.lineMap.set(id, line);
+      links.push({ line, out, feeders, sibling });
+    }
+    const lineById = (id: number): TransportLine => {
+      const line = this.lineMap.get(id);
+      if (!line) throw new SaveError(`belts: no line ${String(id)}`);
+      return line;
+    };
+    for (const { line, out, feeders, sibling } of links) {
+      line.out = out !== 0 ? lineById(out) : null;
+      for (const f of feeders) line.feeders.push(lineById(f));
+      line.sibling = sibling !== 0 ? lineById(sibling) : null;
+    }
+    for (let i = r.u32(); i > 0; i--) {
+      const line = lineById(r.u32());
+      const lane = line.lanes[r.u8() === 1 ? 1 : 0];
+      if (!lane.active) throw new SaveError('belts: a lane on the active list is asleep');
+      this.active.push(lane);
+    }
   }
 
   // The API for other systems (drills, inserters).

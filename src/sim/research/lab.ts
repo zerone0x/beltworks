@@ -52,6 +52,7 @@ import { MachineState } from '../entities/machine';
 import { SparseSet, growTo } from '../entities/sparseSet';
 import type { EntityDetail, EntityTypeTable, Slot } from '../entities/table';
 import { fnv1a32 } from '../hash';
+import type { SaveReader, SaveWriter } from '../save/codec';
 import { NOT_GRANTED, PowerBudget } from '../power/consumer';
 import type { ResearchState } from './research';
 import { DEFAULT_FORCE } from './unlocks';
@@ -283,6 +284,32 @@ export class LabTable implements EntityTypeTable {
       h = fnv1a32(c.subarray(0, n), h);
     }
     return fnv1a32(this.packs.subarray(0, n * LAB_SLOTS), h);
+  }
+
+  save(w: SaveWriter): void {
+    const n = this.set.size;
+    w.sparseSet(this.set);
+    w.sparseSet(this.active);
+    for (const c of [this.tech, this.progress, this.state]) w.column(c, n);
+    w.column(this.packs, n * LAB_SLOTS);
+  }
+
+  load(r: SaveReader): void {
+    r.sparseSet(this.set);
+    r.sparseSet(this.active);
+    const n = this.set.size;
+    this.tech = r.column(this.tech, n);
+    this.progress = r.column(this.progress, n);
+    this.state = r.column(this.state, n);
+    this.packs = r.column(this.packs, n * LAB_SLOTS);
+    // Power grants only live within a tick (consumer.ts): not saved.
+    this.budget.grow(n);
+    // Units in progress per technology follow from the rows.
+    this.inProgress.fill(0);
+    for (let row = 0; row < n; row++) {
+      const tech = this.tech[row]!;
+      if (tech !== 0) this.inProgress[tech] = this.inProgress[tech]! + 1;
+    }
   }
 
   /** One tick of the lab in row `row`; returns its new state. */

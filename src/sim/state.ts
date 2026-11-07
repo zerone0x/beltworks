@@ -2,6 +2,10 @@
  * Simulation state: everything that is saved, hashed, and must evolve
  * identically on every machine. Only integers live here (typed arrays and
  * integer fields); see docs/ARCHITECTURE.md.
+ *
+ * Every piece of it is saved (src/sim/save/save.ts): new state gets written
+ * in the `save` hook next to the `hashInto` hook of whatever holds it (or is
+ * rebuilt exactly in `load`), or the save round-trip tests fail.
  */
 
 import type { ItemStack } from '../data/items';

@@ -259,6 +259,11 @@ export class CommandQueue {
     this.items.splice(lo, 0, entry);
   }
 
+  /** The queued commands in the order they will run (for saves). */
+  pending(): Command[] {
+    return this.items.slice(this.head).map((e) => e.cmd);
+  }
+
   /** Removes and returns, in order, every command whose tick is `<= tick`. */
   takeUpTo(tick: number): Command[] {
     const out: Command[] = [];

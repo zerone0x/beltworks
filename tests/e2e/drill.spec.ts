@@ -14,6 +14,7 @@ import { PLAYER_HALF_SIZE } from '../../src/sim/player';
 import { startingPatches } from '../../src/sim/world/generate';
 import { World } from '../../src/sim/world/world';
 import { walkNear } from './walk';
+import { closeWindows } from './windows';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -164,7 +165,7 @@ test('a fuelled drill on iron ore feeds a furnace, which makes plates on its own
   await expect(panel.locator('.status')).toHaveText('Working');
 
   // The furnace gets the rest of the coal; nothing else comes from the player.
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await expect(panel).toBeHidden();
   at = await tileScreen(page, f.x + 1, f.y + 1);
   await page.mouse.click(at.x, at.y);
@@ -183,7 +184,7 @@ test('a fuelled drill on iron ore feeds a furnace, which makes plates on its own
     .toBe(MachineState.Working);
 
   // Back to the drill's GUI for the screenshot: working, with its progress showing.
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   at = await tileScreen(page, d.x, d.y);
   await page.mouse.click(at.x, at.y);
   await expect(panel).toHaveAttribute('data-type', 'burner-mining-drill');

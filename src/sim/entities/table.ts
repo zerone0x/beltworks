@@ -24,6 +24,7 @@ import type { RealEntityTypeId } from '../../data/entities';
 import type { Direction } from './direction';
 import type { Entities } from './entities';
 import type { MachineState } from './machine';
+import type { SaveReader, SaveWriter } from '../save/codec';
 
 /** One item slot: item id (0 for an empty slot) and units. */
 export interface Slot {
@@ -120,6 +121,22 @@ export interface EntityTypeTable {
 
   /** Folds the table into a running FNV-1a hash, in row order. */
   hashInto(h: number): number;
+
+  /**
+   * Writes the table's complete state to a save (its own section, see
+   * src/sim/save/save.ts): rows, active list, and anything else that can
+   * change what the table does later, hashed or not. Every new piece of
+   * state goes here, or is rebuilt from what is saved in `load`; the
+   * round-trip tests (tests/sim/save.test.ts) fail otherwise.
+   */
+  save(w: SaveWriter): void;
+
+  /**
+   * Restores what `save` wrote, into this freshly created, empty table. The
+   * generic store, the occupancy index and the subscriptions are already
+   * loaded; other tables may not be yet.
+   */
+  load(r: SaveReader, entities: Entities): void;
 
   /** The entity's machine state (for the renderer and GUI). Idle when absent. */
   status?(id: number): MachineState;

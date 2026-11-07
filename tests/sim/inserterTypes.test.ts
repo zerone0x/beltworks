@@ -41,6 +41,9 @@ const IRON_CHEST_SLOTS = 32;
 
 /** A fake power producer on the steam engine's footprint that offers exactly what the test sets. */
 class FakeProducers implements EntityTypeTable {
+  // Test-only tables are never saved.
+  save(): void {}
+  load(): void {}
   readonly type = EntityTypeId.SteamEngine;
   readonly max = new Map<number, number>();
   readonly delivered = new Map<number, number>();

@@ -4,6 +4,7 @@ import { STARTING_KIT } from '../../src/data/start';
 import { Direction } from '../../src/sim/entities/direction';
 import { INSERTER_SWING_TICKS } from '../../src/sim/entities/inserter';
 import { MachineState } from '../../src/sim/entities/machine';
+import { closeWindows } from './windows';
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -93,13 +94,13 @@ test('an inserter fuels itself from a chest of coal and moves the rest into anot
   expect(await inserterAt(page, -4, -2)).toMatchObject({ arm: 0, held: 0, swing: 0 });
 
   // All the coal into the source chest; nothing else comes from the player.
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   at = await tileScreen(page, -5, -2);
   await page.mouse.click(at.x, at.y);
   await expect(panel).toHaveAttribute('data-type', 'wooden-chest');
   await panel.locator('.player-inventory .slot[data-item="coal"]').click();
   await expect.poll(() => countOf(page, ItemId.Coal)).toBe(0);
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
 
   // Back to the inserter: it took one coal for itself and is swinging with another.
   at = await tileScreen(page, -4, -2);
@@ -136,7 +137,7 @@ test('an inserter fuels itself from a chest of coal and moves the rest into anot
   // Ten coal: the inserter keeps two (one burning, one in its fuel slot, taken
   // when the slot ran empty on its second pickup), eight end up in the target
   // chest, one per 1.2 s.
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   at = await tileScreen(page, -3, -2);
   await page.mouse.click(at.x, at.y);
   await expect(panel).toHaveAttribute('data-type', 'wooden-chest');
@@ -148,7 +149,7 @@ test('an inserter fuels itself from a chest of coal and moves the rest into anot
     .poll(async () => (await entityAt(page, -4, -2))?.status)
     .toBe(MachineState.WaitingForSource);
   await expect.poll(() => inserterAt(page, -4, -2)).toMatchObject({ arm: 0, held: 0, swing: 0 });
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   at = await tileScreen(page, -4, -2);
   await page.mouse.click(at.x, at.y);
   await expect(panel).toHaveAttribute('data-type', 'burner-inserter');

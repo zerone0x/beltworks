@@ -55,6 +55,9 @@ const INSERTER_CYCLE = 52;
  * satisfaction down) and records what it is asked to deliver.
  */
 class FakeProducers implements EntityTypeTable {
+  // Test-only tables are never saved.
+  save(): void {}
+  load(): void {}
   readonly type = EntityTypeId.SteamEngine;
   readonly max = new Map<number, number>();
   /** Joules delivered per producer, summed over every tick. */

@@ -5,7 +5,8 @@
 import { ResourceId } from '../../data/resources';
 import { isWalkable } from '../../data/tiles';
 import { FNV1A32_OFFSET_BASIS, fnv1a32 } from '../hash';
-import { CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, type Chunk } from './chunk';
+import { SaveError, type SaveReader, type SaveWriter } from '../save/codec';
+import { CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, Chunk } from './chunk';
 import { generateChunk } from './generate';
 
 /**
@@ -197,6 +198,43 @@ export class World {
     if (left === 0) chunk.resource[i] = ResourceId.None;
     this.markModified(cx, cy);
     return taken;
+  }
+
+  /**
+   * Saves the modified chunks (the seed is saved with the simulation):
+   * everything else is a pure function of the seed and is generated again.
+   */
+  save(w: SaveWriter): void {
+    w.u32(this.dirty.size);
+    for (const [key, version] of this.dirty) {
+      const chunk = this.chunks.get(key)!;
+      w.i32(chunk.cx);
+      w.i32(chunk.cy);
+      w.u32(version);
+      w.column(chunk.terrain);
+      w.column(chunk.resource);
+      w.column(chunk.amount);
+      w.column(chunk.tree);
+    }
+  }
+
+  /** Restores what `save` wrote into this fresh world (of the same seed). */
+  load(r: SaveReader): void {
+    if (this.dirty.size !== 0) throw new Error('loading into a world that was modified');
+    for (let i = r.u32(); i > 0; i--) {
+      const cx = r.i32();
+      const cy = r.i32();
+      if (!isChunkCoord(cx) || !isChunkCoord(cy)) throw new SaveError('world: chunk out of range');
+      const version = r.u32();
+      const chunk = new Chunk(cx, cy);
+      r.columnInto(chunk.terrain);
+      r.columnInto(chunk.resource);
+      r.columnInto(chunk.amount);
+      r.columnInto(chunk.tree);
+      const key = chunkKey(cx, cy);
+      this.chunks.set(key, chunk);
+      this.dirty.set(key, version);
+    }
   }
 
   /** Records a modification of chunk `(cx, cy)` (see {@link chunkVersion}). */

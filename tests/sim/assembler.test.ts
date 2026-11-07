@@ -49,6 +49,9 @@ const AM2 = EntityTypeId.AssemblingMachine2;
 
 /** A fake power producer (on the steam engine's footprint) offering exactly what the test sets. */
 class FakeProducers implements EntityTypeTable {
+  // Test-only tables are never saved.
+  save(): void {}
+  load(): void {}
   readonly type = EntityTypeId.SteamEngine;
   readonly max = new Map<number, number>();
   add(): void {}

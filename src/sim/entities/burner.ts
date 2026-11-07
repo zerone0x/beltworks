@@ -17,6 +17,7 @@
 
 import { fuelValue, itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
 import { fnv1a32 } from '../hash';
+import type { SaveReader, SaveWriter } from '../save/codec';
 import { growTo } from './sparseSet';
 
 export class BurnerColumns {
@@ -124,5 +125,21 @@ export class BurnerColumns {
     h = fnv1a32(this.fuelCount.subarray(0, rows), h);
     h = fnv1a32(this.energy.subarray(0, rows), h);
     return fnv1a32(this.burning.subarray(0, rows), h);
+  }
+
+  /** Writes rows `[0, rows)` to a save. */
+  save(w: SaveWriter, rows: number): void {
+    w.column(this.fuelItem, rows);
+    w.column(this.fuelCount, rows);
+    w.column(this.energy, rows);
+    w.column(this.burning, rows);
+  }
+
+  /** Reads `rows` rows written by `save`. */
+  load(r: SaveReader, rows: number): void {
+    this.fuelItem = r.column(this.fuelItem, rows);
+    this.fuelCount = r.column(this.fuelCount, rows);
+    this.energy = r.column(this.energy, rows);
+    this.burning = r.column(this.burning, rows);
   }
 }

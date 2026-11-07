@@ -43,6 +43,7 @@ import { MachineState } from '../entities/machine';
 import { SparseSet, growTo } from '../entities/sparseSet';
 import type { EntityDetail, EntityTypeTable } from '../entities/table';
 import { fnv1a32 } from '../hash';
+import type { SaveReader, SaveWriter } from '../save/codec';
 import { boilerTable } from './boiler';
 import type { TileRect } from './geometry';
 import { powerGrid } from './grid';
@@ -233,6 +234,35 @@ export class SteamEngineTable implements EntityTypeTable {
       h = fnv1a32(c.subarray(0, n), h);
     }
     return h;
+  }
+
+  save(w: SaveWriter): void {
+    const n = this.set.size;
+    w.sparseSet(this.set);
+    for (const c of [this.boilerCol, this.rankCol, this.availableCol, this.outputCol, this.state]) {
+      w.column(c, n);
+    }
+    // The links, in the order the boilers share out their supply.
+    w.u32(this.feeds.size);
+    for (const [boiler, engines] of this.feeds) {
+      w.u32(boiler);
+      w.ids(engines);
+    }
+  }
+
+  load(r: SaveReader): void {
+    r.sparseSet(this.set);
+    const n = this.set.size;
+    this.boilerCol = r.column(this.boilerCol, n);
+    this.rankCol = r.column(this.rankCol, n);
+    this.availableCol = r.column(this.availableCol, n);
+    this.outputCol = r.column(this.outputCol, n);
+    this.state = r.column(this.state, n);
+    this.feeds.clear();
+    for (let i = r.u32(); i > 0; i--) {
+      const boiler = r.u32();
+      this.feeds.set(boiler, r.ids());
+    }
   }
 
   // Internals.

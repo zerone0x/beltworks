@@ -27,6 +27,7 @@ import { PLAYER_HALF_SIZE } from '../../src/sim/player';
 import { startingPatches } from '../../src/sim/world/generate';
 import { World } from '../../src/sim/world/world';
 import { walkNear } from './walk';
+import { closeWindows } from './windows';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -269,7 +270,7 @@ test('a drill, a belt, inserters, a furnace and a chest make iron plates on thei
     // already be empty again: a machine with work to do starts burning a
     // single unit at once.)
     await expect.poll(() => countOf(page, ItemId.Coal)).toBe(left);
-    await page.keyboard.press('Escape');
+    await closeWindows(page);
     await expect(panel).toBeHidden();
   };
   // 10 coal: 5 for the drill (33 ores), 3 for the furnace, 1 for each inserter (33 swings).

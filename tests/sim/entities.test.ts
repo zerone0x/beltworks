@@ -566,6 +566,9 @@ describe('build commands through the Sim', () => {
 
 /** A per-type table that records the hooks it receives. */
 class RecordingTable implements EntityTypeTable {
+  // Test-only tables are never saved.
+  save(): void {}
+  load(): void {}
   readonly type = EntityTypeId.WoodenChest;
   readonly log: string[] = [];
   readonly stored = new Map<number, ItemStack[]>();

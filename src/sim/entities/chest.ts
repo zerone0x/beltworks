@@ -19,6 +19,7 @@ import {
 import { itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
 import { fnv1a32 } from '../hash';
 import { Inventory } from '../inventory';
+import { SaveError, type SaveReader, type SaveWriter } from '../save/codec';
 import type { Entities } from './entities';
 import { SparseSet, growTo } from './sparseSet';
 import type { EntityTypeTable, Slot } from './table';
@@ -132,6 +133,25 @@ export class ChestTable implements EntityTypeTable {
     h = fnv1a32(this.set.dense, h);
     h = fnv1a32(this.items.subarray(0, n), h);
     return fnv1a32(this.counts.subarray(0, n), h);
+  }
+
+  save(w: SaveWriter): void {
+    const n = this.set.size * this.slotsPerChest;
+    w.u32(this.slotsPerChest);
+    w.sparseSet(this.set);
+    w.column(this.items, n);
+    w.column(this.counts, n);
+  }
+
+  load(r: SaveReader): void {
+    const slots = r.u32();
+    if (slots !== this.slotsPerChest) {
+      throw new SaveError(`${this.proto.name}: ${String(slots)} slots per chest in the save`);
+    }
+    r.sparseSet(this.set);
+    const n = this.set.size * this.slotsPerChest;
+    this.items = r.column(this.items, n);
+    this.counts = r.column(this.counts, n);
   }
 
   private row(id: number): number {

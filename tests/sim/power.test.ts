@@ -22,6 +22,9 @@ const { North } = Direction;
 
 /** A fake electric consumer on the wooden chest's 1×1 footprint: demands what the test sets. */
 class FakeConsumers implements EntityTypeTable {
+  // Test-only tables are never saved.
+  save(): void {}
+  load(): void {}
   readonly type = EntityTypeId.WoodenChest;
   readonly demand = new Map<number, number>();
   add(): void {}
@@ -39,6 +42,9 @@ class FakeConsumers implements EntityTypeTable {
 
 /** A fake electric producer on the stone furnace's 2×2 footprint: offers what the test sets. */
 class FakeProducers implements EntityTypeTable {
+  // Test-only tables are never saved.
+  save(): void {}
+  load(): void {}
   readonly type = EntityTypeId.StoneFurnace;
   readonly max = new Map<number, number>();
   /** Every `powerDraw` call: `[id, joules]`. */

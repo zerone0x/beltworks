@@ -1,0 +1,449 @@
+/**
+ * The game menu and the start screen (plain DOM, D39).
+ *
+ * - The game menu (`Esc` when no other window is open, or the corner
+ *   button) saves the game under a name, lists the save slots (newest
+ *   first) with Load, Export and Delete, imports a save file, and starts a
+ *   new game. Deleting and starting over ask for a second click. The game
+ *   keeps running behind it.
+ * - The start screen shows on startup when there are saves: Continue (the
+ *   newest one) or New game.
+ *
+ * Neither knows about the worker or IndexedDB: main.ts passes the actions.
+ */
+
+import { formatPlayTime, sortSlots, type SaveSlot } from '../save/slots';
+
+export interface GameMenuActions {
+  /** Saves the game as `name`; resolves once it is stored. */
+  save(name: string): Promise<void>;
+  /** The save slots to list. */
+  list(): Promise<SaveSlot[]>;
+  load(slot: SaveSlot): void;
+  export(slot: SaveSlot): Promise<void>;
+  delete(slot: SaveSlot): Promise<void>;
+  /** Imports a save file; resolves with a message for the status line. */
+  import(file: File): Promise<string>;
+  newGame(): void;
+  /** Whether another window is open (Escape closes that one instead of opening the menu). */
+  otherWindowOpen(): boolean;
+}
+
+const OVERLAY_STYLE: Partial<CSSStyleDeclaration> = {
+  position: 'fixed',
+  inset: '0',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'rgba(0, 0, 0, 0.45)',
+  zIndex: '50',
+};
+
+const PANEL_STYLE: Partial<CSSStyleDeclaration> = {
+  minWidth: '420px',
+  maxWidth: '640px',
+  maxHeight: '80vh',
+  overflowY: 'auto',
+  padding: '14px 16px',
+  color: '#e8e2d0',
+  font: '13px/1.5 system-ui, sans-serif',
+  background: 'rgba(20, 22, 26, 0.96)',
+  border: '1px solid rgba(232, 226, 208, 0.25)',
+  borderRadius: '8px',
+};
+
+const BUTTON_STYLE: Partial<CSSStyleDeclaration> = {
+  padding: '3px 10px',
+  margin: '0 6px 0 0',
+  color: '#e8e2d0',
+  font: 'inherit',
+  background: 'rgba(255, 255, 255, 0.08)',
+  border: '1px solid rgba(232, 226, 208, 0.3)',
+  borderRadius: '4px',
+  cursor: 'pointer',
+};
+
+function button(label: string, id?: string): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = label;
+  if (id) b.id = id;
+  Object.assign(b.style, BUTTON_STYLE);
+  return b;
+}
+
+function heading(text: string): HTMLDivElement {
+  const el = document.createElement('div');
+  el.textContent = text;
+  Object.assign(el.style, { fontWeight: '600', margin: '10px 0 4px' });
+  return el;
+}
+
+/** "Saved 14:03" today, else the date and time. */
+function savedLabel(savedAt: number): string {
+  const d = new Date(savedAt);
+  const now = new Date();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === now.toDateString() ? time : `${d.toLocaleDateString()} ${time}`;
+}
+
+/**
+ * Makes `b` ask for a second click within 3 s before running `action`
+ * (deleting a save, abandoning the game).
+ */
+function confirmTwice(b: HTMLButtonElement, action: () => void): void {
+  const label = b.textContent;
+  let armed: ReturnType<typeof setTimeout> | null = null;
+  b.addEventListener('click', () => {
+    if (armed !== null) {
+      clearTimeout(armed);
+      armed = null;
+      b.textContent = label;
+      action();
+      return;
+    }
+    b.textContent = 'Sure?';
+    armed = setTimeout(() => {
+      armed = null;
+      b.textContent = label;
+    }, 3000);
+  });
+}
+
+/** Keeps typing in a text field from reaching the game's key handlers (WASD, hotbar). */
+function isolateKeys(input: HTMLInputElement): void {
+  for (const type of ['keydown', 'keyup'] as const) {
+    input.addEventListener(type, (e) => {
+      if (e.key !== 'Escape') e.stopPropagation();
+    });
+  }
+}
+
+export class GameMenu {
+  readonly element: HTMLElement;
+  /** The "Menu" button in the top-right corner. */
+  readonly button: HTMLButtonElement;
+  private readonly toast: HTMLElement;
+  private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly panel: HTMLElement;
+  private readonly nameInput: HTMLInputElement;
+  private readonly slotTable: HTMLTableElement;
+  private readonly status: HTMLElement;
+
+  constructor(
+    parent: HTMLElement,
+    private readonly actions: GameMenuActions,
+  ) {
+    const overlay = document.createElement('div');
+    overlay.id = 'game-menu';
+    // `display: flex` would override the `hidden` attribute, so open and close set `display`.
+    Object.assign(overlay.style, OVERLAY_STYLE, { display: 'none' });
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.target === overlay) this.close();
+    });
+
+    const panel = document.createElement('div');
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Game menu');
+    Object.assign(panel.style, PANEL_STYLE);
+    const title = document.createElement('div');
+    title.textContent = 'Game menu';
+    Object.assign(title.style, { fontWeight: '600', fontSize: '15px', marginBottom: '8px' });
+
+    const top = document.createElement('div');
+    const resume = button('Resume', 'menu-resume');
+    resume.addEventListener('click', () => {
+      this.close();
+    });
+    const newGame = button('New game', 'menu-new-game');
+    confirmTwice(newGame, () => {
+      this.actions.newGame();
+    });
+    top.append(resume, newGame);
+
+    const saveRow = document.createElement('div');
+    Object.assign(saveRow.style, { display: 'flex', gap: '6px', marginTop: '6px' });
+    const nameInput = document.createElement('input');
+    nameInput.id = 'menu-save-name';
+    nameInput.type = 'text';
+    nameInput.maxLength = 60;
+    nameInput.placeholder = 'Save name';
+    Object.assign(nameInput.style, {
+      flex: '1',
+      padding: '3px 6px',
+      color: '#e8e2d0',
+      font: 'inherit',
+      background: 'rgba(0, 0, 0, 0.35)',
+      border: '1px solid rgba(232, 226, 208, 0.3)',
+      borderRadius: '4px',
+    });
+    isolateKeys(nameInput);
+    const save = button('Save', 'menu-save');
+    const doSave = (): void => {
+      const name = nameInput.value.trim() || `Save ${new Date().toLocaleString()}`;
+      save.disabled = true;
+      this.setStatus('Saving…');
+      this.actions
+        .save(name)
+        .then(() => {
+          this.setStatus(`Saved “${name}”.`);
+          nameInput.value = '';
+          return this.refresh();
+        })
+        .catch((err: unknown) => {
+          this.setStatus(`Saving failed: ${err instanceof Error ? err.message : String(err)}`);
+        })
+        .finally(() => {
+          save.disabled = false;
+        });
+    };
+    save.addEventListener('click', doSave);
+    nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doSave();
+    });
+    saveRow.append(nameInput, save);
+
+    const status = document.createElement('div');
+    status.id = 'menu-status';
+    Object.assign(status.style, { minHeight: '1.5em', marginTop: '4px', color: '#f2d36b' });
+
+    const slotTable = document.createElement('table');
+    slotTable.id = 'menu-slots';
+    Object.assign(slotTable.style, { borderCollapse: 'collapse', width: '100%' });
+
+    const importRow = document.createElement('div');
+    Object.assign(importRow.style, { marginTop: '8px' });
+    const file = document.createElement('input');
+    file.type = 'file';
+    file.id = 'menu-import-file';
+    file.accept = '.bwsave,application/gzip,application/octet-stream';
+    file.hidden = true;
+    const importButton = button('Import save file…', 'menu-import');
+    importButton.addEventListener('click', () => {
+      file.click();
+    });
+    file.addEventListener('change', () => {
+      const chosen = file.files?.[0];
+      file.value = '';
+      if (!chosen) return;
+      this.setStatus('Importing…');
+      this.actions
+        .import(chosen)
+        .then((message) => {
+          this.setStatus(message);
+          return this.refresh();
+        })
+        .catch((err: unknown) => {
+          this.setStatus(err instanceof Error ? err.message : String(err));
+        });
+    });
+    importRow.append(importButton, file);
+
+    panel.append(title, top, heading('Save'), saveRow, status, heading('Saves'), slotTable);
+    panel.append(importRow);
+    overlay.append(panel);
+
+    const corner = button('Menu (Esc)', 'menu-button');
+    Object.assign(corner.style, {
+      position: 'fixed',
+      top: '8px',
+      right: '8px',
+      margin: '0',
+      font: '12px/1.4 system-ui, sans-serif',
+      background: 'rgba(0, 0, 0, 0.6)',
+      border: 'none',
+      zIndex: '30',
+    });
+    corner.addEventListener('click', () => {
+      corner.blur();
+      if (this.isOpen) this.close();
+      else this.open();
+    });
+    const toast = document.createElement('div');
+    toast.id = 'save-toast';
+    toast.setAttribute('role', 'status');
+    toast.hidden = true;
+    Object.assign(toast.style, {
+      position: 'fixed',
+      top: '36px',
+      right: '8px',
+      maxWidth: '360px',
+      padding: '4px 10px',
+      color: '#e8e2d0',
+      font: '12px/1.4 system-ui, sans-serif',
+      background: 'rgba(0, 0, 0, 0.7)',
+      borderRadius: '4px',
+      pointerEvents: 'none',
+      zIndex: '30',
+    });
+
+    parent.append(overlay, corner, toast);
+    this.button = corner;
+    this.toast = toast;
+    this.element = overlay;
+    this.panel = panel;
+    this.nameInput = nameInput;
+    this.slotTable = slotTable;
+    this.status = status;
+
+    // Capture phase: decide before the other windows close themselves on the
+    // same key, and keep game keys (other than in the menu's own fields) from
+    // opening windows behind the menu. Key releases still get through, so a
+    // key held when the menu opened doesn't stay down.
+    window.addEventListener(
+      'keydown',
+      (e) => {
+        if (e.key === 'Escape') {
+          if (e.repeat) return;
+          if (this.isOpen) this.close();
+          else if (!this.actions.otherWindowOpen()) this.open();
+          return;
+        }
+        if (this.isOpen && !(e.target instanceof Node && panel.contains(e.target))) {
+          e.stopImmediatePropagation();
+        }
+      },
+      { capture: true },
+    );
+  }
+
+  /** Shows `message` for a few seconds in the corner, whether the menu is open or not. */
+  notify(message: string, ms = 5000): void {
+    this.toast.textContent = message;
+    this.toast.hidden = false;
+    if (this.toastTimer !== null) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      this.toast.hidden = true;
+      this.toastTimer = null;
+    }, ms);
+  }
+
+  get isOpen(): boolean {
+    return this.element.style.display !== 'none';
+  }
+
+  open(): void {
+    this.element.style.display = 'flex';
+    this.setStatus('');
+    void this.refresh();
+  }
+
+  close(): void {
+    this.element.style.display = 'none';
+    this.nameInput.blur();
+  }
+
+  /** Shows `message` on the status line (also used for autosaves and load errors). */
+  setStatus(message: string): void {
+    this.status.textContent = message;
+  }
+
+  /** Redraws the slot list. */
+  async refresh(): Promise<void> {
+    const slots = sortSlots(await this.actions.list());
+    const table = this.slotTable;
+    table.replaceChildren();
+    if (slots.length === 0) {
+      const row = table.insertRow();
+      const cell = row.insertCell();
+      cell.textContent = 'No saves yet.';
+      cell.style.opacity = '0.7';
+      return;
+    }
+    for (const slot of slots) {
+      const row = table.insertRow();
+      row.dataset.slot = slot.id;
+      row.className = 'save-slot';
+      const name = row.insertCell();
+      name.textContent = slot.name;
+      name.className = 'save-slot-name';
+      Object.assign(name.style, {
+        padding: '2px 8px 2px 0',
+        fontWeight: slot.autosave ? '400' : '600',
+      });
+      const info = row.insertCell();
+      info.textContent = `${formatPlayTime(slot.tick)} played · ${savedLabel(slot.savedAt)}`;
+      Object.assign(info.style, {
+        padding: '2px 8px 2px 0',
+        opacity: '0.75',
+        whiteSpace: 'nowrap',
+      });
+      const buttons = row.insertCell();
+      buttons.style.whiteSpace = 'nowrap';
+      const load = button('Load');
+      load.className = 'save-slot-load';
+      load.addEventListener('click', () => {
+        this.actions.load(slot);
+      });
+      const exp = button('Export');
+      exp.className = 'save-slot-export';
+      exp.addEventListener('click', () => {
+        this.actions.export(slot).catch((err: unknown) => {
+          this.setStatus(`Export failed: ${String(err)}`);
+        });
+      });
+      const del = button('Delete');
+      del.className = 'save-slot-delete';
+      confirmTwice(del, () => {
+        this.actions
+          .delete(slot)
+          .then(() => this.refresh())
+          .catch((err: unknown) => {
+            this.setStatus(`Delete failed: ${String(err)}`);
+          });
+      });
+      buttons.append(load, exp, del);
+    }
+    this.panel.scrollTop = 0;
+  }
+}
+
+/**
+ * The start screen: resolves with `continue` (load `latest`) or `new`.
+ * Removed from the page once the player picks.
+ */
+export function showStartScreen(
+  parent: HTMLElement,
+  latest: SaveSlot,
+  saveCount: number,
+): Promise<'continue' | 'new'> {
+  const overlay = document.createElement('div');
+  overlay.id = 'start-screen';
+  Object.assign(overlay.style, { ...OVERLAY_STYLE, background: '#111418' });
+  const panel = document.createElement('div');
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', 'Start');
+  Object.assign(panel.style, { ...PANEL_STYLE, minWidth: '320px', textAlign: 'center' });
+  const title = document.createElement('div');
+  title.textContent = 'Beltworks';
+  Object.assign(title.style, { fontSize: '22px', fontWeight: '700', marginBottom: '12px' });
+  const resume = button('Continue', 'start-continue');
+  Object.assign(resume.style, { fontSize: '15px', padding: '6px 18px' });
+  const info = document.createElement('div');
+  info.id = 'start-latest';
+  info.textContent = `${latest.name} · ${formatPlayTime(latest.tick)} played · ${savedLabel(latest.savedAt)}`;
+  Object.assign(info.style, { margin: '6px 0 14px', opacity: '0.8' });
+  const fresh = button('New game', 'start-new-game');
+  const more = document.createElement('div');
+  more.textContent =
+    saveCount > 1
+      ? `${String(saveCount)} saves: Esc in game opens the menu to load the others.`
+      : '';
+  Object.assign(more.style, { marginTop: '12px', opacity: '0.6', fontSize: '12px' });
+  panel.append(title, resume, info, fresh, more);
+  overlay.append(panel);
+  parent.append(overlay);
+  resume.focus();
+  return new Promise((resolve) => {
+    const pick = (choice: 'continue' | 'new'): void => {
+      overlay.remove();
+      resolve(choice);
+    };
+    resume.addEventListener('click', () => {
+      pick('continue');
+    });
+    fresh.addEventListener('click', () => {
+      pick('new');
+    });
+  });
+}

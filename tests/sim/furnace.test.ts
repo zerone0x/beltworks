@@ -329,6 +329,9 @@ describe('stone furnace', () => {
 
 /** A table for inserters that records its wake-ups. */
 class WakeLog implements EntityTypeTable {
+  // Test-only tables are never saved.
+  save(): void {}
+  load(): void {}
   readonly type = EntityTypeId.BurnerInserter;
   readonly woken: number[] = [];
   add(): void {}

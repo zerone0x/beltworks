@@ -47,7 +47,7 @@ Dev and test builds (`npm run dev`, `npm run build:test`) read a few URL paramet
 
 ## End-to-end tests
 
-The Playwright suite (`tests/e2e/`, `npm run test:e2e`) drives a test-mode build (`vite build --mode test`: the production build plus the `window.__beltworks` test hook) with real keyboard and mouse input. Locally, Playwright builds it and serves it with `vite preview`; `npx playwright test --shard 2/4` runs one shard the way CI does.
+The Playwright suite (`tests/e2e/`, `npm run test:e2e`) drives a test-mode build (`vite build --mode test`: the production build plus the `window.__beltworks` test hook) with real keyboard and mouse input. Locally, Playwright builds it and serves it with `vite preview` on port 4173, or on `E2E_PORT` when set (another checkout's preview server on 4173 would otherwise be reused); `npx playwright test --shard 2/4` runs one shard the way CI does.
 
 **CI** (`.github/workflows/ci.yml`) splits the suite so it doesn't run in one long job:
 

@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { ItemId } from '../../src/data/items';
 import { STARTING_KIT } from '../../src/data/start';
 import { MachineState } from '../../src/sim/entities/machine';
+import { closeWindows } from './windows';
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -134,7 +135,7 @@ test('a boiler feeds two steam engines on a network, with GUIs for both', async 
   });
 
   // Without the pole the engine isn't connected.
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await expect(panel).toBeHidden();
   at = await tileScreen(page, 3, -5);
   await page.mouse.click(at.x, at.y, { button: 'right' });
