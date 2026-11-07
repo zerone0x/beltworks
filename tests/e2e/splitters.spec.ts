@@ -83,13 +83,13 @@ test('a splitter shares the items of each lane out between its two outputs', asy
   // Two coal (one per lane) go to the left output, the next two to the right one.
   const drop = () =>
     page.evaluate(([tx, ty]) => window.__beltworks!.dropOnBelt(tx!, ty!, 3, 2), [1, y]);
-  expect(await drop()).toBe(true);
-  await expect.poll(async () => (await beltAt(page, 1, y))?.items.length).toBe(0);
-  expect(await drop()).toBe(true);
   const coal = async (ty: number) =>
     (await beltAt(page, 3, ty))?.items.filter((i) => i.item === ItemId.Coal).length;
+  expect(await drop()).toBe(true);
   await expect.poll(() => coal(y), { timeout: 30_000 }).toBe(2);
+  expect(await drop()).toBe(true);
   await expect.poll(() => coal(y + 1), { timeout: 30_000 }).toBe(2);
+  expect(await coal(y)).toBe(2);
   const shot = testInfo.outputPath('splitter.png');
   await page.screenshot({ path: shot });
   await testInfo.attach('a splitter sharing coal out', { path: shot, contentType: 'image/png' });

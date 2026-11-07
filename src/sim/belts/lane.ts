@@ -20,6 +20,10 @@
  * behind that point.
  */
 
+/** The bits of a stored item that hold its id; the top bit is its mark (`Lane.marked`). */
+const ITEM_BITS = 0x7fff;
+const MARK = 0x8000;
+
 /** Where the items reaching the end of a lane can go (see `Lane.move`). */
 export interface LaneOutlet {
   /**
@@ -108,7 +112,16 @@ export class Lane {
 
   /** Item id at index `i` (0 is closest to the end). */
   item(i: number): number {
-    return this.itemBuf[(this.head + i) & this.mask]!;
+    return this.itemBuf[(this.head + i) & this.mask]! & ITEM_BITS;
+  }
+
+  /**
+   * Whether item `i` is marked: a flag that travels with the item while it
+   * stays on the lane (a splitter half marks the items the other half sent
+   * across, which go straight on; see belts.ts). Items leave a lane unmarked.
+   */
+  marked(i: number): boolean {
+    return (this.itemBuf[(this.head + i) & this.mask]! & MARK) !== 0;
   }
 
   /** Distance from the end of the line to item `i` (O(i)). */
@@ -119,11 +132,11 @@ export class Lane {
   }
 
   /** Appends an item `gap` behind the current last item (or `gap` from the end of an empty lane). */
-  pushBack(gap: number, item: number): void {
+  pushBack(gap: number, item: number, mark = false): void {
     this.reserve(this.count + 1);
     const at = (this.head + this.count) & this.mask;
     this.gapBuf[at] = gap;
-    this.itemBuf[at] = item;
+    this.itemBuf[at] = mark ? item | MARK : item;
     this.count++;
     this.total += gap;
   }
@@ -133,33 +146,33 @@ export class Lane {
    * would get and the distance of the item in front of it (0 for index 0),
    * or `null` when it would come closer than `spacing` to a neighbour.
    */
-  private slotFor(pos: number): { index: number; before: number } | null {
+  private slotFor(pos: number, spacing: number): { index: number; before: number } | null {
     let d = 0;
     for (let i = 0; i < this.count; i++) {
       const next = d + this.gap(i);
       if (next >= pos) {
-        if (next - pos < this.spacing) return null;
-        if (i > 0 && pos - d < this.spacing) return null;
+        if (next - pos < spacing) return null;
+        if (i > 0 && pos - d < spacing) return null;
         return { index: i, before: d };
       }
       d = next;
     }
-    if (this.count > 0 && pos - d < this.spacing) return null;
+    if (this.count > 0 && pos - d < spacing) return null;
     return { index: this.count, before: d };
   }
 
   /** Whether an item fits at distance `pos` from the end (`pos >= 0`). */
   canInsert(pos: number): boolean {
-    return pos >= 0 && this.slotFor(pos) !== null;
+    return pos >= 0 && this.slotFor(pos, this.spacing) !== null;
   }
 
   /**
    * The nearest distance from the end in `[pos, pos + slack]` where an item
-   * fits (the spacing from the items on both sides of it), or -1.
+   * fits (`spacing`, by default the lane's, from the items on both sides of
+   * it), or -1.
    */
-  fitNear(pos: number, slack: number): number {
+  fitNear(pos: number, slack: number, spacing = this.spacing): number {
     if (pos < 0) return -1;
-    const { spacing } = this;
     let p = pos;
     let d = 0;
     for (let i = 0; i < this.count; i++) {
@@ -173,19 +186,23 @@ export class Lane {
     return p;
   }
 
-  /** Puts `item` at distance `pos` from the end if it fits; returns whether it did. */
-  insert(pos: number, item: number): boolean {
+  /**
+   * Puts `item` (marked with `mark`) at distance `pos` from the end if it
+   * fits (`spacing`, by default the lane's, from its neighbours); returns
+   * whether it did.
+   */
+  insert(pos: number, item: number, mark = false, spacing = this.spacing): boolean {
     if (pos < 0) return false;
-    const slot = this.slotFor(pos);
+    const slot = this.slotFor(pos, spacing);
     if (!slot) return false;
     const { index, before } = slot;
     if (index === this.count) {
-      this.pushBack(pos - before, item);
+      this.pushBack(pos - before, item, mark);
       return true;
     }
     const gapNew = pos - before;
     const gapAfter = this.gap(index) - gapNew;
-    this.insertAt(index, gapNew, item);
+    this.insertAt(index, gapNew, mark ? item | MARK : item);
     this.setGap(index + 1, gapAfter);
     // The new gap came out of the old one: the lane's total length is unchanged.
     this.total -= gapNew;
@@ -334,6 +351,13 @@ export class Lane {
     return out;
   }
 
+  /** The indices of the marked items, in order (for hashing and tests). */
+  marks(): Uint32Array {
+    const out: number[] = [];
+    for (let i = 0; i < this.count; i++) if (this.marked(i)) out.push(i);
+    return Uint32Array.from(out);
+  }
+
   private setGap(i: number, gap: number): void {
     this.gapBuf[(this.head + i) & this.mask] = gap;
   }
@@ -362,7 +386,7 @@ export class Lane {
     const items = new Uint16Array(cap);
     for (let i = 0; i < this.count; i++) {
       gaps[i] = this.gap(i);
-      items[i] = this.item(i);
+      items[i] = this.itemBuf[(this.head + i) & this.mask]!;
     }
     this.gapBuf = gaps;
     this.itemBuf = items;

@@ -43,17 +43,18 @@ function rig(
   tier: Tier,
   parts: { inA?: boolean; inB?: boolean; outA?: boolean; outB?: boolean },
   belts: Tier = tier,
+  outputs: Tier = belts,
 ) {
   const w = world();
   const splitter = w.place(tier.splitter, 2, 0, East);
   // Placed first, then looked up: placing a belt rebuilds the lines around it.
-  const place = (x: number, y: number, on: boolean | undefined) =>
-    on === false ? 0 : w.run(belts.belt, x, y, East, 2)[0]!;
+  const place = (x: number, y: number, on: boolean | undefined, t: Tier) =>
+    on === false ? 0 : w.run(t.belt, x, y, East, 2)[0]!;
   const ids = [
-    place(0, 0, parts.inA),
-    place(0, 1, parts.inB),
-    place(3, 0, parts.outA),
-    place(3, 1, parts.outB),
+    place(0, 0, parts.inA, belts),
+    place(0, 1, parts.inB, belts),
+    place(3, 0, parts.outA, outputs),
+    place(3, 1, parts.outB, outputs),
   ];
   const [inA = null, inB = null, outA = null, outB = null] = ids.map((id) =>
     id === 0 ? null : w.lineOf(id),
@@ -294,6 +295,27 @@ describe('splitters', () => {
     checkTopology(w);
   });
 
+  it('keep items on their tiles when turned across (from code)', () => {
+    const w = world();
+    // Facing east on (2, 0)–(2, 1), three items on each half's left lane.
+    const sp = w.place(TIERS[0].splitter, 2, 0, East);
+    const [a, b] = w.table.halfLines(sp);
+    for (const pos of [0, 64, 128]) {
+      w.table.insertAt(a.id, Left, pos, IRON);
+      w.table.insertAt(b.id, Left, pos, COAL);
+    }
+    // Turned north it covers (2, 0)–(3, 0): (2, 0) stays its tile, (2, 1) is left.
+    w.entities.setDirection(sp, North);
+    const [c, d] = w.table.halfLines(sp);
+    expect([c.tileX, c.tileY, d.tileX, d.tileY]).toEqual([2, 0, 3, 0]);
+    // The tile kept keeps its items; the left tile's go onto the new one.
+    expect(Array.from(c.lanes[Left].items())).toEqual([IRON, IRON, IRON]);
+    expect(Array.from(d.lanes[Left].items())).toEqual([COAL, COAL, COAL]);
+    for (const line of [c, d]) expect(line.lanes[Left].total).toBeLessThanOrEqual(line.length);
+    checkLanes(w.table);
+    checkTopology(w);
+  });
+
   it('put a jammed loop through a splitter to sleep, with no steps per tick', () => {
     for (const tier of TIERS) {
       const w = world();
@@ -396,10 +418,113 @@ describe('splitters', () => {
   });
 });
 
+describe('merging through a splitter, every tier', () => {
+  const ticks = 2400;
+  /**
+   * Two full input lines of `inputs` into a splitter of `tier`, with an
+   * output line of `out` in front of one half only (`side`): items per lane
+   * on the output, and fed into each input, over `ticks` ticks.
+   */
+  const merge = (tier: Tier, inputs: Tier, out: Tier, side: 'outA' | 'outB') => {
+    const other = side === 'outA' ? 'outB' : 'outA';
+    const r = rig(tier, { [other]: false }, inputs, out);
+    const { taken, fed } = run(r.w, [r.inA, r.inB], [r[side]], 600, ticks);
+    return { taken: taken[0]!, fed };
+  };
+
+  it('puts min(splitter, output, inputs) onto the output, half from each input', () => {
+    for (const s of TIERS) {
+      for (const i of TIERS) {
+        for (const o of TIERS) {
+          for (const side of ['outA', 'outB'] as const) {
+            const name = `${s.splitter.name}, ${i.belt.name} in, ${o.belt.name} out (${side})`;
+            const { taken, fed } = merge(s, i, o, side);
+            const sp = s.belt.beltSpeed!;
+            const rate = Math.min(sp, o.belt.beltSpeed!, 2 * i.belt.beltSpeed!);
+            for (const lane of LANES) {
+              expect(Math.abs(taken[lane]! - perLane(rate, ticks)), name).toBeLessThanOrEqual(3);
+              // Never more than one belt of the splitter's tier onto one side.
+              expect(taken[lane]!, name).toBeLessThanOrEqual(perLane(sp, ticks) + 1);
+              // Each input gets half (or all it carries, when that fits).
+              expect(Math.abs(fed[0]![lane]! - fed[1]![lane]!), name).toBeLessThanOrEqual(3);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('sends everything to the open output when the other is blocked, half from each input', () => {
+    for (const s of TIERS) {
+      for (const i of TIERS) {
+        for (const o of TIERS) {
+          const name = `${s.splitter.name}, ${i.belt.name} in, ${o.belt.name} out`;
+          // Output B is never emptied: it backs up, then everything goes to A.
+          const r = rig(s, {}, i, o);
+          const { taken, fed } = run(r.w, [r.inA, r.inB], [r.outA], 1200, 1800);
+          const sp = s.belt.beltSpeed!;
+          const rate = Math.min(sp, o.belt.beltSpeed!, 2 * i.belt.beltSpeed!);
+          for (const lane of LANES) {
+            expect(Math.abs(taken[0]![lane]! - perLane(rate, 1800)), name).toBeLessThanOrEqual(3);
+            expect(Math.abs(fed[0]![lane]! - fed[1]![lane]!), name).toBeLessThanOrEqual(3);
+          }
+        }
+      }
+    }
+  });
+
+  it('merges onto a curve and into another splitter', () => {
+    for (const s of TIERS) {
+      const sp = s.belt.beltSpeed!;
+      // A curve: the belt in front of half A turns north.
+      {
+        const w = world();
+        w.place(s.splitter, 2, 0, East);
+        const a = w.run(s.belt, 0, 0, East, 2)[0]!;
+        const b = w.run(s.belt, 0, 1, East, 2)[0]!;
+        const c = w.run(s.belt, 3, 0, North, 3)[0]!;
+        const [inA, inB, out] = [w.lineOf(a), w.lineOf(b), w.lineOf(c)];
+        expect(w.table.shape(c)).not.toBe(0);
+        const { taken, fed } = run(w, [inA, inB], [out], 600, ticks);
+        for (const lane of LANES) {
+          expect(
+            Math.abs(taken[0]![lane]! - perLane(sp, ticks)),
+            s.splitter.name,
+          ).toBeLessThanOrEqual(3);
+          expect(Math.abs(fed[0]![lane]! - fed[1]![lane]!)).toBeLessThanOrEqual(3);
+        }
+      }
+      // Into the right half of a second splitter, which splits onto two belts.
+      {
+        const w = world();
+        w.place(s.splitter, 2, 0, East);
+        const second = w.place(s.splitter, 3, -1, East);
+        const a = w.run(s.belt, 0, 0, East, 2)[0]!;
+        const b = w.run(s.belt, 0, 1, East, 2)[0]!;
+        const c = w.run(s.belt, 4, -1, East, 2)[0]!;
+        const d = w.run(s.belt, 4, 0, East, 2)[0]!;
+        const [inA, inB, outC, outD] = [a, b, c, d].map((id) => w.lineOf(id));
+        expect(w.table.halfLines(w.entities.at(2, 0))[0].out).toBe(w.table.halfLines(second)[1]);
+        const { taken, fed } = run(w, [inA!, inB!], [outC!, outD!], 600, ticks);
+        for (const lane of LANES) {
+          const total = taken[0]![lane]! + taken[1]![lane]!;
+          expect(Math.abs(total - perLane(sp, ticks)), s.splitter.name).toBeLessThanOrEqual(3);
+          expect(Math.abs(taken[0]![lane]! - taken[1]![lane]!)).toBeLessThanOrEqual(2);
+          expect(Math.abs(fed[0]![lane]! - fed[1]![lane]!)).toBeLessThanOrEqual(3);
+        }
+      }
+    }
+  });
+});
+
 describe('random building with belts, undergrounds and splitters', () => {
-  it('keeps every item, the spacing, pairs, lines and sleep consistent through random edits', () => {
+  it('keeps every item, the spacing, pairs, lines and sleep consistent through random edits and flows', () => {
+    // The spacing across hand-overs holds everywhere except in a ring of
+    // lines a rebuild closed with more items than fit (`overfullRing`), which
+    // the flows fill up now and then; that case is older than splitters.
     const protos = TIERS.flatMap((t) => [t.belt, t.underground, t.splitter]);
     let splitterRounds = 0;
+    let merges = 0;
     for (const seed of [49, 4949, 494949]) {
       const w = world();
       const rng = Rng.fromSeed(seed);
@@ -441,10 +566,26 @@ describe('random building with belts, undergrounds and splitters', () => {
           const from = w.table.beltOffset(id);
           if (w.table.takeAt(line, rng.nextInt(2), from, w.table.beltEnd(id)) !== 0) refunded++;
         }
-        checkCross(w.table);
+        checkCross(w.table, { overfullRings: true });
+        // Flows: items fed at the start of lines nothing feeds and taken off the
+        // end of lines that hand on nowhere, so splitters split and merge.
+        const flowing = round % 3 !== 0;
         for (let n = rng.nextInt(20); n > 0; n--) {
           w.step();
-          checkCross(w.table);
+          checkCross(w.table, { overfullRings: true });
+          if (!flowing) continue;
+          for (const line of Array.from(w.table.lines())) {
+            for (const lane of LANES) {
+              if (line.feeders.length === 0 && line.splitter === 0 && rng.nextInt(2) === 0) {
+                if (feed(w, line, lane, lane === Left ? IRON : COAL)) inserted++;
+              }
+              if (!line.out && rng.nextInt(3) === 0) {
+                if (w.table.takeAt(line.id, lane, 0, line.speed - 1) !== 0) refunded++;
+              }
+            }
+            if (line.splitter !== 0 && line.lanes.some((l) => l.spacing === MERGE_SPACING))
+              merges++;
+          }
         }
         checkLanes(w.table);
         checkAsleep(w.table);
@@ -456,8 +597,9 @@ describe('random building with belts, undergrounds and splitters', () => {
       }
       expect(inserted).toBeGreaterThan(100);
     }
-    // Splitters with something in front stood through many of the rounds.
+    // Splitters with something in front stood through many of the rounds, and merged.
     expect(splitterRounds).toBeGreaterThan(500);
+    expect(merges).toBeGreaterThan(500);
   });
 });
 

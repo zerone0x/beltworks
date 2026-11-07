@@ -11,7 +11,7 @@ import {
   type EntityPrototype,
 } from '../../src/data/entities';
 import { ItemId } from '../../src/data/items';
-import { BeltTable } from '../../src/sim/belts/belts';
+import { BeltTable, CROSS_REACH } from '../../src/sim/belts/belts';
 import { Lane } from '../../src/sim/belts/lane';
 import { BeltLane, type LineLane, type TransportLine } from '../../src/sim/belts/line';
 import { UndergroundMode, findPartner } from '../../src/sim/belts/underground';
@@ -90,24 +90,35 @@ export function checkLanes(table: BeltTable): void {
 
 /**
  * Whether the first item of splitter half lane `lane`, where it is, could
- * go anywhere with a full tick's movement (the rule of `splitHandOn`).
+ * go anywhere with a full tick's movement (the rule of `splitHandOn`): straight
+ * on from the end, or across onto the other half's lane while that half's
+ * output has room (an output that moved recently keeps the half awake).
  */
+function outputHasRoom(out: TransportLine, lane: number): boolean {
+  const t = out.lanes[lane as BeltLane];
+  return t.count === 0 || out.length - t.total >= t.spacing;
+}
+
 function halfCouldHandOn(lane: LineLane): boolean {
   const line = lane.line;
   const sib = line.sibling!;
-  for (const straight of [true, false]) {
-    if (straight && lane.gap(0) !== 0) continue;
-    const out = straight ? line.out : sib.out;
-    if (!out) continue;
+  const out = line.out;
+  if (lane.gap(0) === 0 && out) {
     const target = out.lanes[lane.index];
     let pos = out.length - out.speed;
     if (target.count > 0) pos = Math.max(pos, target.total + target.spacing);
-    if (pos > out.length) continue;
-    const front = sib.lanes[lane.index];
-    if (!straight && front.count > 0 && out.length - pos + front.gap(0) < target.spacing) continue;
-    return true;
+    if (pos <= out.length) return true;
   }
-  return false;
+  if (lane.marked(0) && out && outputHasRoom(out, lane.index)) return false;
+  if (!sib.out) return false;
+  const t = sib.out.lanes[lane.index];
+  if (t.count > 0 && sib.out.length - t.total < t.spacing) return false;
+  const target = sib.lanes[lane.index];
+  const floor = t.count > 0 ? Math.max(0, t.spacing - (sib.out.length - t.total)) : 0;
+  const pos = target.fitNear(floor, CROSS_REACH, BELT_ITEM_SPACING);
+  if (pos < 0) return false;
+  const from = sib.feeders.find((f) => f.outLane < 0)?.lanes[lane.index];
+  return !(from && from.count > 0 && pos > sib.length + from.gap(0) - target.spacing);
 }
 
 /** A lane asleep with items on it can't move, close up, or hand an item on. */
@@ -121,7 +132,7 @@ export function checkAsleep(table: BeltTable): void {
         // A splitter half: held behind the belt in front, with nowhere to go.
         const target = out?.lanes[lane.index];
         const floor =
-          out && target && target.count > 0 ? target.spacing - (out.length - target.total) : 0;
+          out && target && target.count > 0 ? BELT_ITEM_SPACING - (out.length - target.total) : 0;
         expect(lane.gap(0)).toBeLessThanOrEqual(Math.max(0, floor));
         expect(halfCouldHandOn(lane), `asleep splitter half ${String(line.id)}`).toBe(false);
         continue;
@@ -129,7 +140,7 @@ export function checkAsleep(table: BeltTable): void {
       if (out && line.outLane < 0 && out.lanes[lane.index] !== lane) {
         // Onto another line's start: held the spacing behind its last item.
         const target = out.lanes[lane.index];
-        const floor = target.count > 0 ? target.spacing - (out.length - target.total) : 0;
+        const floor = target.count > 0 ? BELT_ITEM_SPACING - (out.length - target.total) : 0;
         expect(lane.gap(0)).toBeLessThanOrEqual(Math.max(0, floor));
         continue;
       }
@@ -172,10 +183,34 @@ export function crossGaps(table: BeltTable): Map<string, number> {
   return out;
 }
 
-export function checkCross(table: BeltTable): void {
+export function checkCross(table: BeltTable, opts: { overfullRings?: boolean } = {}): void {
   for (const [key, d] of crossGaps(table)) {
+    if (opts.overfullRings && d < BELT_ITEM_SPACING) {
+      const [id, lane] = key.split(':').map(Number) as [number, number];
+      if (overfullRing(table.line(id)!, lane)) continue;
+    }
     expect(d, `across the boundary of ${key}`).toBeGreaterThanOrEqual(BELT_ITEM_SPACING);
   }
+}
+
+/**
+ * Whether lane `lane` of `line` is part of a ring of lines handing on lane
+ * by lane that holds more items than fit at the spacing: a rebuild that
+ * closes such a ring keeps the extra items past a line's start, the "loop
+ * of lines too full" case of docs/ARCHITECTURE.md ("Rebuilds"), where the
+ * spacing across one boundary can't hold.
+ */
+export function overfullRing(line: TransportLine, lane: number): boolean {
+  let items = 0;
+  let length = 0;
+  const seen = new Set<TransportLine>();
+  for (let c: TransportLine | null = line; c && !seen.has(c); c = c.outLane < 0 ? c.out : null) {
+    seen.add(c);
+    items += c.lanes[lane as BeltLane].count;
+    length += c.length;
+    if (c.out === line && c.outLane < 0) return items * BELT_ITEM_SPACING > length;
+  }
+  return false;
 }
 
 /** Lines, rows, pairs and hand-overs are consistent with each other and with the pairing rule. */
