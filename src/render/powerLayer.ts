@@ -20,6 +20,7 @@ import { entityPrototype, type EntityPrototype } from '../data/entities';
 import { isPolePrototypeOf, polesConnect, supplyRect } from '../sim/power/geometry';
 import { decodePower, type PoleData, type PowerData } from '../sim/snapshot';
 import { TILE_PX, type Point } from './camera';
+import { EVERYWHERE, overlaps, sameRect, type TileRect } from './cull';
 import type { EntityView } from './entityIndex';
 import type { Ghost } from './entityLayer';
 import { HEIGHT_ON_SCREEN, SHADOW_ALPHA, SHADOW_OFFSET, type SpriteAtlas } from './sprites';
@@ -171,7 +172,10 @@ export class PowerLayer {
   private power: PowerData = EMPTY;
   private byId = new Map<number, PoleData>();
   private version = 0;
+  /** Bumped when poles or wires change (not just the networks' figures). */
+  private gridVersion = 0;
   private drawnVersion = -1;
+  private cull: TileRect | null = null;
   private overlayKey = '';
   private focusNow: PowerFocus | null = null;
 
@@ -205,19 +209,29 @@ export class PowerLayer {
     const records = new Int32Array(buffer);
     if (sameRecords(records, this.records)) return;
     this.records = records;
-    this.power = decodePower(buffer);
+    const power = decodePower(buffer);
+    // Networks' figures change every tick; the wires only when poles do.
+    if (!sameGrid(power, this.power)) this.gridVersion++;
+    this.power = power;
     this.byId = new Map(this.power.poles.map((p) => [p.id, p]));
     this.version++;
   }
 
-  /** Redraws the wires if the grid changed. */
-  drawWires(): void {
-    if (this.version === this.drawnVersion) return;
-    this.drawnVersion = this.version;
+  /**
+   * Redraws the wires (and their shadows) with an end in the cull rectangle
+   * `cull` if the poles, their wires or the rectangle changed.
+   */
+  drawWires(cull: TileRect = EVERYWHERE): void {
+    if (this.gridVersion === this.drawnVersion && this.cull && sameRect(this.cull, cull)) return;
+    this.drawnVersion = this.gridVersion;
+    this.cull = cull;
     const g = this.wireGraphics;
     g.clear();
     this.shadowGraphics.clear();
     for (const [a, b] of this.power.wires) {
+      const pa = this.byId.get(a);
+      const pb = this.byId.get(b);
+      if (!(pa && overlaps(cull, pa.x, pa.y)) && !(pb && overlaps(cull, pb.x, pb.y))) continue;
       this.wire(g, a, b, WIRE_COLOR, 1.5);
       const ends = this.ends(a, b);
       if (ends) {
@@ -316,6 +330,20 @@ export class PowerLayer {
       .fill({ color: SUPPLY_COLOR, alpha: fill })
       .stroke({ width: 1.5, color: SUPPLY_COLOR, alpha: stroke });
   }
+}
+
+/** Whether `a` and `b` have the same poles at the same places, wired the same way. */
+function sameGrid(a: PowerData, b: PowerData): boolean {
+  if (a.poles.length !== b.poles.length || a.wires.length !== b.wires.length) return false;
+  for (let i = 0; i < a.poles.length; i++) {
+    const p = a.poles[i]!;
+    const q = b.poles[i]!;
+    if (p.id !== q.id || p.type !== q.type || p.x !== q.x || p.y !== q.y) return false;
+  }
+  for (let i = 0; i < a.wires.length; i++) {
+    if (a.wires[i]![0] !== b.wires[i]![0] || a.wires[i]![1] !== b.wires[i]![1]) return false;
+  }
+  return true;
 }
 
 function sameRecords(a: Int32Array, b: Int32Array): boolean {

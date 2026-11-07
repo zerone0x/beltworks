@@ -33,11 +33,12 @@ import {
   GlProgram,
   Mesh,
   MeshGeometry,
+  Rectangle,
   RenderTexture,
   Shader,
   Sprite,
+  Texture,
   type Renderer,
-  type Texture,
 } from 'pixi.js';
 import { CHUNK_SIZE } from '../sim/world/chunk';
 import { placeSprite } from './entitySprites';
@@ -315,7 +316,11 @@ export class TerrainArt {
 
   /**
    * Draws `plan` for the chunk whose top-left tile is world `(x0, y0)` into
-   * `target` (`texels` per tile).
+   * `target` (`texels` per tile): all of it, or only its tile rows `from` up
+   * to `to`, leaving the rest of the texture as it is. A chunk baked in such
+   * bands over several frames ends up exactly as one baked at once (every
+   * band draws the ground and every sprite, clipped to the band), so a
+   * software renderer can spread a bake's cost over frames.
    */
   bake(
     renderer: Renderer,
@@ -324,7 +329,36 @@ export class TerrainArt {
     y0: number,
     texels: number,
     target: RenderTexture,
+    from = 0,
+    to = CHUNK_SIZE,
   ): void {
+    this.prepare(plan, x0, y0, texels);
+    const size = CHUNK_SIZE * texels;
+    if (from <= 0 && to >= CHUNK_SIZE) {
+      renderer.render({ container: this.root, target, clear: true, clearColor: [0, 0, 0, 1] });
+      return;
+    }
+    // A view of the band: rendering into it sets the viewport to the band,
+    // which clips everything drawn to it. The ground covers the whole band, so
+    // it needs no clear (a clear would wipe the whole texture).
+    const band = new Texture({
+      source: target.source,
+      frame: new Rectangle(0, from * texels, size, (to - from) * texels),
+    });
+    this.root.y = -from * texels;
+    renderer.render({ container: this.root, target: band, clear: false });
+    this.root.y = 0;
+    band.destroy(false);
+  }
+
+  /** The plan, place and resolution the bake scene is set up for. */
+  private prepared: { plan: ChunkPlan; x0: number; y0: number; texels: number } | null = null;
+
+  /** Sets up the bake scene (splat textures, uniforms, sprites) for `plan`, unless it already is. */
+  private prepare(plan: ChunkPlan, x0: number, y0: number, texels: number): void {
+    const p = this.prepared;
+    if (p && p.plan === plan && p.x0 === x0 && p.y0 === y0 && p.texels === texels) return;
+    this.prepared = { plan, x0, y0, texels };
     this.splatPixels.set(plan.splat);
     this.splat.update();
     this.orePixels.set(plan.ore);
@@ -390,7 +424,6 @@ export class TerrainArt {
     hide(0, decalCount);
     hide(1, shadowCount);
     hide(2, treeCount);
-    renderer.render({ container: this.root, target, clear: true, clearColor: [0, 0, 0, 1] });
   }
 
   destroy(): void {

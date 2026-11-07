@@ -14,8 +14,8 @@
  * other block's loop dives through an underground pair), inserters of every
  * type swinging from the loop into six assembling machines and from those
  * into six stone furnaces, three electric poles wired to their neighbours,
- * and a boiler with a steam engine. The 10k scene is 12 × 11 blocks: 10 164
- * entities and about 50 000 items on belts, the M4 target scene
+ * and a boiler with a steam engine. The 10k scene is 12 × 11 blocks: 10 032
+ * entities and 49 632 items on belts, the M4 target scene
  * (docs/ARCHITECTURE.md, "Performance targets").
  *
  * Everything moves as a pure function of the tick (no state), so the scene

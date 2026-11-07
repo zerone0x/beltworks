@@ -64,7 +64,7 @@ Met: `tests/e2e/science.spec.ts` starts from a test kit (assembling machines, a 
 
 - [ ] Complete the machine sleep/wake system
 - [ ] Benchmarks for 1k / 10k / 50k entities, reported in CI
-- [ ] Viewport culling, sprite pools, faster rendering of belt items
+- [x] Viewport culling, sprite pools, faster rendering of belt items, terrain bakes spread over frames, a scripted render profile (#74)
 - [ ] Faster snapshot transfer
 - [ ] Evaluate moving hot paths to Rust→WASM
 

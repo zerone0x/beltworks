@@ -24,7 +24,8 @@ import { EntityTypeId, entityPrototype, inserterReach } from '../data/entities';
 import { decodeInserters, type InserterData } from '../sim/snapshot';
 import { TICKS_PER_SECOND } from '../worker/protocol';
 import { TILE_PX } from './camera';
-import type { InserterPose, InserterPoses } from './entitySprites';
+import { EVERYWHERE, overlaps, type TileRect } from './cull';
+import type { InserterPoses } from './entitySprites';
 import { itemIconAtlas } from './itemIcons';
 import type { SpriteAtlas } from './sprites';
 
@@ -96,12 +97,26 @@ export class InserterLayer {
   /** Icons of held items (the same as on belts), above the arms; reused from frame to frame. */
   private readonly held: Sprite[] = [];
   private inserters: InserterData[] = [];
+  /** The latest snapshot's inserters by tile. */
+  private byTile = new Map<number, InserterData>();
   private receivedAt = 0;
+  /** The fraction of a tick since the snapshot, as of the latest `draw`. */
+  private alpha = 0;
   private atlas: SpriteAtlas | null = null;
-  /** Arm angle and held item per inserter tile, as of the latest `draw`. */
-  private readonly poseByTile = new Map<number, InserterPose>();
-  /** Where the arm of the inserter on a tile points and what it holds, as of the latest `draw`. */
-  readonly poses: InserterPoses = (x, y) => this.poseByTile.get(tileKey(x, y)) ?? null;
+  /** Whether each inserter type has a model in the atlas (its arm is drawn by the entity sprite layer). */
+  private readonly modelled = new Map<number, boolean>();
+  /** Whether the arms' graphics hold anything (placeholder inserters). */
+  private drawnArms = false;
+  /**
+   * Where the arm of the inserter on a tile points and what it holds, as of
+   * the latest `draw` (worked out when asked, so only for the inserters
+   * drawn).
+   */
+  readonly poses: InserterPoses = (x, y) => {
+    const ins = this.byTile.get(tileKey(x, y));
+    if (!ins) return null;
+    return { angle: armAngle(ins.dir, swingFraction(ins, this.alpha)), held: ins.held };
+  };
 
   constructor() {
     this.container.addChild(this.graphics);
@@ -110,11 +125,13 @@ export class InserterLayer {
   /** Inserters with a model in `atlas` get their arms from the entity sprite layer from now on. */
   setAtlas(atlas: SpriteAtlas | null): void {
     this.atlas = atlas;
+    this.modelled.clear();
   }
 
   /** Takes the inserters of a snapshot received at `nowMs`. */
   apply(buffer: ArrayBuffer, nowMs: number): void {
     this.inserters = decodeInserters(buffer);
+    this.byTile = new Map(this.inserters.map((ins) => [tileKey(ins.x, ins.y), ins]));
     this.receivedAt = nowMs;
   }
 
@@ -123,19 +140,31 @@ export class InserterLayer {
     return this.inserters;
   }
 
-  /** Works out every arm's pose for time `nowMs`, and redraws the placeholder arms. */
-  draw(nowMs: number): void {
+  /** Whether inserters of type `type` are drawn with sprites. */
+  private hasModel(type: number): boolean {
+    let has = this.modelled.get(type);
+    if (has === undefined) {
+      has = !!this.atlas?.model(entityPrototype(type)?.name);
+      this.modelled.set(type, has);
+    }
+    return has;
+  }
+
+  /**
+   * Sets the time the arms' poses are worked out for to `nowMs`, and redraws
+   * the placeholder arms in the cull rectangle `cull`.
+   */
+  draw(nowMs: number, cull: TileRect = EVERYWHERE): void {
     const alpha = Math.min(1, Math.max(0, (nowMs - this.receivedAt) / TICK_MS));
+    this.alpha = alpha;
     const g = this.graphics;
-    g.clear();
-    this.poseByTile.clear();
+    if (this.drawnArms) g.clear();
+    this.drawnArms = false;
     let shown = 0;
     for (const ins of this.inserters) {
+      if (this.hasModel(ins.type) || !overlaps(cull, ins.x, ins.y)) continue;
+      this.drawnArms = true;
       const t = swingFraction(ins, alpha);
-      if (this.atlas?.model(entityPrototype(ins.type)?.name)) {
-        this.poseByTile.set(tileKey(ins.x, ins.y), { angle: armAngle(ins.dir, t), held: ins.held });
-        continue;
-      }
       const cx = (ins.x + 0.5) * TILE_PX;
       const cy = (ins.y + 0.5) * TILE_PX;
       const tip = armTip(ins.dir, t, armLength(ins.type));

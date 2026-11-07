@@ -21,6 +21,7 @@ import { AssemblerLayer } from './assemblerLayer';
 import { BeltLayer } from './beltLayer';
 import { Camera, TILE_PX, type Point } from './camera';
 import { CameraInput } from './cameraInput';
+import { cullRect } from './cull';
 import { EntityIndex } from './entityIndex';
 import { EntityLayer, GhostLayer, type Ghost } from './entityLayer';
 import { GeneratorLayer } from './generatorLayer';
@@ -233,15 +234,18 @@ export class GameView {
       }
     }
     this.applyCamera();
-    this.terrain.update(undefined, this.camera.visibleTiles(), this.camera.zoom);
-    this.belts.draw(now);
+    const view = this.camera.visibleTiles();
+    this.terrain.update(undefined, view, this.camera.zoom);
+    // Every entity layer draws only what overlaps the screen (cull.ts).
+    const cull = cullRect(view);
+    this.belts.draw(now, cull);
     // Arm poses first: inserters with sprites are drawn with the buildings;
     // and generators: the engines' sprites take their speed from them.
-    this.inserters.draw(now);
-    this.generators.draw(this.entityIndex, this.power.data, dtMs);
-    this.entities.draw(this.entityIndex, dtMs, this.inserters.poses);
-    this.assemblers.draw(this.entityIndex, dtMs);
-    this.power.drawWires();
+    this.inserters.draw(now, cull);
+    this.generators.draw(this.entityIndex, this.power.data, dtMs, cull);
+    this.entities.draw(this.entityIndex, dtMs, this.inserters.poses, cull);
+    this.assemblers.draw(this.entityIndex, dtMs, cull);
+    this.power.drawWires(cull);
     this.players.draw(this.track, now);
   }
 
