@@ -1,12 +1,33 @@
 /**
  * Helpers for e2e tests that walk the local player around with the keyboard.
+ *
+ * CI's software-rendered Chromium sometimes runs at 6 fps or less. The game
+ * turns the held keys into a `Move` command once per rendered frame
+ * (src/render/playerInput.ts) while the simulation keeps running at 60 UPS
+ * in its worker, so at a low frame rate a key release takes effect late and
+ * every frame of walking moves the player more than a tile. The helpers
+ * measure the frame rate and adapt to it: their timeouts scale with it, they
+ * release the keys early by what one frame of walking covers, and close to
+ * the target they tap a key for a single frame at a time.
  */
 
 import type { Page } from '@playwright/test';
+import { SUBTILES_PER_TILE } from '../../src/sim/fixed';
+import { PLAYER_SPEED } from '../../src/sim/player';
+import { TICKS_PER_SECOND } from '../../src/worker/protocol';
 
 export const player = async (page: Page) =>
   (await page.evaluate(() => window.__beltworks!.player()))!;
 export const camera = (page: Page) => page.evaluate(() => window.__beltworks!.camera());
+
+/** How far the player walks per second, in tiles (straight; about 8.9). */
+const TILES_PER_SECOND = (PLAYER_SPEED * TICKS_PER_SECOND) / SUBTILES_PER_TILE;
+/** How long a walk may take at 30 fps or faster; slower pages get proportionally longer. */
+const WALK_TIMEOUT_MS = 30_000;
+/** The frame rate `WALK_TIMEOUT_MS` is meant for. */
+const FULL_SPEED_FPS = 30;
+/** At most this many times `WALK_TIMEOUT_MS`, however slow the page. */
+const MAX_SLOWDOWN = 8;
 
 /**
  * Animation frames per second over `ms` milliseconds (half a second for
@@ -58,26 +79,83 @@ export async function sceneFps(
   return { scene, bare };
 }
 
-/** Waits until the player stopped moving (two snapshots apart show the same position). */
+/** Resolves once the page rendered `frames` more animation frames. */
+const nextFrames = (page: Page, frames: number) =>
+  page.evaluate(
+    (n) =>
+      new Promise<void>((resolve) => {
+        let left = n;
+        const tick = (): void => {
+          if (--left <= 0) resolve();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    frames,
+  );
+
+/** The player's position and the tick of the snapshot it is from. */
+const sample = (page: Page) =>
+  page.evaluate(() => {
+    const hook = window.__beltworks!;
+    const p = hook.player()!;
+    return { x: p.x, y: p.y, tick: hook.latestTick() };
+  });
+
+/** Ticks two snapshots must be apart to tell that the player stands still. */
+const STILL_TICKS = 6;
+
+/**
+ * Waits until the player stopped moving: two snapshots at least
+ * `STILL_TICKS` ticks apart show the same position. (On a slow page the
+ * main thread can go longer than the polling interval without taking in a
+ * new snapshot, so comparing by wall time alone could mistake a stale
+ * position for a still player.)
+ */
 export async function waitUntilStill(page: Page): Promise<{ x: number; y: number }> {
-  let last = await player(page);
+  let last = await sample(page);
   for (;;) {
     await page.waitForTimeout(100);
-    const now = await player(page);
-    if (now.x === last.x && now.y === last.y) return now;
-    last = now;
+    const now = await sample(page);
+    if (now.x !== last.x || now.y !== last.y) last = now;
+    else if (now.tick - last.tick >= STILL_TICKS) return { x: now.x, y: now.y };
   }
+}
+
+/** How fast the page renders, and what that means for walking. */
+interface Pace {
+  fps: number;
+  /** Tiles the player walks during one rendered frame. */
+  step: number;
+  /** When the walk gives up (`Date.now()` time). */
+  deadline: number;
+}
+
+async function measurePace(page: Page): Promise<Pace> {
+  const rate = Math.max(1, await fps(page));
+  const slowdown = Math.min(MAX_SLOWDOWN, Math.max(1, FULL_SPEED_FPS / rate));
+  return {
+    fps: rate,
+    step: TILES_PER_SECOND / rate,
+    deadline: Date.now() + WALK_TIMEOUT_MS * slowdown,
+  };
 }
 
 /**
  * Walks the player with WASD until it stands still within `tolerance` tiles
- * of `(tx, ty)` (tile coordinates) on both axes.
+ * of `(tx, ty)` (tile coordinates) on both axes, and returns where it stands.
  *
- * Input only becomes commands on the next rendered frame, and software-
- * rendered Chromium on CI can run at a low frame rate, so a key release takes
- * effect late and the player overshoots. Each pass therefore holds the keys
- * until the player is within the tolerance (or past the target) on each axis,
- * waits for it to stop, and measures again.
+ * Far from the target it holds the keys, releasing each axis once the
+ * player is within one frame of walking of the target on it (or within the
+ * tolerance, if that is smaller), since the release only takes effect a
+ * frame or two later; then it waits for the player to stop and measures
+ * again. Within two frames of walking of the range, it taps one key for a
+ * single rendered frame at a time instead (for two frames if a one-frame
+ * tap didn't move the player). The timeout grows as the frame rate drops.
+ *
+ * It converges as long as a frame of walking is no more than twice the
+ * tolerance (a 1.5-tile tolerance holds down to about 3 fps): pick
+ * tolerances, and standing spots, with that much room.
  */
 export async function walkNear(
   page: Page,
@@ -85,18 +163,40 @@ export async function walkNear(
   ty: number,
   tolerance: number,
 ): Promise<{ x: number; y: number }> {
-  const deadline = Date.now() + 30_000;
+  const pace = await measurePace(page);
+  let tapFrames = 1;
+  let tapped: { x: number; y: number } | null = null;
   for (;;) {
     const p = await waitUntilStill(page);
     const dx = tx - p.x;
     const dy = ty - p.y;
     if (Math.abs(dx) <= tolerance && Math.abs(dy) <= tolerance) return p;
-    if (Date.now() > deadline) {
+    if (Date.now() > pace.deadline) {
       throw new Error(
-        `walk to (${tx}, ${ty}) timed out at (${p.x}, ${p.y}); page at ${await fps(page)} fps`,
+        `walk to (${tx}, ${ty}) within ${tolerance} timed out at (${p.x}, ${p.y}); ` +
+          `page at ${await fps(page)} fps (${pace.fps} fps when the walk started)`,
       );
     }
-    // For each held key: the remaining distance along its axis, positive while short of the target.
+    // A tap that didn't move the player ended before the game read the key: hold the next one longer.
+    if (tapped && tapped.x === p.x && tapped.y === p.y) tapFrames = Math.min(tapFrames + 1, 3);
+    tapped = null;
+
+    const offX = Math.abs(dx) - tolerance;
+    const offY = Math.abs(dy) - tolerance;
+    if (Math.max(offX, offY) <= 2 * pace.step) {
+      // Close: one axis at a time, a frame of walking at a time.
+      const key = offX > 0 ? (dx > 0 ? 'd' : 'a') : dy > 0 ? 's' : 'w';
+      await page.keyboard.down(key);
+      await nextFrames(page, tapFrames);
+      await page.keyboard.up(key);
+      tapped = p;
+      continue;
+    }
+
+    // Far: hold the keys of every axis still off. Each is released once the
+    // remaining distance along it (positive while short of the target) is at
+    // most `release`, so the frames it still walks end close to the target.
+    const release = Math.min(tolerance, pace.step);
     const remaining: Record<string, (q: { x: number; y: number }) => number> = {};
     if (dx > tolerance) remaining.d = (q) => tx - q.x;
     if (dx < -tolerance) remaining.a = (q) => q.x - tx;
@@ -107,45 +207,11 @@ export async function walkNear(
       await page.waitForTimeout(20);
       const q = await player(page);
       for (const [key, left] of Object.entries(remaining)) {
-        if (left(q) <= tolerance || Date.now() > deadline) {
+        if (left(q) <= release || Date.now() > pace.deadline) {
           delete remaining[key];
           await page.keyboard.up(key);
         }
       }
     }
-  }
-}
-
-/**
- * Like {@link walkNear}, but also converges at very low frame rates, where a
- * key released as soon as the player is in range still moves it for a frame
- * or two (a tile or more at 10 fps) and can overshoot a small range again
- * and again. It walks to within 3 tiles first, then nudges each axis that
- * is still off by tapping its key for a single animation frame (the input
- * turns into commands once per frame, so a tap moves the player for about
- * one frame) until the player stands within `tolerance` tiles.
- */
-export async function walkClose(
-  page: Page,
-  tx: number,
-  ty: number,
-  tolerance: number,
-): Promise<{ x: number; y: number }> {
-  await walkNear(page, tx, ty, Math.max(tolerance, 3));
-  const deadline = Date.now() + 30_000;
-  for (;;) {
-    const p = await waitUntilStill(page);
-    const dx = tx - p.x;
-    const dy = ty - p.y;
-    if (Math.abs(dx) <= tolerance && Math.abs(dy) <= tolerance) return p;
-    if (Date.now() > deadline) {
-      throw new Error(
-        `walk to (${tx}, ${ty}) timed out at (${p.x}, ${p.y}); page at ${await fps(page)} fps`,
-      );
-    }
-    const key = Math.abs(dx) > tolerance ? (dx > 0 ? 'd' : 'a') : dy > 0 ? 's' : 'w';
-    await page.keyboard.down(key);
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
-    await page.keyboard.up(key);
   }
 }
