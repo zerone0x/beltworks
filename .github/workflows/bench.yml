@@ -121,8 +121,8 @@ jobs:
   bench-nightly:
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    # About 20 minutes on a 2-core runner (each 50k run builds the scene anew).
-    timeout-minutes: 60
+    # About 2 minutes on a 2-core runner; the timeout leaves room for slower runners and growth.
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
