@@ -6,6 +6,7 @@ import {
   checkAsleep,
   checkCross,
   checkLanes,
+  checkNoMissedWake,
   checkTopology,
   countSteps,
   flow,
@@ -506,11 +507,14 @@ describe('random building with every belt type', () => {
         if (w.table.takeAt(line, rng.nextInt(2), from, w.table.beltEnd(id)) !== 0) refunded++;
       }
       // The spacing holds across every hand-over onto another line's start,
-      // after the edit and after every tick.
+      // and no lane is asleep that could move (#79), after the edit and
+      // after every tick.
       checkCross(w.table);
+      checkNoMissedWake(w.table, `round ${String(round)}`);
       for (let n = rng.nextInt(20); n > 0; n--) {
         w.step();
         checkCross(w.table);
+        checkNoMissedWake(w.table, `round ${String(round)}`);
       }
       checkLanes(w.table);
       checkAsleep(w.table);
@@ -718,12 +722,14 @@ describe('random building with every belt type, on a wider strip', () => {
         if (w.table.takeAt(line, rng.nextInt(2), from, w.table.beltEnd(id)) !== 0) refunded++;
       }
       checkCross(w.table);
+      checkNoMissedWake(w.table, `round ${String(round)}`);
       for (const line of w.table.lines()) {
         for (const lane of line.lanes) if (lane.total > line.length) pushedPast++;
       }
       for (let n = rng.nextInt(25); n > 0; n--) {
         w.step();
         checkCross(w.table);
+        checkNoMissedWake(w.table, `round ${String(round)}`);
       }
       checkLanes(w.table);
       checkAsleep(w.table);

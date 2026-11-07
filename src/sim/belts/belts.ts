@@ -44,7 +44,11 @@
  * moving, so they all go to sleep); and an item handed on may enter up to
  * one tick of the target's movement behind the hand-over point
  * (`Lane.fitNear`). Together they make every boundary and side-load run at
- * exactly the slower lane's rate.
+ * exactly the slower lane's rate. So at the end of a tick no asleep lane
+ * could move, close up or hand an item on (tests/sim/beltWake.test.ts); a
+ * lane asleep behind one that starts moving again is woken as that one
+ * moves and steps from the next tick, so a backed-up chain of lines starts
+ * up one tick per hand-over.
  *
  * Rebuilds. Placing, rotating or removing a belt can only change the links
  * of belts within two tiles of it, and the pairing of the nearest
