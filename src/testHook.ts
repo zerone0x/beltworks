@@ -187,11 +187,19 @@ export interface BeltworksTestHook {
   /** Assembling machines as drawn last: the product icon shown (0 for none) and animation speed (0..1). */
   assemblers(): { id: number; item: number; speed: number }[];
   /**
-   * Pre-rendered sprites: the models of the loaded atlas (empty until it
-   * loads), the entities drawn with sprites and how many of them animate,
-   * and whether the ghost shows a sprite.
+   * Pre-rendered sprites: the models of the loaded atlases (empty until
+   * they load), the entities drawn with sprites, how many of them animate
+   * and how many are inserters with a sprite arm, the belts drawn with
+   * sprites, and whether the ghost shows a sprite.
    */
-  sprites(): { models: string[]; entities: number; animated: number; ghost: boolean };
+  sprites(): {
+    models: string[];
+    entities: number;
+    animated: number;
+    arms: number;
+    belts: number;
+    ghost: boolean;
+  };
   /**
    * The local player's force's research from the latest snapshot: the
    * current technology's name (`''` for none) and, per technology name, the
@@ -408,6 +416,7 @@ export function installTestHook({
     sprites: () => ({
       models: view.spriteModels(),
       ...view.entities.sprites.stats,
+      belts: view.belts.spriteBelts,
       ghost: view.ghost.spriteShown,
     }),
     research: () => {

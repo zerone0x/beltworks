@@ -9,7 +9,7 @@
  * inserter arms and wires), and the ghost preview of the entity about to be
  * placed (for inserters with markers on the tiles they would pick up from
  * and drop onto). Placed belts are drawn by the belt layer (beltLayer.ts)
- * instead, inserter arms by the inserter layer (inserterLayer.ts), steam
+ * instead, placeholder inserter arms by the inserter layer (inserterLayer.ts), steam
  * engine flywheels by the generator layer (generatorLayer.ts), and
  * assembling machines' product icons and working lights by the assembler
  * layer (assemblerLayer.ts).
@@ -26,14 +26,28 @@ import {
 import type { Direction } from '../sim/entities/direction';
 import { isAssemblerType } from '../sim/entities/assembler';
 import { drillDropTileFor } from '../sim/entities/drill';
+import { UndergroundMode } from '../sim/belts/underground';
 import { inserterDropTile, inserterPickupTile } from '../sim/entities/inserter';
 import { MachineState } from '../sim/entities/machine';
 import { footprintSize } from '../sim/entities/store';
 import { TILE_PX } from './camera';
 import type { EntityIndex } from './entityIndex';
-import { EntitySpriteLayer, placeSprite } from './entitySprites';
+import { UNDERGROUND_TIER, beltSprites } from './beltSprites';
+import {
+  EntitySpriteLayer,
+  placeArm,
+  placeSprite,
+  restAngle,
+  type InserterPoses,
+} from './entitySprites';
 import { POLE_TOP } from './powerLayer';
-import { layerShown, modelDirection, type SpriteAtlas } from './sprites';
+import {
+  layerShown,
+  modelDirection,
+  type ModelSprites,
+  type SpriteAtlas,
+  type SpriteFrame,
+} from './sprites';
 
 /** Ghost tint when the entity can be placed, and when it can't. */
 export const GHOST_OK = 0x5ad15a;
@@ -286,8 +300,8 @@ export class EntityLayer {
    * Redraws the placeholder shapes if the entities changed since the last
    * call, and draws the sprites (animated by `dtMs` milliseconds).
    */
-  draw(index: EntityIndex, dtMs: number = 0): void {
-    this.sprites.draw(index, dtMs);
+  draw(index: EntityIndex, dtMs: number = 0, poses: InserterPoses | null = null): void {
+    this.sprites.draw(index, dtMs, poses);
     if (index.version === this.drawn) {
       return;
     }
@@ -323,6 +337,8 @@ export interface Ghost {
   dir: Direction;
   /** Whether the entity can be placed there, as far as the renderer can tell. */
   valid: boolean;
+  /** For an underground belt: whether it would be an entrance or an exit (`UndergroundMode`). */
+  mode?: number;
 }
 
 /**
@@ -347,6 +363,40 @@ const GHOST_SPRITE_ALPHA = 0.6;
 export function ghostDrillDropTile(ghost: Ghost): { x: number; y: number } | null {
   if (ghost.proto.miningTicks === undefined) return null;
   return drillDropTileFor(ghost.proto, ghost.x, ghost.y, ghost.dir);
+}
+
+/**
+ * The sprite frames of a ghost, in draw order (none without a model): a
+ * belt's surface and side frames (and an underground belt's hood, as the
+ * entrance or exit it would be), an inserter's base and its arm at rest
+ * (`arm`), or a model's idle layers.
+ */
+export function ghostFrames(
+  atlas: SpriteAtlas | null,
+  ghost: Ghost,
+): { model: ModelSprites; frame: SpriteFrame; arm: boolean }[] {
+  const { proto } = ghost;
+  if (proto.beltSpeed !== undefined) {
+    const mode = UNDERGROUND_TIER[proto.name]
+      ? (ghost.mode ?? UndergroundMode.Entrance)
+      : UndergroundMode.None;
+    const set = beltSprites(atlas, proto.name, 0, mode);
+    if (!set) return [];
+    const pick = (model: ModelSprites, layer = model.layers[0]!) => ({
+      model,
+      frame: layer.frames[modelDirection(model, ghost.dir)]![0]!,
+      arm: false,
+    });
+    const frames = [pick(set.surfaceModel, set.surface), pick(set.frame)];
+    if (set.hood) frames.push(pick(set.hood));
+    return frames;
+  }
+  const model = atlas?.model(proto.name) ?? null;
+  if (!model) return [];
+  const dir = modelDirection(model, ghost.dir);
+  return model.layers
+    .filter((layer) => layerShown(layer, false))
+    .map((layer) => ({ model, frame: layer.frames[dir]![0]!, arm: layer.name === 'arm' }));
 }
 
 export class GhostLayer {
@@ -377,7 +427,7 @@ export class GhostLayer {
   /** Shows `ghost`, or hides the preview for `null`. Cheap when nothing changed. */
   draw(ghost: Ghost | null): void {
     const key = ghost
-      ? `${String(ghost.proto.id)}:${String(ghost.x)}:${String(ghost.y)}:${String(ghost.dir)}:${String(ghost.valid)}`
+      ? `${String(ghost.proto.id)}:${String(ghost.x)}:${String(ghost.y)}:${String(ghost.dir)}:${String(ghost.valid)}:${String(ghost.mode)}`
       : '';
     if (key === this.key) {
       return;
@@ -390,25 +440,29 @@ export class GhostLayer {
       return;
     }
     const { w, h } = footprintSize(ghost.proto, ghost.dir);
-    const model = this.atlas?.model(ghost.proto.name) ?? null;
-    if (model) {
+    const cx = (ghost.x + w / 2) * TILE_PX;
+    const cy = (ghost.y + h / 2) * TILE_PX;
+    const frames = ghostFrames(this.atlas, ghost);
+    if (frames.length > 0) {
       // The idle sprite, without its shadow.
-      const dir = modelDirection(model, ghost.dir);
-      const cx = (ghost.x + w / 2) * TILE_PX;
-      const cy = (ghost.y + h / 2) * TILE_PX;
-      let used = 0;
-      for (const layer of model.layers) {
-        if (!layerShown(layer, false)) continue;
+      frames.forEach(({ model, frame, arm }, used) => {
         let sprite = this.sprites[used];
         if (!sprite) {
           sprite = new Sprite();
           this.sprites.push(sprite);
           this.spriteContainer.addChild(sprite);
         }
-        placeSprite(sprite, layer.frames[dir]![0]!, model.scale, cx, cy);
+        sprite.pivot.set(0, 0);
+        sprite.rotation = 0;
+        if (arm) {
+          const layer = model.layers.find((l) => l.name === 'arm')!;
+          const pose = { angle: restAngle(ghost.dir), held: 0 };
+          placeArm(model, layer, modelDirection(model, ghost.dir), sprite, null, cx, cy, pose);
+        } else {
+          placeSprite(sprite, frame, model.scale, cx, cy);
+        }
         sprite.visible = true;
-        used++;
-      }
+      });
     } else {
       drawEntity(g, ghost.proto, ghost.x, ghost.y, ghost.dir, 0.55);
     }

@@ -10,6 +10,8 @@ A new game starts between four ore patches (iron, copper, coal, stone) with a ki
 
 ![Pre-rendered sprites of assembling machines 1 and 2, a lit stone furnace, an iron and a wooden chest, and burner mining drills facing all four ways](docs/screenshots/art-first.png)
 
+![A belt loop with curves, burner, electric, fast and long-handed inserters moving coal on and off it, and wooden poles wired to steam power](docs/screenshots/art-logistics.png)
+
 ![The M1 chain: a burner mining drill on iron ore, a belt, an inserter, a furnace, an inserter and a chest filling with iron plates](docs/screenshots/m1-chain.png)
 
 Press **H** in the game (or click the hint in the bottom-left corner) for a list of the controls. In full:

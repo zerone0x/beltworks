@@ -24,8 +24,9 @@ def root():
     return _state['root']
 
 
-def reset():
-    _state['layer'] = 'body'
+def reset(layer='body'):
+    """Starts a new model; objects go on sprite layer `layer` (the model's first) until `layer` says otherwise."""
+    _state['layer'] = layer
     _state['root'] = None
 
 

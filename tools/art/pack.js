@@ -27,7 +27,8 @@ const ALIGN = 2;
  *   A trimmed frame; `(ax, ay)` is where the footprint's center falls, relative to its top-left.
  * @typedef {{ name: string, fps: number, show: string, advance: string, frames: Frame[][] }} Layer
  *   One sprite layer, frames per direction.
- * @typedef {{ name: string, footprint: number[], directions: number, points: Record<string, number[][]>, shadow: Frame[], layers: Layer[] }} Model
+ * @typedef {{ name: string, atlas: string, footprint: number[], directions: number, points: Record<string, number[][]>, shadow: Frame[], layers: Layer[] }} Model
+ *   `atlas`: the atlas the model is packed into (`entities`, `logistics`, ...).
  */
 
 /**
@@ -89,35 +90,55 @@ export function readRenders(dir) {
   const dirs = [...Array(manifest.directions).keys()];
   const read = (/** @type {string} */ layer, /** @type {number} */ d, /** @type {number} */ f) =>
     decodePng(readFileSync(join(dir, `${layer}-d${String(d)}-f${String(f)}.png`)));
+  // A shared layer is rendered for the first direction only and used for all of them.
+  const shared = (/** @type {{ shared?: boolean }} */ l, /** @type {number} */ d) =>
+    l.shared ? 0 : d;
   const shadow = (/** @type {number} */ d) => {
+    const key = `${String(manifest.name)}/shadow/${String(d)}/0`;
+    if (manifest.shadow === false) {
+      return trimFrame(createImage(ALIGN, ALIGN), manifest.anchor, true, key);
+    }
     // Shadow under the opaque parts of the body never shows: drop it, it only costs bytes.
     const image = read('shadow', d, 0);
-    const body = read(manifest.layers[0].name, d, 0);
+    const body = read(manifest.layers[0].name, shared(manifest.layers[0], d), 0);
     for (let i = 3; i < image.data.length; i += 4) {
       if (body.data[i] === 255) image.data[i] = 0;
     }
-    return trimFrame(
-      image,
-      manifest.anchor,
-      true,
-      `${String(manifest.name)}/shadow/${String(d)}/0`,
-    );
+    return trimFrame(image, manifest.anchor, true, key);
+  };
+  /** @type {Map<string, Frame>} */
+  const loaded = new Map();
+  const frameOf = (
+    /** @type {string} */ layer,
+    /** @type {number} */ d,
+    /** @type {number} */ f,
+  ) => {
+    const key = `${layer}/${String(d)}/${String(f)}`;
+    let frame = loaded.get(key);
+    if (!frame) {
+      frame = load(layer, d, f);
+      loaded.set(key, frame);
+    }
+    return frame;
   };
   return {
     name: manifest.name,
+    atlas: manifest.atlas ?? 'entities',
     footprint: manifest.footprint,
     directions: manifest.directions,
     points: manifest.points ?? {},
     shadow: dirs.map(shadow),
     layers: manifest.layers.map(
       (
-        /** @type {{ name: string, frames: number, fps: number, show: string, advance: string }} */ l,
+        /** @type {{ name: string, frames: number, fps: number, show: string, advance: string, shared?: boolean }} */ l,
       ) => ({
         name: l.name,
         fps: l.fps,
         show: l.show,
         advance: l.advance,
-        frames: dirs.map((d) => [...Array(l.frames).keys()].map((f) => load(l.name, d, f))),
+        frames: dirs.map((d) =>
+          [...Array(l.frames).keys()].map((f) => frameOf(l.name, shared(l, d), f)),
+        ),
       }),
     ),
   };
@@ -145,6 +166,7 @@ export function readAtlas(outDir, name) {
   };
   return Object.entries(index.models).map(([model, m]) => ({
     name: model,
+    atlas: name,
     footprint: m.footprint,
     directions: m.directions,
     points: m.points ?? {},
@@ -206,13 +228,29 @@ function shelfPack(sizes, width) {
 }
 
 /**
+ * Deletes the files of atlas `name` in `outDir`.
+ * @param {string} outDir
+ * @param {string} name
+ */
+function removeAtlas(outDir, name) {
+  for (const file of existsSync(outDir) ? readdirSync(outDir) : []) {
+    if (new RegExp(`^${name}(-\\d+\\.png|\\.json)$`).test(file)) rmSync(join(outDir, file));
+  }
+}
+
+/**
  * Packs `models` into `<outDir>/<name>-<n>.png` and `<outDir>/<name>.json`,
- * replacing the previous atlas files. Returns the files written with their sizes.
+ * replacing the previous atlas files (with `remove`, only deletes them).
+ * Returns the files written with their sizes.
  * @param {Model[]} models
  * @param {string} outDir
  * @param {string} name
  */
-export function writeAtlas(models, outDir, name) {
+export function writeAtlas(models, outDir, name, { remove = false } = {}) {
+  if (remove) {
+    removeAtlas(outDir, name);
+    return [];
+  }
   models = [...models].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   /** @type {Frame[]} */
   const unique = [];
@@ -296,9 +334,7 @@ export function writeAtlas(models, outDir, name) {
       frame.ay,
     ];
   });
-  for (const file of existsSync(outDir) ? readdirSync(outDir) : []) {
-    if (new RegExp(`^${name}(-\\d+\\.png|\\.json)$`).test(file)) rmSync(join(outDir, file));
-  }
+  removeAtlas(outDir, name);
   const written = [];
   sheets.forEach((sheet, i) => {
     const file = `${name}-${String(i)}.png`;

@@ -7,13 +7,17 @@
  *   npm run art -- --pack-only         # re-pack the last renders in art/build/
  *   npm run art -- --preview           # also write art/build/preview-2x.png and preview-1x.png
  *   npm run art -- --samples 32        # quicker, noisier renders while iterating
+ *   npm run art -- belts               # every model a module (art/blender/models/belts.py) defines
+ *
+ * Each model goes into the atlas its MODEL names (`atlas`, default
+ * `entities`): public/sprites/<atlas>.json and <atlas>-<n>.png.
  *
  * Blender comes from $BLENDER (any Blender 4.2 LTS binary or wrapper script);
  * without it, ~/tools/blender.sh if it exists, else `blender` on the PATH.
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +27,6 @@ import { contactSheet } from './preview.js';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const BUILD = join(ROOT, 'art', 'build');
 const OUT = join(ROOT, 'public', 'sprites');
-const ATLAS = 'entities';
 const DEFAULT_SAMPLES = 96;
 
 function blenderCommand() {
@@ -97,6 +100,15 @@ function render(names, samples) {
   });
 }
 
+/** Names of the atlases in `dir` (their `<name>.json` indices). */
+function atlasNames(/** @type {string} */ dir) {
+  return existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith('.json'))
+        .map((f) => f.slice(0, -'.json'.length))
+    : [];
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const started = Date.now();
@@ -108,21 +120,44 @@ async function main() {
   const rendered = existsSync(BUILD)
     ? readdirSync(BUILD).filter((d) => existsSync(join(BUILD, d, 'manifest.json')))
     : [];
-  const fresh = rendered.filter((n) => options.names.length === 0 || options.names.includes(n));
+  // The models rendered by this run (with --pack-only: every render in art/build/).
+  const fresh = rendered.filter(
+    (n) => options.packOnly || statSync(join(BUILD, n, 'manifest.json')).mtimeMs >= started - 1000,
+  );
   const models = fresh.map((n) => readRenders(join(BUILD, n)));
-  // A full render rebuilds the atlas from scratch; a partial one keeps the other models.
+  // A full render rebuilds the atlases from scratch; a partial one keeps the other models.
   if (options.names.length > 0 || options.packOnly) {
-    for (const old of readAtlas(OUT, ATLAS)) {
-      if (!fresh.includes(old.name)) models.push(old);
+    for (const atlas of atlasNames(OUT)) {
+      for (const old of readAtlas(OUT, atlas)) {
+        if (!fresh.includes(old.name)) models.push(old);
+      }
     }
   }
   mkdirSync(OUT, { recursive: true });
-  for (const file of writeAtlas(models, OUT, ATLAS)) {
-    const size = file.width ? ` ${String(file.width)}x${String(file.height)}` : '';
-    console.log(`[art] public/sprites/${file.file}${size}, ${(file.bytes / 1024).toFixed(1)} KiB`);
+  const atlases = [...new Set(models.map((m) => m.atlas))].sort();
+  if (options.names.length === 0 && !options.packOnly) {
+    // Atlases no model goes into any more.
+    for (const atlas of atlasNames(OUT)) {
+      if (!atlases.includes(atlas)) writeAtlas([], OUT, atlas, { remove: true });
+    }
+  }
+  for (const atlas of atlases) {
+    // A partial run leaves the atlases it rendered nothing for alone.
+    if (!models.some((m) => m.atlas === atlas && fresh.includes(m.name))) continue;
+    const packed = models.filter((m) => m.atlas === atlas);
+    for (const file of writeAtlas(packed, OUT, atlas)) {
+      const size = file.width ? ` ${String(file.width)}x${String(file.height)}` : '';
+      console.log(
+        `[art] public/sprites/${file.file}${size}, ${(file.bytes / 1024).toFixed(1)} KiB`,
+      );
+    }
   }
   if (options.preview) {
-    const sheet = contactSheet(readAtlas(OUT, ATLAS));
+    // The models of this run (all of them after a full render).
+    const shown = atlases
+      .flatMap((atlas) => readAtlas(OUT, atlas))
+      .filter((m) => options.names.length === 0 || fresh.includes(m.name));
+    const sheet = contactSheet(shown);
     mkdirSync(BUILD, { recursive: true });
     writeFileSync(join(BUILD, 'preview-2x.png'), sheet.full);
     writeFileSync(join(BUILD, 'preview-1x.png'), sheet.half);

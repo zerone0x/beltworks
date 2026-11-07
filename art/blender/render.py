@@ -17,6 +17,17 @@ tiles), e.g. where the game draws an assembler's product icon; the manifest
 gives them in texels from the footprint's center, per direction. Output per
 model in <out>/<name>/: `<layer>-d<dir>-f<frame>.png` and a
 `manifest.json` the packer reads.
+
+A module can define several models at once with `MODELS`, a list of model
+dicts that each carry their own `build` (e.g. every belt tier and shape from
+one script). Optional model keys: `atlas` (the atlas it is packed into,
+default `entities`), `shadow` (False: no shadow pass, e.g. a belt surface)
+and `extent` (tiles around the center the render must cover, for parts that
+reach beyond the footprint like a long inserter arm). Optional layer keys:
+`shared` (True: rendered for the first direction only and used for every
+direction, e.g. an inserter arm whose frames are angles in the world, not
+relative to the entity) and `shadow` (False: left out of the shadow pass,
+for parts that move independently of the shadow).
 """
 
 import argparse
@@ -57,16 +68,32 @@ class Context:
         return self.frame if layer == self.layer else 0
 
 
+class Model:
+    """One model: its `MODEL` dict and `build(ctx)`."""
+
+    def __init__(self, model, build):
+        self.MODEL = model
+        self.build = build
+
+
 def load_models():
+    """Every model by name, and the names each module (by file name, e.g. `belts`) defines."""
     models = {}
+    modules = {}
     for file in sorted(os.listdir(MODELS_DIR)):
         if not file.endswith('.py') or file.startswith('_'):
             continue
         spec = importlib.util.spec_from_file_location('bw_model_' + file[:-3], os.path.join(MODELS_DIR, file))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        models[module.MODEL['name']] = module
-    return models
+        found = [Model(m, m['build']) for m in module.MODELS] if hasattr(module, 'MODELS') else [Model(module.MODEL, module.build)]
+        for model in found:
+            name = model.MODEL['name']
+            if name in models:
+                raise ValueError(f'model {name} is defined twice ({file})')
+            models[name] = model
+            modules.setdefault(file[:-3], []).append(name)
+    return models, modules
 
 
 def layer_specs(model):
@@ -81,6 +108,9 @@ def layer_specs(model):
                 'show': spec.get('show', 'always'),
                 # Whether the animation advances only while working, or all the time.
                 'advance': spec.get('advance', 'working'),
+                # Rendered once (first direction) and used for every direction.
+                'shared': spec.get('shared', False),
+                'shadow': spec.get('shadow', True),
             }
         )
     return specs
@@ -88,7 +118,7 @@ def layer_specs(model):
 
 def render_frame(module, bounds, size, samples, direction, layer, frame, frames, path):
     scene.clear()
-    shapes.reset()
+    shapes.reset(module.MODEL['layers'][0]['name'])
     scene.setup_render(size[0], size[1], samples)
     scene.setup_camera(bounds)
     scene.setup_lights()
@@ -96,7 +126,8 @@ def render_frame(module, bounds, size, samples, direction, layer, frame, frames,
     module.build(Context(direction, layer, frame, frames))
     root = shapes.root()
     root.rotation_euler = (0.0, 0.0, -direction * math.pi / 2)
-    order = [spec['name'] for spec in layer_specs(module.MODEL)]
+    specs = layer_specs(module.MODEL)
+    order = [spec['name'] for spec in specs]
     current = order.index(layer) if layer != SHADOW else -1
     for obj in bpy.data.objects:
         tag = obj.get('bw_layer')
@@ -107,6 +138,8 @@ def render_frame(module, bounds, size, samples, direction, layer, frame, frames,
         index = order.index(tag)
         if layer == SHADOW:
             obj.visible_camera = False
+            if not specs[index]['shadow']:
+                obj.hide_render = True
         elif index < current:
             obj.is_holdout = True
         elif index > current:
@@ -127,7 +160,7 @@ def project(point, direction):
 def render_model(module, out_dir, samples):
     model = module.MODEL
     name = model['name']
-    bounds = scene.screen_bounds(tuple(model['footprint']), model['height'])
+    bounds = scene.screen_bounds(tuple(model['footprint']), model['height'], extent=model.get('extent', 0.0))
     size = (
         round((bounds[2] - bounds[0]) * scene.TILE_PX),
         round((bounds[3] - bounds[1]) * scene.TILE_PX),
@@ -141,14 +174,23 @@ def render_model(module, out_dir, samples):
     directions = model.get('directions', 1)
     started = time.time()
     count = 0
+    shadow = model.get('shadow', True)
     for d in range(directions):
-        jobs = [(SHADOW, 0, 1)] + [(spec['name'], f, spec['frames']) for spec in layers for f in range(spec['frames'])]
+        jobs = [(SHADOW, 0, 1)] if shadow else []
+        jobs += [
+            (spec['name'], f, spec['frames'])
+            for spec in layers
+            if d == 0 or not spec['shared']
+            for f in range(spec['frames'])
+        ]
         for layer, frame, frames in jobs:
             path = os.path.join(target, f'{layer}-d{d}-f{frame}.png')
             render_frame(module, bounds, size, samples, d, layer, frame, frames, path)
             count += 1
     manifest = {
         'name': name,
+        'atlas': model.get('atlas', 'entities'),
+        'shadow': shadow,
         'points': {key: [project(point, d) for d in range(directions)] for key, point in model.get('points', {}).items()},
         'footprint': list(model['footprint']),
         'directions': directions,
@@ -169,12 +211,17 @@ def main():
     parser.add_argument('--samples', type=int, default=96)
     parser.add_argument('names', nargs='*')
     args = parser.parse_args(argv)
-    models = load_models()
-    unknown = [n for n in args.names if n not in models]
+    models, modules = load_models()
+    unknown = [n for n in args.names if n not in models and n not in modules]
     if unknown:
         print(f'[art] unknown model(s): {", ".join(unknown)}; known: {", ".join(models)}', flush=True)
         sys.exit(2)
-    for name in args.names or list(models):
+    names = []
+    for n in args.names or list(models):
+        for name in [n] if n in models else modules[n]:
+            if name not in names:
+                names.append(name)
+    for name in names:
         render_model(models[name], os.path.abspath(args.out), args.samples)
 
 

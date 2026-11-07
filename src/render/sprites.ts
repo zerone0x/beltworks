@@ -1,6 +1,7 @@
 /**
  * Pre-rendered sprites (docs/ART.md): loads the atlases `npm run art` writes
- * to `public/sprites/` and maps an entity's model, direction, state and
+ * to `public/sprites/` (`entities`, and `logistics` for belts, inserters and
+ * poles), merged into one set of models, and maps an entity's model, direction, state and
  * animation time to sprite frames. Anything without a model keeps the
  * placeholder shapes, so art can land one model at a time.
  *
@@ -19,6 +20,8 @@ import { MachineState } from '../sim/entities/machine';
 import { TILE_PX } from './camera';
 
 export const ATLAS_VERSION = 1;
+/** The atlases in `public/sprites/` the game loads, by name. */
+export const SPRITE_ATLASES = ['entities', 'logistics'] as const;
 /** Opacity of the shadow layer (shadows are drawn at full strength into it, so they never double up). */
 export const SHADOW_ALPHA = 0.5;
 
@@ -138,9 +141,32 @@ export function frameAt(count: number, fps: number, seconds: number): number {
   return f < 0 ? f + count : f;
 }
 
-/** The sprite models of one loaded atlas. */
+/**
+ * How tall 1 tile of height looks on screen, in tiles (the 50° camera of
+ * docs/ART.md; `HEIGHT_ON_SCREEN` in art/blender/bwart/scene.py).
+ */
+export const HEIGHT_ON_SCREEN = Math.cos((50 * Math.PI) / 180) / Math.sin((50 * Math.PI) / 180);
+/**
+ * Where the shadow of a point 1 tile above the ground falls, in tiles from
+ * the point under it: the key light comes from the upper left (`SUN_FROM` in
+ * art/blender/bwart/scene.py), so shadows fall to the lower right.
+ */
+export const SHADOW_OFFSET = { x: 0.8, y: 0.36 } as const;
+
+/** The sprite models of one or more loaded atlases. */
 export class SpriteAtlas {
   private readonly models = new Map<string, ModelSprites>();
+
+  /** One atlas holding the models of all of `atlases` (a later one wins a name clash). */
+  static merge(atlases: readonly (SpriteAtlas | null)[]): SpriteAtlas | null {
+    const found = atlases.filter((a): a is SpriteAtlas => a !== null);
+    if (found.length === 0) return null;
+    const merged = new SpriteAtlas({ ...EMPTY_INDEX }, []);
+    for (const atlas of found) {
+      for (const [name, model] of atlas.models) merged.models.set(name, model);
+    }
+    return merged;
+  }
 
   constructor(index: AtlasIndex, sheets: readonly Texture[]) {
     const frames = index.frames.map(([sheet, x, y, w, h, ax, ay]) => ({
@@ -177,6 +203,19 @@ export class SpriteAtlas {
   }
 }
 
+const EMPTY_INDEX: AtlasIndex = {
+  version: ATLAS_VERSION,
+  tilePx: 64,
+  sheets: [],
+  frames: [],
+  models: {},
+};
+
+/** The layer of `model` named `name`, or `null`. */
+export function modelLayer(model: ModelSprites, name: string): ModelLayer | null {
+  return model.layers.find((l) => l.name === name) ?? null;
+}
+
 /** The direction index a model with `directions` directions uses for entity direction `dir`. */
 export function modelDirection(model: { directions: number }, dir: number): number {
   return model.directions > 1 ? dir % model.directions : 0;
@@ -206,4 +245,12 @@ export async function loadSpriteAtlas(url: string): Promise<SpriteAtlas | null> 
     console.warn('sprites: falling back to placeholders:', err);
     return null;
   }
+}
+
+/**
+ * Loads the atlases whose indices are at `urls` and merges them; `null` when
+ * none of them loads (models of the ones that do are used).
+ */
+export async function loadSpriteAtlases(urls: readonly string[]): Promise<SpriteAtlas | null> {
+  return SpriteAtlas.merge(await Promise.all(urls.map((url) => loadSpriteAtlas(url))));
 }
