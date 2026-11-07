@@ -7,6 +7,7 @@ import { MachineState } from '../../src/sim/entities/machine';
 import { SUBTILES_PER_TILE } from '../../src/sim/fixed';
 import { inMiningReach } from '../../src/sim/player';
 import { startingPatches } from '../../src/sim/world/generate';
+import { player, walkNear } from './walk';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -35,8 +36,6 @@ async function open(page: Page): Promise<void> {
   await page.waitForFunction(() => window.__beltworks!.terrainReady());
 }
 
-const player = async (page: Page) => (await page.evaluate(() => window.__beltworks!.player()))!;
-
 /** Screen position of the center of tile `(x, y)`, or of its top-left corner. */
 async function tileScreen(page: Page, x: number, y: number, corner = false) {
   const at = await page.evaluate(([tx, ty]) => window.__beltworks!.tileToScreen(tx!, ty!), [x, y]);
@@ -58,45 +57,6 @@ const ghost = (page: Page) => page.evaluate(() => window.__beltworks!.ghost());
 
 /** Hotbar key (`1`–`0`) of the starting-kit slot holding `item`. */
 const keyFor = (item: number): string => String(STARTING_KIT.findIndex((s) => s.item === item) + 1);
-
-/** Waits until the player stopped moving (two snapshots apart show the same position). */
-async function waitUntilStill(page: Page): Promise<{ x: number; y: number }> {
-  let last = await player(page);
-  for (;;) {
-    await page.waitForTimeout(100);
-    const now = await player(page);
-    if (now.x === last.x && now.y === last.y) return now;
-    last = now;
-  }
-}
-
-/** Walks with WASD until the player stands still within `tolerance` tiles of `(tx, ty)`; see player.spec.ts. */
-async function walkNear(page: Page, tx: number, ty: number, tolerance: number) {
-  const deadline = Date.now() + 30_000;
-  for (;;) {
-    const p = await waitUntilStill(page);
-    const dx = tx - p.x;
-    const dy = ty - p.y;
-    if (Math.abs(dx) <= tolerance && Math.abs(dy) <= tolerance) return p;
-    if (Date.now() > deadline) throw new Error(`walk to (${tx}, ${ty}) timed out`);
-    const remaining: Record<string, (q: { x: number; y: number }) => number> = {};
-    if (dx > tolerance) remaining.d = (q) => tx - q.x;
-    if (dx < -tolerance) remaining.a = (q) => q.x - tx;
-    if (dy > tolerance) remaining.s = (q) => ty - q.y;
-    if (dy < -tolerance) remaining.w = (q) => q.y - ty;
-    for (const key of Object.keys(remaining)) await page.keyboard.down(key);
-    while (Object.keys(remaining).length > 0) {
-      await page.waitForTimeout(20);
-      const q = await player(page);
-      for (const [key, left] of Object.entries(remaining)) {
-        if (left(q) <= tolerance || Date.now() > deadline) {
-          delete remaining[key];
-          await page.keyboard.up(key);
-        }
-      }
-    }
-  }
-}
 
 test('a chest takes and gives back items through its GUI, and refunds them on removal', async ({
   page,
