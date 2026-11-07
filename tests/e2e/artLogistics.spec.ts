@@ -207,9 +207,9 @@ test('belts, inserters and poles are drawn with their pre-rendered sprites', asy
   await place(page, KEY.electric, SCENE.electric, 'electric-inserter', SCENE.electric.dir);
   await place(page, KEY.fast, SCENE.fast, 'fast-inserter', SCENE.fast.dir);
   await place(page, KEY.long, SCENE.long, 'long-handed-inserter', SCENE.long.dir);
-  // Steam power has no model yet: placeholders.
-  await place(page, KEY.engine, SCENE.engine, 'steam-engine', Direction.North, false);
-  await place(page, KEY.boiler, SCENE.boiler, 'boiler', Direction.North, false);
+  // Steam power (models from the power atlas).
+  await place(page, KEY.engine, SCENE.engine, 'steam-engine', Direction.North);
+  await place(page, KEY.boiler, SCENE.boiler, 'boiler', Direction.North);
   for (const pole of SCENE.poles) await place(page, KEY.pole, pole, 'small-electric-pole');
 
   // Coal for the boiler, and for the burner and long-handed inserters to put on the belt.

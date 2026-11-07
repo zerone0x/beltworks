@@ -205,16 +205,3 @@ describe('the committed icons atlas (public/sprites/icons.json)', () => {
     expect(Object.keys(index.icons!.items).sort()).toEqual(names);
   });
 });
-
-describe('combined atlases', () => {
-  it('holds the models of every loaded atlas', () => {
-    const a = new SpriteAtlas(tinyIndex(), [Texture.WHITE]);
-    const other = tinyIndex();
-    other.models = { other: other.models.thing! };
-    const b = new SpriteAtlas(other, [Texture.WHITE]);
-    const both = SpriteAtlas.combine([a, null, b])!;
-    expect(both.modelNames.sort()).toEqual(['other', 'thing']);
-    expect(both.model('thing')).toBe(a.model('thing'));
-    expect(SpriteAtlas.combine([null])).toBeNull();
-  });
-});

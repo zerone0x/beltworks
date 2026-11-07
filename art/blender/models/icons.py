@@ -129,6 +129,16 @@ def underground(ctx):
     box((0.5, 0.06, 0.28), (0, -0.01, 0.19), m.plain('icon_mouth', 0x141414), bevel=0.0)
 
 
+def science_pack(ctx):
+    """A round flask of colored liquid with a cork."""
+    color = {'automation-science-pack': 0xd23c3c, 'logistic-science-pack': 0x3cb44a}[ctx.model['item']]
+    liquid = m.plain(f'icon_liquid_{color:06x}', color, roughness=0.2)
+    glass = m.plain('icon_glass', 0xc8dce4, metallic=0.0, roughness=0.08)
+    sphere(0.36, (0, 0, 0.36), liquid, segments=24)
+    cylinder(0.11, 0.3, (0, 0, 0.78), glass, verts=16)
+    cylinder(0.12, 0.12, (0, 0, 0.96), m.plain('icon_cork', 0x9a7048, roughness=0.9), verts=16, bevel=0.02)
+
+
 def inserter(ctx):
     item = ctx.model['item']
     color = {
@@ -189,6 +199,8 @@ MODELS = (
         icon('fast-inserter', inserter),
         icon('long-handed-inserter', inserter),
         icon('small-electric-pole', pole),
+        icon('automation-science-pack', science_pack),
+        icon('logistic-science-pack', science_pack),
     ]
     + [
         icon(name, **{'from': name}, direction=1 if name == 'steam-engine' else 0)
@@ -202,6 +214,7 @@ MODELS = (
             'boiler',
             'steam-engine',
             'electric-mining-drill',
+            'lab',
         )
     ]
 )
