@@ -52,7 +52,7 @@ Power comes before production chains because assemblers and labs are electric ([
 - [x] Tech tree UI and research progress
 - [x] Red and green science (science packs, technologies, labs)
 - [x] Belt tiers (fast, express) and underground belts
-- [ ] Splitters
+- [x] Splitters
 - [ ] Iron chest and the other inserter types (fast, long-handed; the electric inserter comes with M2)
 
 **Done when:** you can go from nothing to automated red and green science and finish researching it.

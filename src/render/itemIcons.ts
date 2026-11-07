@@ -75,6 +75,10 @@ const ICONS: Readonly<Partial<Record<RealItemId, IconSpec>>> = {
   [ItemId.Lab]: { label: 'LA', shape: 'item' },
   [ItemId.AutomationSciencePack]: { label: 'S1', shape: 'item' },
   [ItemId.LogisticSciencePack]: { label: 'S2', shape: 'item' },
+  // Splitters, in the tier colors.
+  [ItemId.Splitter]: { label: 'SP', shape: 'item' },
+  [ItemId.FastSplitter]: { label: 'SF', shape: 'item' },
+  [ItemId.ExpressSplitter]: { label: 'SX', shape: 'item' },
 };
 
 /** Color of unknown items, so bad data is obvious. */

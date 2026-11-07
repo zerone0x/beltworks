@@ -36,6 +36,7 @@ art/blender/
   bwart/terrain.py        seamless ground materials, rocks, foliage, ground stains
   models/<model>.py       one procedural model per entity (or several: MODELS)
   models/belts.py         every belt tier, shape and underground (MODELS: several per module)
+  models/splitters.py     the splitter gantry of every tier
   models/inserters.py     the four inserters, base and arm angles
   models/ground.py        the terrain: ground textures (and ore.py, trees.py, decor.py)
   models/icons.py         every item's icon
@@ -94,7 +95,11 @@ Every tier (yellow, red, blue) in `models/belts.py`, packed into the `logistics`
 
 The surface and the side frames stick out a few texels below their tile (their south end faces). The belt layer draws belts north to south (`BeltDrawOrder`), so the next belt of a vertical run covers that face with its own top; drawn the other way round it would show as a dark seam across the run at every tile.
 
-Curves come in at the west (`curve-left`) or east (`curve-right`) edge of a north-facing tile and leave at the north edge, like `BeltShape.CurveFromLeft` / `CurveFromRight`; the paths are the game's (`beltPath.ts`), so items follow the drawn belt. The tier comes from the belt record's entity type, the underground mode from its `mode`; an underground belt's ghost shows the hood of what it would be (an entrance or an exit). Splitters: not yet.
+Curves come in at the west (`curve-left`) or east (`curve-right`) edge of a north-facing tile and leave at the north edge, like `BeltShape.CurveFromLeft` / `CurveFromRight`; the paths are the game's (`beltPath.ts`), so items follow the drawn belt. The tier comes from the belt record's entity type, the underground mode from its `mode`; an underground belt's ghost shows the hood of what it would be (an entrance or an exit).
+
+### Splitters
+
+`models/splitters.py`, in the `logistics` atlas: `splitter`, `fast-splitter`, `express-splitter` (2×1, 4 directions). The belt layer draws each half as a straight belt of the splitter's tier (the shared surface and the tier's side frames, `SPLITTER_TIER` in `beltSprites.ts`), and the model is only what stands over them: a gantry across the middle of both halves in the tier color, on legs at the outer sides and a dark divider between the halves that runs the whole tile, with a dark slot over each half on both faces and an arrow on top of each half. It is drawn with the underground hoods, above the items (`coverContainer`), so items pass under it, and casts a shadow. Its ghost is the gantry alone. Without sprites, the placeholder is a bar in the tier color across both halves.
 
 ### Inserters
 

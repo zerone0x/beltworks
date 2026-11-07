@@ -11,6 +11,10 @@
  * entrance's front half, an exit's rear half), drawn over the items
  * (`coverContainer`), with its shadow. Belts are drawn north to south
  * (`BeltDrawOrder`), so each covers the end face of the one north of it.
+ * A splitter comes as two records, one per half, each drawn as a straight
+ * belt of its tier; its left half's record also draws the splitter's gantry
+ * over both (in `coverContainer` too; a bar in the tier color without
+ * sprites).
  *
  * Without sprites, straight belts are tiling sprites of a placeholder texture
  * that scrolls with the tick (at the belt's speed, like the items), with rails
@@ -31,6 +35,7 @@ import { Container, Graphics, Sprite, Texture, TilingSprite } from 'pixi.js';
 import { ENTITIES, EntityTypeId, entityPrototype, type EntityPrototype } from '../data/entities';
 import { BELT_SPEED, BeltShape } from '../sim/belts/belts';
 import { BELT_LENGTH } from '../sim/belts/line';
+import { SPLITTER_HALF_MODE } from '../sim/belts/splitter';
 import {
   UndergroundMode,
   findPartner,
@@ -49,6 +54,8 @@ import { itemIconAtlas } from './itemIcons';
 import { SHADOW_ALPHA, modelDirection, type SpriteAtlas } from './sprites';
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
+const DX = [0, 1, 0, -1];
+const DY = [-1, 0, 1, 0];
 const BELT_BASE = 0x5b5d64;
 const BELT_BAR = 0x84878f;
 const BELT_RAIL = ENTITIES[EntityTypeId.TransportBelt].color;
@@ -176,7 +183,7 @@ export class BeltLayer {
 
   /** The sprites of a belt of entity type `type`, shape `shape` and underground mode `mode`. */
   private spritesFor(type: number, shape: number, mode: number): BeltSprites | null {
-    const key = (type * 4 + shape) * 4 + mode;
+    const key = (type * 4 + shape) * 8 + mode;
     let set = this.sets.get(key);
     if (set === undefined) {
       set = beltSprites(this.atlas, entityPrototype(type)?.name, shape, mode);
@@ -198,9 +205,9 @@ export class BeltLayer {
     if (!this.undergrounds) {
       this.undergrounds = new Map();
       for (const b of this.belts) {
-        if (b.mode === UndergroundMode.None) continue;
+        if (b.mode !== UndergroundMode.Entrance && b.mode !== UndergroundMode.Exit) continue;
         const info = { speed: tierOf(b.type).speed, dir: b.dir as Direction, mode: b.mode };
-        this.undergrounds.set(`${String(b.x)},${String(b.y)}`, info as UndergroundInfo);
+        this.undergrounds.set(`${String(b.x)},${String(b.y)}`, info);
       }
     }
     return this.undergrounds.get(`${String(x)},${String(y)}`) ?? null;
@@ -298,7 +305,14 @@ export class BeltLayer {
         placeSprite(slot.surface, frames[surfaceFrame(frames.length, travel)]!, scale, cx, cy);
         const dir = modelDirection(set.frame, belt.dir);
         placeSprite(slot.frame, set.frame.layers[0]!.frames[dir]![0]!, scale, cx, cy);
-        if (set.hood) {
+        // A splitter's gantry stands over both halves: its center is half a
+        // tile right of its left half's (looking the way items move).
+        const cover = set.hood ?? set.splitter;
+        if (cover) {
+          const right = (belt.dir + 1) & 3;
+          const off = set.splitter ? TILE_PX / 2 : 0;
+          const hx = cx + off * DX[right]!;
+          const hy = cy + off * DY[right]!;
           let hood = this.hoodSprites[hoodSprites];
           if (!hood) {
             hood = { sprite: new Sprite(), shadow: new Sprite({ alpha: SHADOW_ALPHA }) };
@@ -308,9 +322,9 @@ export class BeltLayer {
           }
           hoodSprites++;
           hood.sprite.visible = hood.shadow.visible = true;
-          const hd = modelDirection(set.hood, belt.dir);
-          placeSprite(hood.sprite, set.hood.layers[0]!.frames[hd]![0]!, scale, cx, cy);
-          placeSprite(hood.shadow, set.hood.shadow[hd]!, scale, cx, cy);
+          const hd = modelDirection(cover, belt.dir);
+          placeSprite(hood.sprite, cover.layers[0]!.frames[hd]![0]!, scale, hx, hy);
+          placeSprite(hood.shadow, cover.shadow[hd]!, scale, hx, hy);
         }
         continue;
       }
@@ -335,8 +349,10 @@ export class BeltLayer {
         sprite.rotation = ((belt.dir & 3) * Math.PI) / 2;
         // The surface moves towards the belt's front (up in the texture).
         sprite.tilePosition.y = -(phase % TILE_PX);
-        if (belt.mode !== UndergroundMode.None) {
+        if (belt.mode === UndergroundMode.Entrance || belt.mode === UndergroundMode.Exit) {
           drawHood(hoods, belt.x, belt.y, belt.dir, belt.mode, rail, 1);
+        } else if (belt.mode === SPLITTER_HALF_MODE) {
+          drawSplitter(hoods, belt.x, belt.y, belt.dir, rail);
         }
       } else {
         drawCurve(curves, belt, phase / TILE_PX, rail);
@@ -444,6 +460,35 @@ export class BeltDrawOrder {
     }
     return this.order.map((i) => belts[i]!);
   }
+}
+
+/**
+ * The placeholder gantry of a splitter whose left half is on `(x, y)`,
+ * facing `dir`: a bar in the tier color across the middle of both halves.
+ */
+function drawSplitter(g: Graphics, x: number, y: number, dir: number, rail: number): void {
+  const right = (dir + 1) & 3;
+  // The two tiles' centers, and the bar's half extent along and across the belts.
+  const ax = (x + 0.5) * TILE_PX;
+  const ay = (y + 0.5) * TILE_PX;
+  const bx = ax + DX[right]! * TILE_PX;
+  const by = ay + DY[right]! * TILE_PX;
+  const fx = DX[dir]! * 0.2 * TILE_PX;
+  const fy = DY[dir]! * 0.2 * TILE_PX;
+  const sx = DX[right]! * 0.48 * TILE_PX;
+  const sy = DY[right]! * 0.48 * TILE_PX;
+  g.poly([
+    ax - sx - fx,
+    ay - sy - fy,
+    bx + sx - fx,
+    by + sy - fy,
+    bx + sx + fx,
+    by + sy + fy,
+    ax - sx + fx,
+    ay - sy + fy,
+  ])
+    .fill({ color: rail })
+    .stroke({ width: 2, color: HOOD });
 }
 
 /** Whether an item `offset` subtiles from the end edge of an underground in `mode` is under its hood. */

@@ -48,6 +48,12 @@ import {
   DETERMINISM_ELECTRIC_DRILL,
   DETERMINISM_ELECTRIC_INSERTER,
   DETERMINISM_ELECTRIC_POLE,
+  DETERMINISM_SPLITTER,
+  DETERMINISM_SPLITTER_IN,
+  DETERMINISM_SPLITTER_OUT_A,
+  DETERMINISM_SPLITTER_OUT_B,
+  DETERMINISM_SPLITTER_ROW,
+  DETERMINISM_SPLITTER_TICK,
   DETERMINISM_TIER_BELT,
   DETERMINISM_TIER_ENTRANCE,
   DETERMINISM_TIER_EXIT,
@@ -526,6 +532,53 @@ describe('determinism', () => {
     expect(coalOnLine()).toBe(2);
     expect(entities.contents(exit)).toEqual([{ item: ItemId.Coal, count: 2 }]);
     expect(belts.itemsOn(exit)).toEqual([]);
+  });
+
+  it('shares coal and plates out between both sides of a splitter, reversing it and back', () => {
+    const sim = createDeterminismSim();
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    const { entities } = sim.state;
+    const belts = beltTable(entities)!;
+    const { x, y } = DETERMINISM_CHAIN;
+    const row = y + DETERMINISM_SPLITTER_ROW;
+    while (sim.tick < DETERMINISM_SPLITTER_TICK + 2) sim.step();
+    expect([
+      entities.at(x + 1, row),
+      entities.at(x + 2, row),
+      entities.at(x + 2, row + 1),
+      entities.at(x + 3, row),
+      entities.at(x + 3, row + 1),
+    ]).toEqual([
+      DETERMINISM_SPLITTER_IN,
+      DETERMINISM_SPLITTER,
+      DETERMINISM_SPLITTER,
+      DETERMINISM_SPLITTER_OUT_A,
+      DETERMINISM_SPLITTER_OUT_B,
+    ]);
+    expect(entities.store.type(DETERMINISM_SPLITTER)).toBe(EntityTypeId.Splitter);
+    const [left, right] = belts.halfLines(DETERMINISM_SPLITTER);
+    expect(belts.line(belts.beltLine(DETERMINISM_SPLITTER_IN))!.out).toBe(left);
+    expect(left.out!.belts).toEqual([DETERMINISM_SPLITTER_OUT_A]);
+    expect(right.out!.belts).toEqual([DETERMINISM_SPLITTER_OUT_B]);
+    // Reversed (a Rotate on its right half) and back, then a second splitter that doesn't fit.
+    while (sim.tick < DETERMINISM_SPLITTER_TICK + 13) sim.step();
+    expect(entities.store.dir(DETERMINISM_SPLITTER)).toBe(Direction.West);
+    while (sim.tick < DETERMINISM_SPLITTER_TICK + 15) sim.step();
+    expect(entities.store.dir(DETERMINISM_SPLITTER)).toBe(Direction.East);
+    // The right lane's coal and plate went to different outputs, the left
+    // lane's plate left (they get there just after the scripted phase).
+    while (sim.tick < DETERMINISM_SCRIPTED_TICKS + 10) sim.step();
+    const count = (id: number, item: number) =>
+      entities.contents(id).find((s) => s.item === item)?.count ?? 0;
+    const counts = [DETERMINISM_SPLITTER_OUT_A, DETERMINISM_SPLITTER_OUT_B].map((id) => [
+      count(id, ItemId.Coal),
+      count(id, ItemId.IronPlate),
+    ]);
+    expect(counts).toEqual([
+      [1, 1],
+      [0, 1],
+    ]);
+    expect(entities.at(x + 4, row)).toBe(0);
   });
 
   it("strings poles on player 1's patch: a network, a split, a merge, and a lone pole", () => {

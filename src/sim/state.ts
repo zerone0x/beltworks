@@ -57,7 +57,7 @@ export interface SimOptions {
  * Bump when the hashed layout changes, so stale expected hashes fail loudly
  * instead of matching by accident.
  */
-export const STATE_HASH_VERSION = 17;
+export const STATE_HASH_VERSION = 18;
 
 export function createSimState(options: SimOptions): SimState {
   const seed = options.seed >>> 0;

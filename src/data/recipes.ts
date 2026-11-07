@@ -52,6 +52,10 @@ export const RecipeId = {
   Lab: 27,
   AutomationSciencePack: 28,
   LogisticSciencePack: 29,
+  // Splitters (M3).
+  Splitter: 30,
+  FastSplitter: 31,
+  ExpressSplitter: 32,
 } as const;
 
 export type RecipeId = (typeof RecipeId)[keyof typeof RecipeId];
@@ -362,6 +366,39 @@ export const RECIPES: Readonly<Record<RealRecipeId, Recipe>> = {
     ticks: 360,
     category: 'hand',
   },
+  // Splitters (M3), with the shared design numbers.
+  [RecipeId.Splitter]: {
+    id: RecipeId.Splitter,
+    inputs: [
+      [ItemId.ElectronicCircuit, 5],
+      [ItemId.IronPlate, 5],
+      [ItemId.TransportBelt, 4],
+    ],
+    outputs: [[ItemId.Splitter, 1]],
+    ticks: 60,
+    category: 'hand',
+  },
+  [RecipeId.FastSplitter]: {
+    id: RecipeId.FastSplitter,
+    inputs: [
+      [ItemId.Splitter, 1],
+      [ItemId.IronGearWheel, 10],
+    ],
+    outputs: [[ItemId.FastSplitter, 1]],
+    ticks: 120,
+    category: 'hand',
+  },
+  [RecipeId.ExpressSplitter]: {
+    id: RecipeId.ExpressSplitter,
+    inputs: [
+      [ItemId.FastSplitter, 1],
+      [ItemId.IronGearWheel, 10],
+      [ItemId.ElectronicCircuit, 10],
+    ],
+    outputs: [[ItemId.ExpressSplitter, 1]],
+    ticks: 120,
+    category: 'hand',
+  },
 };
 
 /** Every real recipe id, in id order. */
@@ -395,6 +432,9 @@ export const RECIPE_IDS: readonly RealRecipeId[] = [
   RecipeId.Lab,
   RecipeId.AutomationSciencePack,
   RecipeId.LogisticSciencePack,
+  RecipeId.Splitter,
+  RecipeId.FastSplitter,
+  RecipeId.ExpressSplitter,
 ];
 
 /** The hand recipes, in id order (the order of the crafting panel). */

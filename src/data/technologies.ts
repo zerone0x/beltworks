@@ -87,8 +87,7 @@ export const TECHNOLOGIES: Readonly<Record<RealTechId, Technology>> = {
     packs: RED,
     units: 20,
     ticksPerUnit: 15 * S,
-    // Splitters (#49) join this list when they land.
-    unlocks: [RecipeId.UndergroundBelt],
+    unlocks: [RecipeId.UndergroundBelt, RecipeId.Splitter],
   },
   [TechId.Electronics]: {
     id: TechId.Electronics,
@@ -139,7 +138,7 @@ export const TECHNOLOGIES: Readonly<Record<RealTechId, Technology>> = {
     packs: RED_GREEN,
     units: 200,
     ticksPerUnit: 30 * S,
-    unlocks: [RecipeId.FastTransportBelt, RecipeId.FastUndergroundBelt],
+    unlocks: [RecipeId.FastTransportBelt, RecipeId.FastUndergroundBelt, RecipeId.FastSplitter],
   },
   [TechId.Logistics3]: {
     id: TechId.Logistics3,
@@ -149,7 +148,11 @@ export const TECHNOLOGIES: Readonly<Record<RealTechId, Technology>> = {
     packs: RED_GREEN,
     units: 300,
     ticksPerUnit: 15 * S,
-    unlocks: [RecipeId.ExpressTransportBelt, RecipeId.ExpressUndergroundBelt],
+    unlocks: [
+      RecipeId.ExpressTransportBelt,
+      RecipeId.ExpressUndergroundBelt,
+      RecipeId.ExpressSplitter,
+    ],
   },
 };
 

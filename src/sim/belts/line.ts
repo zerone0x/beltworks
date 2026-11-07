@@ -64,6 +64,17 @@ export class TransportLine {
   readonly watched: number[] = [];
   /** Set once the line has been taken apart by a rebuild. */
   dead = false;
+  /**
+   * A splitter half (see splitter.ts): the splitter's entity id (0 for other
+   * lines), which half (0 left, 1 right), its tile, and the other half's
+   * line. A half is a line of its own, one belt long, that never merges with
+   * the belts around it; `out` is the line in front of it.
+   */
+  splitter = 0;
+  half = 0;
+  tileX = 0;
+  tileY = 0;
+  sibling: TransportLine | null = null;
 
   constructor(
     /** Line ids are handed out in increasing order and never reused. */

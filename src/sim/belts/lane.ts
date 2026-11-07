@@ -34,6 +34,13 @@ export interface LaneOutlet {
    * this tick's movement left; returns whether it did (and removed it).
    */
   handOn(lane: Lane, rem: number): boolean;
+  /**
+   * Whether item 0 is also offered (`handOn`) when it is held short of the
+   * end by `minFront` and can't move further this tick, not only at the
+   * end: a splitter's half can send it across to the other output from
+   * there.
+   */
+  readonly early?: boolean;
 }
 
 export class Lane {
@@ -62,16 +69,36 @@ export class Lane {
   movedFrom = 0;
   movedRest = 0;
 
+  /**
+   * Distance consecutive items close up to: `minSpacing`, or more while the
+   * lane is held open for items joining it (a splitter half that the other
+   * half merges into, see `setSpacing`). Gaps already narrower stay as they
+   * are, but never below `minSpacing`.
+   */
+  spacing: number;
+
   constructor(
     /** Minimum distance between consecutive items. */
-    readonly spacing: number,
+    readonly minSpacing: number,
     capacity = 4,
   ) {
+    this.spacing = minSpacing;
     let cap = 4;
     while (cap < capacity) cap *= 2;
     this.gapBuf = new Int32Array(cap);
     this.itemBuf = new Uint16Array(cap);
     this.mask = cap - 1;
+  }
+
+  /**
+   * Sets the distance items close up to (at least `minSpacing`). The packed
+   * run is recounted from the front, since gaps that were packed at the old
+   * spacing may be movable at the new one.
+   */
+  setSpacing(spacing: number): void {
+    if (spacing === this.spacing) return;
+    this.spacing = Math.max(this.minSpacing, spacing);
+    this.run = 1;
   }
 
   /** Gap in front of item `i` (see the class comment). */
@@ -247,7 +274,10 @@ export class Lane {
         rem -= a;
         this.movedAll += a;
       }
-      if (rem === 0 || outlet === null || this.gap(0) !== 0 || !outlet.handOn(this, rem)) break;
+      if (rem === 0 || outlet === null) break;
+      const at = this.gap(0);
+      if (at !== 0 && !(outlet.early === true && at <= floor)) break;
+      if (!outlet.handOn(this, rem)) break;
       if (this.count === 0) return speed - rem;
     }
     if (rem > 0) {
@@ -269,13 +299,14 @@ export class Lane {
 
   /**
    * Distance from the end of the first item that moved on the last step
-   * (after it moved). O(1): the items between item 0 and it are packed at
-   * exactly `spacing`, or it is item 0. Only meaningful after a step that
-   * moved something.
+   * (after it moved), or a lower bound on it. O(1): the items between item
+   * 0 and it are packed (at exactly `spacing`, or closer but at least
+   * `minSpacing` after a `setSpacing`), or it is item 0. Only meaningful
+   * after a step that moved something.
    */
   firstMovedPosition(): number {
     if (this.movedAll > 0 || this.movedFrom === 0) return this.gap(0);
-    return this.gap(0) + (this.movedFrom - 1) * this.spacing + this.gap(this.movedFrom);
+    return this.gap(0) + (this.movedFrom - 1) * this.minSpacing + this.gap(this.movedFrom);
   }
 
   /** Clears the movement record (the lane didn't step this tick). */

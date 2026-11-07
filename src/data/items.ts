@@ -48,6 +48,10 @@ export const ItemId = {
   Lab: 32,
   AutomationSciencePack: 33,
   LogisticSciencePack: 34,
+  // Splitters (M3).
+  Splitter: 35,
+  FastSplitter: 36,
+  ExpressSplitter: 37,
 } as const;
 
 export type ItemId = (typeof ItemId)[keyof typeof ItemId];
@@ -331,6 +335,28 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 200,
     color: 0x3cb44a,
   },
+  // Splitters (M3), in the tier colors.
+  [ItemId.Splitter]: {
+    id: ItemId.Splitter,
+    name: 'splitter',
+    label: 'Splitter',
+    stackSize: 50,
+    color: 0xd9b23a,
+  },
+  [ItemId.FastSplitter]: {
+    id: ItemId.FastSplitter,
+    name: 'fast-splitter',
+    label: 'Fast splitter',
+    stackSize: 50,
+    color: 0xd0473a,
+  },
+  [ItemId.ExpressSplitter]: {
+    id: ItemId.ExpressSplitter,
+    name: 'express-splitter',
+    label: 'Express splitter',
+    stackSize: 50,
+    color: 0x3a8fd9,
+  },
 };
 
 /** Every real item id, in id order. */
@@ -369,6 +395,9 @@ export const ITEM_IDS: readonly RealItemId[] = [
   ItemId.Lab,
   ItemId.AutomationSciencePack,
   ItemId.LogisticSciencePack,
+  ItemId.Splitter,
+  ItemId.FastSplitter,
+  ItemId.ExpressSplitter,
 ];
 
 /** The prototype of item `id`, or `undefined` for 0 and unknown ids. */
