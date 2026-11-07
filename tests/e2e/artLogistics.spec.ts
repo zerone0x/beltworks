@@ -87,6 +87,18 @@ async function place(
   await expect.poll(async () => (await entityAt(page, r.x, r.y))?.name).toBe(name);
 }
 
+/** Opens the window of the entity covering `r`, with nothing in hand. */
+async function openEntityAt(page: Page, r: Rect, name: string) {
+  await page.keyboard.press('Escape');
+  if ((await page.evaluate(() => window.__beltworks!.selectedSlot())) !== null) {
+    await page.keyboard.press('q');
+    await expect.poll(() => page.evaluate(() => window.__beltworks!.selectedSlot())).toBeNull();
+  }
+  const at = await tileScreen(page, r.x, r.y);
+  await page.mouse.click(at.x, at.y);
+  await expect(page.locator('#entity-panel')).toHaveAttribute('data-type', name);
+}
+
 /**
  * Centers the camera on tile `(x, y)` at `zoom`, with the pointer out of the
  * way, and attaches a screenshot `file` (with `clip`, of the tiles from
@@ -185,18 +197,7 @@ test('belts, inserters and poles are drawn with their pre-rendered sprites', asy
   } as const;
   const errors = await start(page, KIT);
   const panel = page.locator('#entity-panel');
-
-  /** Opens the window of the entity covering `r`, with nothing in hand. */
-  const openAt = async (r: Rect, name: string) => {
-    await page.keyboard.press('Escape');
-    if ((await page.evaluate(() => window.__beltworks!.selectedSlot())) !== null) {
-      await page.keyboard.press('q');
-      await expect.poll(() => page.evaluate(() => window.__beltworks!.selectedSlot())).toBeNull();
-    }
-    const at = await tileScreen(page, r.x, r.y);
-    await page.mouse.click(at.x, at.y);
-    await expect(panel).toHaveAttribute('data-type', name);
-  };
+  const openAt = (r: Rect, name: string) => openEntityAt(page, r, name);
 
   for (const [x, y, dir] of LOOP) await place(page, KEY.belt, tile(x, y), 'transport-belt', dir);
   for (const chest of [SCENE.coalChest, SCENE.electricChest, SCENE.fastChest, SCENE.longChest]) {
@@ -331,6 +332,55 @@ test('every belt tier, curves and underground belts are drawn with sprites', asy
       [-0.5, -7],
       [10.5, 4.5],
     ],
+  );
+  expect(errors).toEqual([]);
+});
+
+test('the four inserters side by side, with their arm shadows', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  const TYPES = ['burner-inserter', 'fast-inserter', 'electric-inserter', 'long-handed-inserter'];
+  const KIT = [
+    ...TYPES.map((t) => `${t}:1`),
+    'small-electric-pole:3',
+    'boiler:1',
+    'steam-engine:1',
+    'coal:50',
+  ].join(',');
+  const errors = await start(page, KIT);
+  // In a row, facing north, a tile apart (idle: arms at rest over the pickup tile), and steam
+  // power wired to them as in the scene above, so the electric ones show no alert.
+  const row = TYPES.map((name, i) => ({ name, ...tile(-9 + 2 * i, -5) }));
+  for (const [i, ins] of row.entries()) {
+    await place(page, String(i + 1), ins, ins.name, Direction.North);
+  }
+  await place(page, '7', { x: 1, y: -9, w: 3, h: 5 }, 'steam-engine', Direction.North, false);
+  const boiler = { x: 2, y: -4, w: 2, h: 3 };
+  await place(page, '6', boiler, 'boiler', Direction.North, false);
+  for (const pole of [tile(0, -4), tile(-4, -3), tile(-8, -3)]) {
+    await place(page, '5', pole, 'small-electric-pole');
+  }
+  await openEntityAt(page, boiler, 'boiler');
+  await page.locator('#entity-panel .player-inventory .slot[data-item="coal"]').first().click();
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await sprites(page)).arms).toBe(TYPES.length);
+  for (const ins of row.slice(1)) {
+    await expect
+      .poll(async () => (await entityAt(page, ins.x, ins.y))?.status)
+      .not.toBe(MachineState.NoPower);
+  }
+
+  const clip: [[number, number], [number, number]] = [
+    [-10, -6.5],
+    [-1, -2],
+  ];
+  await shoot(page, testInfo, 'art-inserters.png', 'inserters at 1× zoom', [-5.5, -4.5, 1], clip);
+  await shoot(
+    page,
+    testInfo,
+    'art-inserters-2x.png',
+    'inserters at 2× zoom',
+    [-5.5, -4.5, 2],
+    clip,
   );
   expect(errors).toEqual([]);
 });

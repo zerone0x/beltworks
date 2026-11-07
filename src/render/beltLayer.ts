@@ -9,7 +9,8 @@
  * subtiles a tick), under its side frames in the tier color (yellow, red,
  * blue); an underground belt gets its hood over its closed half (an
  * entrance's front half, an exit's rear half), drawn over the items
- * (`coverContainer`), with its shadow.
+ * (`coverContainer`), with its shadow. Belts are drawn north to south
+ * (`BeltDrawOrder`), so each covers the end face of the one north of it.
  *
  * Without sprites, straight belts are tiling sprites of a placeholder texture
  * that scrolls with the tick (at the belt's speed, like the items), with rails
@@ -146,6 +147,8 @@ export class BeltLayer {
   /** Belt textures by rail color (one per tier). */
   private readonly textures = new Map<number, Texture>();
   private belts: BeltData[] = [];
+  /** Puts the belts of each snapshot in draw order (north to south). */
+  private readonly drawOrder = new BeltDrawOrder();
   /** Undergrounds of the latest snapshot by tile, built when first needed. */
   private undergrounds: Map<string, UndergroundInfo> | null = null;
   private overlayKey = '';
@@ -184,7 +187,7 @@ export class BeltLayer {
 
   /** Takes the belts of a snapshot of tick `tick`, received at `nowMs`. */
   apply(buffer: ArrayBuffer, tick: number, nowMs: number): void {
-    this.belts = decodeBelts(buffer);
+    this.belts = this.drawOrder.sort(decodeBelts(buffer));
     this.undergrounds = null;
     this.tick = tick;
     this.receivedAt = nowMs;
@@ -406,6 +409,40 @@ export class BeltLayer {
     this.overlayContainer.destroy({ children: true });
     this.coverContainer.destroy({ children: true });
     for (const texture of this.textures.values()) texture.destroy(true);
+  }
+}
+
+/**
+ * Sorts belts north to south (then west to east), the order they are drawn
+ * in. A belt sprite shows its south end face (the edge of the surface and the
+ * side frames, a few texels below the tile), and the next belt to the south
+ * covers it with its own top only if it is drawn later; drawn earlier, the
+ * end face lies over it as a dark seam across the run (a north-going line,
+ * whose belts usually come south first). The snapshot's order is stable from
+ * tick to tick, so the order found for one set of positions is reused until
+ * they change: a pass over the belts instead of a sort per snapshot.
+ */
+export class BeltDrawOrder {
+  private positions = new Int32Array(0);
+  private order: number[] = [];
+
+  sort(belts: BeltData[]): BeltData[] {
+    const n = belts.length;
+    let same = this.positions.length === 2 * n;
+    for (let i = 0; same && i < n; i++) {
+      same = this.positions[2 * i] === belts[i]!.x && this.positions[2 * i + 1] === belts[i]!.y;
+    }
+    if (!same) {
+      this.positions = new Int32Array(2 * n);
+      belts.forEach((b, i) => {
+        this.positions[2 * i] = b.x;
+        this.positions[2 * i + 1] = b.y;
+      });
+      this.order = belts
+        .map((_, i) => i)
+        .sort((a, b) => belts[a]!.y - belts[b]!.y || belts[a]!.x - belts[b]!.x);
+    }
+    return this.order.map((i) => belts[i]!);
   }
 }
 

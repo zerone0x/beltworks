@@ -12,9 +12,10 @@ pivot is the arm's reach, `armLength` in the game: 0.8 tile, 1.8 for the
 long-handed inserter).
 
 Every type keeps its family color from the prototypes on its housing and
-arm: blue electric, red fast, green long-handed; the burner inserter has a
-rust-red housing with a firebox and a bare dark iron arm (so it doesn't read
-as a fast one).
+arm: blue electric, red fast, green long-handed. The burner inserter is
+sooty grey iron with a bare dark iron arm, its rust-red (the burner tier's
+color) on a big firebox at the back with a glowing grate and a smokestack,
+so at 1x it doesn't read as a fast one.
 """
 
 import math
@@ -37,6 +38,12 @@ TYPES = (
 
 def base(name, color, burner):
     paint = m.paint('ins_paint_' + name, color, amount=0.12)
+    if burner:
+        # Sooty, rust-streaked iron rather than paint: dark and grey at 1x, next to the bright red
+        # fast inserter. The family color stays on the firebox.
+        housing = m.worn('ins_burner_housing', 0x5b5450, wear='rust', metallic=0.35, roughness=0.55, amount=0.22, scale=9.0)
+    else:
+        housing = paint
     frame = m.dark_iron()
     iron = m.iron()
     hazard = m.paint('hazard', 'hazard', amount=0.2)
@@ -48,13 +55,22 @@ def base(name, color, burner):
     chevron = [(-0.12, 0.27), (0.0, 0.33), (0.12, 0.27), (0.12, 0.31), (0.0, 0.365), (-0.12, 0.31)]
     prism(chevron, 0.01, (0, 0, 0.068), hazard, bevel=0.0)
     # The turret housing in the family color.
-    cylinder(0.26, 0.15, (0, 0, 0.145), paint, verts=32, bevel=0.015)
+    cylinder(0.26, 0.15, (0, 0, 0.145), housing, verts=32, bevel=0.015)
     cylinder(0.28, 0.035, (0, 0, 0.085), frame, verts=32, bevel=0.008)
     cylinder(0.14, 0.03, (0, 0, 0.225), frame, verts=24, bevel=0.006)
     if burner:
-        # A small firebox at the back, with a brass hatch.
-        box((0.3, 0.12, 0.13), (0, -0.27, 0.135), paint, bevel=0.018)
-        box((0.18, 0.02, 0.08), (0, -0.335, 0.135), m.worn('brass', 'brass', metallic=0.7, roughness=0.32, amount=0.15), bevel=0.008)
+        # A firebox at the back in the burner tier's rust-red, wide enough to read at 1x: a
+        # glowing grate in its face (towards the camera when facing north), a brass rim round
+        # it and a stubby smokestack off to one side (clear of the arm's beam).
+        brass = m.worn('brass', 'brass', metallic=0.7, roughness=0.32, amount=0.15)
+        box((0.4, 0.15, 0.17), (0, -0.265, 0.145), paint, bevel=0.02)
+        box((0.25, 0.012, 0.1), (0, -0.342, 0.14), brass, bevel=0.006)
+        box((0.21, 0.012, 0.07), (0, -0.347, 0.14), m.plain('ins_firebox_soot', 'soot', roughness=1.0), bevel=0.0)
+        box((0.17, 0.006, 0.035), (0, -0.352, 0.13), m.emissive('ins_firebox_glow', 0xf06a1c, strength=1.2), bevel=0.0)
+        for k in (-1, 0, 1):
+            box((0.012, 0.01, 0.07), (k * 0.055, -0.356, 0.14), frame, bevel=0.0)
+        cylinder(0.04, 0.13, (0.13, -0.27, 0.29), frame, verts=16, bevel=0.006)
+        cylinder(0.05, 0.02, (0.13, -0.27, 0.355), frame, verts=16, bevel=0.005)
     else:
         # A cable box at the back.
         box((0.26, 0.11, 0.1), (0, -0.27, 0.12), frame, bevel=0.015)

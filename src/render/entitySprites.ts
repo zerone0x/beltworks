@@ -16,6 +16,9 @@
  * of the model's pre-rendered angles (its `arm` layer) turned the rest of the
  * way about the `pivot` point, at the angle the inserter layer interpolates
  * from the snapshots (`InserterPoses`), then the held item at the `hand`.
+ * The arm sprites have no shadow of their own (they turn); the arm casts a
+ * faint one anyway: its sprite again, in black, shifted along the light by
+ * the arm's height (`placeArmShadow`).
  * Belts are drawn by the belt layer (beltLayer.ts), not here.
  *
  * Read-only: nothing here flows back into the simulation.
@@ -26,7 +29,9 @@ import { TILE_PX } from './camera';
 import type { EntityIndex, EntityView } from './entityIndex';
 import { itemIconAtlas } from './itemIcons';
 import {
+  HEIGHT_ON_SCREEN,
   SHADOW_ALPHA,
+  SHADOW_OFFSET,
   animationSpeed,
   frameAt,
   isWorking,
@@ -47,8 +52,8 @@ interface Placed {
   cx: number;
   cy: number;
   layers: { layer: ModelLayer; sprite: Sprite }[];
-  /** An inserter's arm and the item in its hand. */
-  arm: { layer: ModelLayer; sprite: Sprite; held: Sprite } | null;
+  /** An inserter's arm, its shadow and the item in its hand. */
+  arm: { layer: ModelLayer; sprite: Sprite; shadow: Sprite; held: Sprite } | null;
 }
 
 /** Where an inserter's arm points and what it holds, as the inserter layer draws it this frame. */
@@ -110,6 +115,40 @@ export function placeArm(
   );
 }
 
+/**
+ * Opacity of an arm's shadow within the shadow layer (which is faded to
+ * `SHADOW_ALPHA` as a whole): fainter than the buildings', as a thin arm's
+ * shadow is softer.
+ */
+export const ARM_SHADOW_ALPHA = 0.55;
+/**
+ * The height the arm's shadow is cast from, as a fraction of the pivot's: the
+ * beam slopes down from the pivot to the hand, so most of it is a little
+ * lower than the pivot.
+ */
+const ARM_SHADOW_HEIGHT = 0.85;
+
+/**
+ * Puts `shadow` where the shadow of `arm` (already placed by `placeArm`)
+ * falls: the same frame and turn, in black, moved from where the arm shows
+ * (lifted by its height on screen) down to the ground under it and on along
+ * the light (`SHADOW_OFFSET`).
+ */
+export function placeArmShadow(model: ModelSprites, arm: Sprite, shadow: Sprite): void {
+  const pivot = model.points.pivot?.[0] ?? [0, 0];
+  // The pivot's y is all height on screen (it stands over the footprint's center).
+  const lift = -pivot[1] * model.scale * ARM_SHADOW_HEIGHT;
+  const height = lift / HEIGHT_ON_SCREEN;
+  if (shadow.texture !== arm.texture) shadow.texture = arm.texture;
+  shadow.scale.copyFrom(arm.scale);
+  shadow.pivot.copyFrom(arm.pivot);
+  shadow.rotation = arm.rotation;
+  shadow.position.set(
+    arm.position.x + height * SHADOW_OFFSET.x,
+    arm.position.y + lift + height * SHADOW_OFFSET.y,
+  );
+}
+
 /** Puts `sprite` on `frame` with the frame's anchor at `(cx, cy)` (world pixels). */
 export function placeSprite(
   sprite: Sprite,
@@ -136,6 +175,8 @@ export class EntitySpriteLayer {
   private atlas: SpriteAtlas | null = null;
   private readonly sprites: Sprite[] = [];
   private readonly shadows: Sprite[] = [];
+  /** Inserter arms' shadows, in the shadow layer. */
+  private readonly armShadows: Sprite[] = [];
   private placed: Placed[] = [];
   /** Seconds each entity's working animations have run, by entity id. */
   private readonly clocks = new Map<number, number>();
@@ -184,6 +225,7 @@ export class EntitySpriteLayer {
       if (p.arm) {
         const pose = poses?.(entity.x, entity.y) ?? { angle: restAngle(entity.dir), held: 0 };
         placeArm(model, p.arm.layer, p.dir, p.arm.sprite, p.arm.held, p.cx, p.cy, pose);
+        placeArmShadow(model, p.arm.sprite, p.arm.shadow);
       }
       const working = isWorking(entity.status);
       const speed = animationSpeed(entity.status);
@@ -221,6 +263,7 @@ export class EntitySpriteLayer {
     const seen = new Set<number>();
     this.placed = [];
     let used = 0;
+    let arms = 0;
     this.container.removeChildren();
     this.shadowContainer.removeChildren();
     entities.forEach((entity, i) => {
@@ -243,12 +286,23 @@ export class EntitySpriteLayer {
         });
       let arm: Placed['arm'] = null;
       if (armLayer) {
-        arm = { layer: armLayer, sprite: this.sprite(used++), held: this.sprite(used++) };
+        const armShadow = (this.armShadows[arms++] ??= new Sprite({
+          tint: 0x000000,
+          alpha: ARM_SHADOW_ALPHA,
+        }));
+        arm = {
+          layer: armLayer,
+          sprite: this.sprite(used++),
+          shadow: armShadow,
+          held: this.sprite(used++),
+        };
         arm.held.anchor.set(0.5);
         arm.held.visible = false;
         this.container.addChild(arm.sprite, arm.held);
+        this.shadowContainer.addChild(armShadow);
         const pose = { angle: restAngle(entity.dir), held: 0 };
         placeArm(model, armLayer, dir, arm.sprite, arm.held, cx, cy, pose);
+        placeArmShadow(model, arm.sprite, armShadow);
       }
       this.placed.push({ entity, model, dir, cx, cy, layers, arm });
     });
