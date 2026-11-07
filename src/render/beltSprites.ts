@@ -14,6 +14,7 @@
  */
 
 import { BeltShape } from '../sim/belts/belts';
+import { SPLITTER_HALF_MODE } from '../sim/belts/splitter';
 import { UndergroundMode } from '../sim/belts/underground';
 import { modelLayer, type ModelLayer, type ModelSprites, type SpriteAtlas } from './sprites';
 
@@ -47,12 +48,19 @@ export interface BeltSprites {
   frame: ModelSprites;
   /** The hood of an underground belt; `null` for a plain belt. */
   hood: ModelSprites | null;
+  /**
+   * The gantry of a splitter (its prototype's own model, 2×1), on its left
+   * half's record only; `null` otherwise.
+   */
+  splitter: ModelSprites | null;
 }
 
 /**
  * The sprites of a belt of prototype `name` (its tier's transport belt for
- * an underground belt, `UNDERGROUND_TIER`) with shape `shape` and
- * underground mode `mode`, or `null` when the atlas doesn't have them all.
+ * an underground belt, `UNDERGROUND_TIER`, or a splitter's half,
+ * `SPLITTER_TIER`) with shape `shape` and underground mode `mode` (or
+ * `SPLITTER_HALF_MODE` plus the half), or `null` when the atlas doesn't
+ * have them all.
  */
 export function beltSprites(
   atlas: SpriteAtlas | null,
@@ -61,18 +69,32 @@ export function beltSprites(
   mode: number = UndergroundMode.None,
 ): BeltSprites | null {
   if (!atlas || name === undefined) return null;
-  const underground = mode !== UndergroundMode.None;
+  const half = mode >= SPLITTER_HALF_MODE ? mode - SPLITTER_HALF_MODE : -1;
+  const underground = half < 0 && mode !== UndergroundMode.None;
   const suffix = underground ? '' : shapeSuffix(shape);
   const surfaceModel = atlas.model(BELT_SURFACE + suffix);
   const surface = surfaceModel && modelLayer(surfaceModel, 'surface');
-  const tier = underground ? (UNDERGROUND_TIER[name] ?? null) : name;
+  const tier = underground
+    ? (UNDERGROUND_TIER[name] ?? null)
+    : half >= 0
+      ? (SPLITTER_TIER[name] ?? null)
+      : name;
   const frame = tier === null ? null : atlas.model(tier + suffix);
   const hood = underground
     ? atlas.model(`${name}:${mode === UndergroundMode.Exit ? 'exit' : 'entrance'}`)
     : null;
-  if (!surfaceModel || !surface || !frame || (underground && !hood)) return null;
-  return { surface, surfaceModel, frame, hood };
+  const gantry = half >= 0 ? atlas.model(name) : null;
+  if (!surfaceModel || !surface || !frame || (underground && !hood) || (half >= 0 && !gantry))
+    return null;
+  return { surface, surfaceModel, frame, hood, splitter: half === 0 ? gantry : null };
 }
+
+/** The transport belt whose side frames each splitter's halves show, by prototype name. */
+export const SPLITTER_TIER: Readonly<Record<string, string>> = {
+  splitter: 'transport-belt',
+  'fast-splitter': 'fast-transport-belt',
+  'express-splitter': 'express-transport-belt',
+};
 
 /** The transport belt whose side frames each underground belt shows, by prototype name. */
 export const UNDERGROUND_TIER: Readonly<Record<string, string>> = {

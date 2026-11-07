@@ -369,14 +369,14 @@ export function ghostDrillDropTile(ghost: Ghost): { x: number; y: number } | nul
  * The sprite frames of a ghost, in draw order (none without a model): a
  * belt's surface and side frames (and an underground belt's hood, as the
  * entrance or exit it would be), an inserter's base and its arm at rest
- * (`arm`), or a model's idle layers.
+ * (`arm`), or a model's idle layers (a splitter's gantry).
  */
 export function ghostFrames(
   atlas: SpriteAtlas | null,
   ghost: Ghost,
 ): { model: ModelSprites; frame: SpriteFrame; arm: boolean }[] {
   const { proto } = ghost;
-  if (proto.beltSpeed !== undefined) {
+  if (proto.beltSpeed !== undefined && proto.splitter !== true) {
     const mode = UNDERGROUND_TIER[proto.name]
       ? (ghost.mode ?? UndergroundMode.Entrance)
       : UndergroundMode.None;

@@ -120,6 +120,9 @@ BELT_COLORS = {
     'underground-belt': 0xd9b23a,
     'fast-underground-belt': 0xd0473a,
     'express-underground-belt': 0x3a8fd9,
+    'splitter': 0xd9b23a,
+    'fast-splitter': 0xd0473a,
+    'express-splitter': 0x3a8fd9,
 }
 
 #: Belt tiers (1..3), shown as that many chevrons, so they differ by shape too.
@@ -130,6 +133,9 @@ BELT_TIERS = {
     'underground-belt': 1,
     'fast-underground-belt': 2,
     'express-underground-belt': 3,
+    'splitter': 1,
+    'fast-splitter': 2,
+    'express-splitter': 3,
 }
 
 
@@ -168,6 +174,23 @@ def underground(ctx):
     box((0.86, 0.8, 0.46), (0, 0.32, 0.23), paint, bevel=0.04)
     box((0.5, 0.06, 0.28), (0, -0.08, 0.19), m.plain('icon_mouth', 0x141414), bevel=0.0)
     chevrons(BELT_TIERS[item], 0.4, 0.47, 0.66, dark, pitch=0.22, bar=0.1, depth=0.02)
+
+
+def splitter(ctx):
+    """A splitter: two short belts side by side under a gantry with tier chevrons."""
+    item = ctx.model['item']
+    color = BELT_COLORS[item]
+    paint = m.paint(f'icon_belt_{color:06x}', color, amount=0.1)
+    rubber = m.plain('icon_belt', 0x2a2b2e, roughness=0.7)
+    dark = m.plain('icon_chevron_dark', 0x1c1d20, roughness=0.6)
+    for x in (-0.26, 0.26):
+        box((0.4, 0.9, 0.1), (x, 0, 0.12), rubber, bevel=0.02)
+        for s in (-1, 1):
+            box((0.08, 0.92, 0.2), (x + s * 0.22, 0, 0.1), paint, bevel=0.02)
+    # The gantry across both halves, the tier as dark chevrons on its top.
+    box((1.04, 0.5, 0.26), (0, 0.02, 0.4), paint, bevel=0.035)
+    box((1.04, 0.02, 0.07), (0, -0.23, 0.3), dark, bevel=0.0)
+    chevrons(BELT_TIERS[item], 0.04, 0.54, 0.42, dark, pitch=0.16, bar=0.075, depth=0.02)
 
 
 def science_pack(ctx):
@@ -254,6 +277,9 @@ MODELS = (
         icon('underground-belt', underground, tilt=0.2),
         icon('fast-underground-belt', underground, tilt=0.2),
         icon('express-underground-belt', underground, tilt=0.2),
+        icon('splitter', splitter, tilt=0.2),
+        icon('fast-splitter', splitter, tilt=0.2),
+        icon('express-splitter', splitter, tilt=0.2),
         icon('burner-inserter', inserter),
         icon('electric-inserter', inserter),
         icon('fast-inserter', inserter),

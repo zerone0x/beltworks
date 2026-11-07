@@ -47,6 +47,10 @@ export const EntityTypeId = {
   ExpressUndergroundBelt: 20,
   // Research (M3).
   Lab: 21,
+  // Splitters (M3).
+  Splitter: 22,
+  FastSplitter: 23,
+  ExpressSplitter: 24,
 } as const;
 
 export type EntityTypeId = (typeof EntityTypeId)[keyof typeof EntityTypeId];
@@ -113,6 +117,12 @@ export interface EntityPrototype {
    * entrance).
    */
   readonly undergroundMaxGap?: number;
+  /**
+   * Splitters (2×1, across the way items move): each half is a belt of the
+   * splitter's tier, and items from both halves are shared out between the
+   * belts in front of them, lane by lane (src/sim/belts/belts.ts).
+   */
+  readonly splitter?: boolean;
   /**
    * Ticks an inserter's arm takes to swing from its pickup tile to its drop
    * tile (and as many to swing back). Every inserter has it, and only
@@ -475,6 +485,43 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     // 60 kW while researching; no drain.
     energyPerTick: 1_000,
   },
+  // Splitters (M3): 2 tiles across the way items move, one along it.
+  [EntityTypeId.Splitter]: {
+    id: EntityTypeId.Splitter,
+    name: 'splitter',
+    label: 'Splitter',
+    width: 2,
+    height: 1,
+    rotatable: true,
+    item: ItemId.Splitter,
+    color: 0xd9b23a,
+    beltSpeed: 8,
+    splitter: true,
+  },
+  [EntityTypeId.FastSplitter]: {
+    id: EntityTypeId.FastSplitter,
+    name: 'fast-splitter',
+    label: 'Fast splitter',
+    width: 2,
+    height: 1,
+    rotatable: true,
+    item: ItemId.FastSplitter,
+    color: 0xd0473a,
+    beltSpeed: 16,
+    splitter: true,
+  },
+  [EntityTypeId.ExpressSplitter]: {
+    id: EntityTypeId.ExpressSplitter,
+    name: 'express-splitter',
+    label: 'Express splitter',
+    width: 2,
+    height: 1,
+    rotatable: true,
+    item: ItemId.ExpressSplitter,
+    color: 0x3a8fd9,
+    beltSpeed: 24,
+    splitter: true,
+  },
 };
 
 /** Every real entity type id, in id order. */
@@ -500,6 +547,9 @@ export const ENTITY_TYPE_IDS: readonly RealEntityTypeId[] = [
   EntityTypeId.FastUndergroundBelt,
   EntityTypeId.ExpressUndergroundBelt,
   EntityTypeId.Lab,
+  EntityTypeId.Splitter,
+  EntityTypeId.FastSplitter,
+  EntityTypeId.ExpressSplitter,
 ];
 
 /** Whether `proto` is an inserter (burner, electric, fast or long-handed). */
@@ -517,7 +567,7 @@ export function isChestPrototype(proto: EntityPrototype | undefined): boolean {
   return proto?.slots !== undefined;
 }
 
-/** The belt types (transport and underground belts of every tier), in id order. */
+/** The belt types (transport and underground belts and splitters of every tier), in id order. */
 export const BELT_TYPE_IDS: readonly RealEntityTypeId[] = [
   EntityTypeId.TransportBelt,
   EntityTypeId.FastTransportBelt,
@@ -525,9 +575,17 @@ export const BELT_TYPE_IDS: readonly RealEntityTypeId[] = [
   EntityTypeId.UndergroundBelt,
   EntityTypeId.FastUndergroundBelt,
   EntityTypeId.ExpressUndergroundBelt,
+  EntityTypeId.Splitter,
+  EntityTypeId.FastSplitter,
+  EntityTypeId.ExpressSplitter,
 ];
 
-/** Whether entity type `type` is a belt (any tier, underground or not). */
+/** Whether entity type `type` is a splitter (any tier). */
+export function isSplitterType(type: number): boolean {
+  return entityPrototype(type)?.splitter === true;
+}
+
+/** Whether entity type `type` is a belt (any tier: transport, underground or splitter). */
 export function isBeltType(type: number): boolean {
   return entityPrototype(type)?.beltSpeed !== undefined;
 }

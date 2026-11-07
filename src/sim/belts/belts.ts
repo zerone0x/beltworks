@@ -2,8 +2,9 @@
  * Transport belts: the belt entity table and the belt system
  * (docs/ARCHITECTURE.md, "Belts: transport lines").
  *
- * One table holds every belt type: transport belts of each tier and
- * underground belts (`BELT_TYPE_IDS`); a type's `beltSpeed` is its tier.
+ * One table holds every belt type: transport belts of each tier,
+ * underground belts and splitters (`BELT_TYPE_IDS`); a type's `beltSpeed`
+ * is its tier.
  *
  * Topology. Every belt moves items towards the tile in front of it, except
  * an underground entrance, which sends them under the ground to its exit
@@ -59,6 +60,17 @@
  * are refunded with it (removeEntity in src/sim/entities/build.ts), and the
  * removal is refused if they don't fit.
  *
+ * Splitters (splitter.ts; docs/ARCHITECTURE.md, "Belts: splitters"). Each
+ * half of a splitter is a line of its own, one belt long, that nothing
+ * continues: fed at its start by the belt behind it (like a tier boundary),
+ * handing on to the start of the line in front of it. Its first item goes
+ * straight on or across onto the other half's lane (marked, so it goes
+ * straight on from there), by a per-lane alternation (`splitHandOn`): all
+ * that leaves by one side passes through that half, at the splitter's
+ * speed. Halves step after every other lane (`stepHalf`), and a half that
+ * the other one merges into closes up to `MERGE_SPACING` so they take
+ * turns (`refreshMerge`).
+ *
  * Other systems move items with `insertAt`, `takeAt`, `peekAt` and `peekEnd`
  * on a line and lane, and `beltLine`/`beltOffset`/`beltEnd` find a belt's
  * line and its stretch of it. The generic item hooks put items onto the
@@ -89,7 +101,22 @@ import type { EntityTypeTable } from '../entities/table';
 import { fnv1a32 } from '../hash';
 import type { Lane, LaneOutlet } from './lane';
 import { BELT_LENGTH, BeltLane, LineLane, TransportLine } from './line';
+import { splitterHalfTile } from './splitter';
 import { UndergroundMode, findPartner, placedMode, type UndergroundInfo } from './underground';
+
+/**
+ * Spacing a splitter half's lane closes up to while the other half merges
+ * into it (see `refreshMerge`): one free slot for the other half's item
+ * behind each of its own.
+ */
+export const MERGE_SPACING = 2 * BELT_ITEM_SPACING;
+
+/**
+ * How far behind the other half's `minFront` an item crossing over inside
+ * a splitter may land, in subtiles: far enough to reach the free slot a
+ * merging half keeps (`MERGE_SPACING`) behind its first item.
+ */
+export const CROSS_REACH = MERGE_SPACING;
 
 /** How far items on a (yellow) transport belt move per tick, in subtiles. */
 export const BELT_SPEED = ENTITIES[EntityTypeId.TransportBelt].beltSpeed ?? 0;
@@ -160,6 +187,16 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   private modeCol = new Uint8Array(0);
   /** The paired underground belt per row, or 0. */
   private partnerCol = new Uint32Array(0);
+  /** 1 for a splitter row. */
+  private splitCol = new Uint8Array(0);
+  /** A splitter's right half's line per row (`lineCol` holds the left half's), else 0. */
+  private line2Col = new Uint32Array(0);
+  /**
+   * A splitter's alternation per row: bit `i` is the half whose output lane
+   * `i`'s next item goes to (it flips each time one goes to the preferred
+   * output; an item that can't goes to the other one and leaves it as is).
+   */
+  private nextCol = new Uint8Array(0);
   /**
    * Direction per row as of the last change (equal to the store's outside of
    * `rotated`, so not hashed): tells `rotated` whether an underground was reversed.
@@ -212,10 +249,42 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     return this.lineMap.get(id);
   }
 
-  /** Id of the line belt `belt` is on, or 0 if it isn't a belt. */
+  /** Id of the line belt `belt` is on, or 0 if it isn't a belt (a splitter's left half's). */
   beltLine(belt: number): number {
     const row = this.set.indexOf(belt);
     return row < 0 ? 0 : this.lineCol[row]!;
+  }
+
+  /**
+   * Id of the line through tile `(x, y)` of belt `belt`: its line, or for a
+   * splitter the line of the half on that tile. 0 if it isn't a belt.
+   */
+  beltLineAt(belt: number, x: number, y: number): number {
+    const row = this.set.indexOf(belt);
+    if (row < 0) return 0;
+    if (!this.splitCol[row]) return this.lineCol[row]!;
+    const half = this.halfLines(belt)[1];
+    return half.tileX === x && half.tileY === y ? half.id : this.lineCol[row]!;
+  }
+
+  /** Whether belt `belt` is a splitter. */
+  isSplitter(belt: number): boolean {
+    const row = this.set.indexOf(belt);
+    return row >= 0 && this.splitCol[row] === 1;
+  }
+
+  /** The lines of splitter `belt`'s left and right halves. */
+  halfLines(belt: number): readonly [TransportLine, TransportLine] {
+    const row = this.row(belt);
+    const a = this.lineMap.get(this.lineCol[row]!);
+    const b = this.lineMap.get(this.line2Col[row]!);
+    if (!a || !b) throw new RangeError(`belt ${String(belt)} is no splitter`);
+    return [a, b];
+  }
+
+  /** The half (0 left, 1 right) whose output lane `lane` of splitter `belt` sends its next item to. */
+  splitterNext(belt: number, lane: number): number {
+    return (this.nextCol[this.row(belt)]! >> lane) & 1;
   }
 
   /** Index of belt `belt` in its line (0 is the belt at the line's end). */
@@ -278,6 +347,9 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     this.speedCol = growTo(this.speedCol, min);
     this.modeCol = growTo(this.modeCol, min);
     this.partnerCol = growTo(this.partnerCol, min);
+    this.splitCol = growTo(this.splitCol, min);
+    this.line2Col = growTo(this.line2Col, min);
+    this.nextCol = growTo(this.nextCol, min);
     this.dirCol = growTo(this.dirCol, min);
     const { store } = entities;
     const type = store.type(id);
@@ -286,6 +358,9 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     this.speedCol[row] = speed;
     this.dirCol[row] = dir;
     this.partnerCol[row] = 0;
+    this.splitCol[row] = entityPrototype(type)?.splitter ? 1 : 0;
+    this.line2Col[row] = 0;
+    this.nextCol[row] = 0;
     const gap = entityPrototype(type)?.undergroundMaxGap;
     // A new underground is an exit when an entrance behind it would pair with it.
     this.modeCol[row] =
@@ -300,10 +375,14 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     this.relink([id], id);
   }
 
-  /** Underground belts reverse (and swap entrance and exit) instead of turning. */
+  /**
+   * Underground belts reverse (and swap entrance and exit) instead of
+   * turning; splitters reverse too (on the same two tiles).
+   */
   rotation(id: number, entities: Entities): Direction {
     const dir = entities.store.dir(id);
-    const turn = this.modeCol[this.row(id)] !== UndergroundMode.None ? 2 : 1;
+    const row = this.row(id);
+    const turn = this.modeCol[row] !== UndergroundMode.None || this.splitCol[row] ? 2 : 1;
     return ((dir + turn) & 3) as Direction;
   }
 
@@ -316,9 +395,24 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   rotated(id: number, entities: Entities): void {
     const row = this.row(id);
     const dir = entities.store.dir(id);
-    const reversed = dir === ((this.dirCol[row]! + 2) & 3);
+    const prev = this.dirCol[row]! as Direction;
+    const reversed = dir === ((prev + 2) & 3);
     this.dirCol[row] = dir;
     const mode = this.modeCol[row]!;
+    if (this.splitCol[row]) {
+      // Turned across, a splitter covers other tiles: rebuild around the old ones too.
+      const before =
+        (prev & 1) === (dir & 1)
+          ? []
+          : this.footprintTiles(
+              entities.store.x(id),
+              entities.store.y(id),
+              entities.prototypeOf(id)!,
+              prev,
+            );
+      this.relink([id], 0, before);
+      return;
+    }
     if (mode === UndergroundMode.None) {
       this.relink([id], 0);
       return;
@@ -335,8 +429,23 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   }
 
   watched(id: number): void {
-    const line = this.lineMap.get(this.beltLine(id));
-    if (line && !line.watched.includes(id)) line.watched.push(id);
+    for (const line of this.linesOf(id)) {
+      if (!line.watched.includes(id)) line.watched.push(id);
+    }
+  }
+
+  /** The lines belt `id` is on: one, or a splitter's two halves. */
+  private linesOf(id: number): TransportLine[] {
+    const row = this.set.indexOf(id);
+    if (row < 0) return [];
+    const out: TransportLine[] = [];
+    for (const lineId of this.splitCol[row]
+      ? [this.lineCol[row]!, this.line2Col[row]!]
+      : [this.lineCol[row]!]) {
+      const line = this.lineMap.get(lineId);
+      if (line) out.push(line);
+    }
+    return out;
   }
 
   /** The items on the belt, and for an underground exit those under the ground behind it. */
@@ -364,9 +473,12 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    */
   insertable(id: number, item: number): number {
     if (!itemPrototype(item)) return 0;
-    const line = this.lineOfBelt(id);
     const pos = this.beltOffset(id) + BELT_LENGTH / 2;
-    return (line.lanes[0].canInsert(pos) ? 1 : 0) + (line.lanes[1].canInsert(pos) ? 1 : 0);
+    let n = 0;
+    for (const line of this.linesOf(id)) {
+      n += (line.lanes[0].canInsert(pos) ? 1 : 0) + (line.lanes[1].canInsert(pos) ? 1 : 0);
+    }
+    return Math.min(2, n);
   }
 
   /**
@@ -376,11 +488,13 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    */
   insert(id: number, item: number, count: number): number {
     if (!itemPrototype(item)) return 0;
-    const lineId = this.beltLine(id);
     const pos = this.beltOffset(id) + BELT_LENGTH / 2;
     let n = 0;
-    for (const lane of [BeltLane.Right, BeltLane.Left]) {
-      if (n < count && this.insertAt(lineId, lane, pos, item)) n++;
+    // A splitter: its left half first, then its right half, at most two in all.
+    for (const line of this.linesOf(id)) {
+      for (const lane of [BeltLane.Right, BeltLane.Left]) {
+        if (n < Math.min(count, 2) && this.insertAt(line.id, lane, pos, item)) n++;
+      }
     }
     return n;
   }
@@ -394,6 +508,8 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     h = fnv1a32(this.shapeCol.subarray(0, n), h);
     h = fnv1a32(this.modeCol.subarray(0, n), h);
     h = fnv1a32(this.partnerCol.subarray(0, n), h);
+    h = fnv1a32(this.line2Col.subarray(0, n), h);
+    h = fnv1a32(this.nextCol.subarray(0, n), h);
     for (const line of this.lineMap.values()) {
       h = fnv1a32(
         Uint32Array.of(
@@ -405,6 +521,8 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
           line.outPos,
           line.outOnly + 1,
           line.turn,
+          line.splitter,
+          line.half,
         ),
         h,
       );
@@ -412,9 +530,13 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       for (const lane of line.lanes) {
         // Whether the lane moved this tick or the last (all `changedAt` is used for).
         const recent = lane.changedAt >= this.tick - 1 ? 1 : 0;
-        h = fnv1a32(Uint32Array.of(lane.count, lane.total, lane.active ? 1 : 0, recent), h);
+        h = fnv1a32(
+          Uint32Array.of(lane.count, lane.total, lane.active ? 1 : 0, recent, lane.spacing),
+          h,
+        );
         h = fnv1a32(lane.gaps(), h);
         h = fnv1a32(lane.items(), h);
+        if (line.splitter !== 0) h = fnv1a32(lane.marks(), h);
       }
     }
     const order = new Uint32Array(2 * this.active.length);
@@ -440,6 +562,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     const l = line.lanes[lane];
     if (!l.insert(pos, item)) return false;
     this.wakeLane(l);
+    this.halfChanged(line, lane);
     this.notifyWatchers(line, pos, pos);
     return true;
   }
@@ -458,6 +581,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     const item = l.removeAt(i);
     this.wakeLane(l);
     this.wakeFeeders(line, lane);
+    this.halfChanged(line, lane);
     this.notifyWatchers(line, from, to);
     return item;
   }
@@ -497,6 +621,15 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * exit also those under the ground behind it, with offsets past 256.
    */
   itemsOwnedBy(belt: number): BeltItem[] {
+    if (this.isSplitter(belt)) {
+      const out: BeltItem[] = [];
+      for (const line of this.halfLines(belt)) {
+        this.forEachItem(line, (_k, lane, offset, moved, item) =>
+          out.push({ lane, offset, moved, item }),
+        );
+      }
+      return out;
+    }
     const line = this.lineOfBelt(belt);
     const k = this.indexCol[this.row(belt)]!;
     let last = k;
@@ -536,19 +669,210 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     this.tick++;
     const list = this.active;
     const n = list.length;
-    let w = 0;
+    const keep = this.keep;
+    keep.length = n;
+    // Splitter halves step after every other lane (see `stepHalf`), in list order.
     for (let i = 0; i < n; i++) {
       const lane = list[i]!;
-      if (this.step(lane)) {
-        list[w++] = lane;
-      } else {
+      if (lane.line.splitter !== 0) continue;
+      keep[i] = this.step(lane);
+      if (!keep[i]) {
         lane.active = false;
         lane.clearMoved();
       }
     }
-    // Lanes woken during the loop were appended after the first `n`.
+    for (let i = 0; i < n; i++) {
+      const lane = list[i]!;
+      if (lane.line.splitter === 0) continue;
+      keep[i] = !lane.line.dead && this.stepHalf(lane);
+      if (!keep[i]) {
+        lane.active = false;
+        lane.clearMoved();
+      }
+    }
+    let w = 0;
+    for (let i = 0; i < n; i++) if (keep[i]) list[w++] = list[i]!;
+    // Lanes woken during the loops were appended after the first `n`.
     for (let i = n; i < list.length; i++) list[w++] = list[i]!;
     list.length = w;
+  }
+
+  /** Scratch for `update`: whether each lane of the active list stays on it. */
+  private readonly keep: boolean[] = [];
+
+  /**
+   * One tick of a splitter half's lane; returns whether it stays awake.
+   * Halves step after every other lane, so the lanes in front of them (and
+   * the other half) are where they will be at the end of the tick when a
+   * half decides where its first item goes (see `splitHandOn`). It moves up
+   * to the spacing behind the last item of the belt in front (`minFront`),
+   * like any lane handing on to another line's start; a blocked half stays
+   * awake while either output or the other half moved this tick or the last.
+   */
+  private stepHalf(lane: LineLane): boolean {
+    const { line } = lane;
+    this.refreshMerge(line);
+    if (lane.count === 0) return false;
+    this.handed = false;
+    const moved = lane.move(line.speed, this.splitOutlet) > 0;
+    if (moved || this.handed) {
+      lane.changedAt = this.tick;
+      const lo = this.handed ? 0 : lane.firstMovedPosition();
+      const hi = lane.total + lane.movedAll + lane.movedRest;
+      this.wakeFeeders(line, lane.index);
+      this.halfChanged(line, lane.index);
+      this.notifyWatchers(line, lo, hi);
+      return true;
+    }
+    const recent = (l: LineLane | undefined): boolean =>
+      l !== undefined && l.changedAt >= this.tick - 1;
+    const sib = line.sibling!;
+    return (
+      recent(line.out?.lanes[lane.index]) ||
+      recent(sib.out?.lanes[lane.index]) ||
+      recent(sib.lanes[lane.index])
+    );
+  }
+
+  /** The outlet of a splitter half's lanes: straight on, or across to the other half's output. */
+  private readonly splitOutlet: LaneOutlet = {
+    early: true,
+    minFront: (l) => this.splitMinFront(l as LineLane),
+    handOn: (l, rem) => this.splitHandOn(l as LineLane, rem),
+  };
+
+  /**
+   * How close to its end a splitter half's first item may come: the
+   * spacing behind the last item of the belt in front of it, counted
+   * across, as for any hand-over onto another line's start. An item headed
+   * across to the other half is offered there too (`early`), from wherever
+   * this holds it.
+   */
+  private splitMinFront(lane: LineLane): number {
+    const out = lane.line.out;
+    if (!out) return 0;
+    const target = out.lanes[lane.index];
+    if (target.count === 0) return 0;
+    const floor = BELT_ITEM_SPACING - (out.length - target.total);
+    return floor > 0 ? floor : 0;
+  }
+
+  /**
+   * A splitter half's first item, held at `minFront` or at the end with
+   * `rem` of the tick's movement left. An item the other half sent across
+   * (marked) goes straight on, or back across if its output got blocked
+   * meanwhile (so it never waits on a blocked output). Any other goes to the output its lane's
+   * alternation picks (the next bit of `nextCol`), else to the other one;
+   * going to the picked output flips the bit, going to the other leaves it.
+   *
+   * Straight on (onto the start of the line in front, only from the end) is
+   * the ordinary hand-over: the item keeps its leftover movement, scaled to
+   * the target's speed, but lands no closer than the target lane's spacing
+   * to its last item. Across, it moves over onto the other half's lane, as
+   * close to that lane's end as the spacing allows (from the other half's
+   * `minFront`, at most `CROSS_REACH` further back, and no closer than the
+   * spacing to the first item of the lane feeding that half), marked, so it
+   * goes straight on from there: everything bound for an output passes
+   * through the half in front of it, at the splitter's speed and with the
+   * spacing across both boundaries kept by the ordinary rules. An item only
+   * goes across while the other half's output is open (`outputOpen`), so
+   * none waits on a blocked output's half.
+   */
+  private splitHandOn(lane: LineLane, rem: number): boolean {
+    const { line } = lane;
+    const i = lane.index;
+    const sib = line.sibling!;
+    const row = this.row(line.splitter);
+    // Sent across already: straight on, unless its output is blocked by now.
+    const marked = lane.marked(0);
+    const pref = marked ? line.half : (this.nextCol[row]! >> i) & 1;
+    const tries = marked && this.outputOpen(line, i) ? 1 : 2;
+    for (let n = 0; n < tries; n++) {
+      const t = n === 0 ? pref : 1 - pref;
+      if (t === line.half) {
+        const out = line.out;
+        if (lane.gap(0) !== 0 || !out) continue;
+        const target = out.lanes[i];
+        const carry = Math.floor((rem * out.speed) / line.speed);
+        let pos = out.length - carry;
+        if (target.count > 0) pos = Math.max(pos, target.total + target.spacing);
+        if (pos > out.length) continue;
+        target.insert(pos, lane.removeAt(0));
+        this.wakeLane(target);
+        this.notifyWatchers(out, pos, pos);
+      } else {
+        if (!this.outputOpen(sib, i)) continue;
+        const target = sib.lanes[i];
+        const start = this.splitMinFront(target);
+        // Into the slot a merging half keeps: the plain spacing, not the lane's.
+        const pos = target.fitNear(start, CROSS_REACH, BELT_ITEM_SPACING);
+        // Behind the half's last item, it keeps the half's own spacing ahead of
+        // the item feeding in from behind, so that one isn't held up.
+        if (pos < 0 || pos > this.backLimit(sib, target, target.spacing)) continue;
+        target.insert(pos, lane.removeAt(0), true, BELT_ITEM_SPACING);
+        this.wakeLane(target);
+        this.notifyWatchers(sib, pos, pos);
+      }
+      if (!marked && t === pref) this.nextCol[row] = this.nextCol[row]! ^ (1 << i);
+      this.handed = true;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Whether splitter half `half`'s output lane `lane` can take items: there
+   * is one, and it has room at its start or moved this tick or the last
+   * (an output backed up to its start that stopped is blocked).
+   */
+  private outputOpen(half: TransportLine, lane: number): boolean {
+    const out = half.out;
+    if (!out) return false;
+    const t = out.lanes[lane as BeltLane];
+    return t.count === 0 || out.length - t.total >= t.spacing || t.changedAt >= this.tick - 1;
+  }
+
+  /**
+   * Lane `lane` of `line` changed: if `line` is a splitter half, wakes the
+   * other half's lane (its items may now go across) and refreshes the
+   * splitter's merging (`refreshMerge`).
+   */
+  private halfChanged(line: TransportLine, lane: number): void {
+    if (line.splitter === 0) return;
+    this.wakeLane(line.sibling!.lanes[lane as BeltLane]);
+    this.refreshMerge(line);
+  }
+
+  /**
+   * Fair merging: while a splitter half has items that can't go straight on
+   * (its output isn't open, `outputOpen`), the other half's lane closes up
+   * only to `MERGE_SPACING`, and the line feeding it hands on that far
+   * apart, so a slot stays free behind each of its own items for one sent
+   * across (the lanes only ever close gaps, so the slot has to be kept from
+   * the start). Everything bound for that output passes through that half,
+   * so the two inputs take turns at the rate of the half or the output,
+   * whichever is slower. Set per lane on both halves; a lane opening up
+   * again wakes, with the lane feeding it. O(1).
+   */
+  private refreshMerge(line: TransportLine): void {
+    if (line.splitter === 0 || line.dead) return;
+    const sib = line.sibling!;
+    for (const [x, y] of [
+      [line, sib],
+      [sib, line],
+    ] as const) {
+      for (const lane of x.lanes) {
+        const other = y.lanes[lane.index];
+        const merging = x.out !== null && other.count > 0 && !this.outputOpen(y, lane.index);
+        const spacing = merging ? MERGE_SPACING : BELT_ITEM_SPACING;
+        if (spacing === lane.spacing) continue;
+        lane.setSpacing(spacing);
+        if (spacing < MERGE_SPACING) {
+          this.wakeLane(lane);
+          this.wakeFeeders(x, lane.index);
+        }
+      }
+    }
   }
 
   /** One tick of one lane; returns whether it stays awake. */
@@ -637,7 +961,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       // the start edge is this lane's own belt, so it can't land there.
       const carry = Math.floor((rem * out.speed) / line.speed);
       pos = line.outPos - carry;
-      if (target.count > 0) pos = Math.max(pos, target.total + BELT_ITEM_SPACING);
+      if (target.count > 0) pos = Math.max(pos, target.total + target.spacing);
       if (pos > line.outPos) pos = -1;
     }
     if (pos < 0) {
@@ -665,12 +989,12 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * that hands on to the line's start from another line (if there is one).
    * O(1): a line has at most three feeders.
    */
-  private backLimit(line: TransportLine, lane: LineLane): number {
+  private backLimit(line: TransportLine, lane: LineLane, spacing = BELT_ITEM_SPACING): number {
     for (const f of line.feeders) {
       if (f.outLane >= 0 || f === line) continue;
       const from = f.lanes[lane.index];
       if (from.count === 0) break;
-      return line.length + from.gap(0) - BELT_ITEM_SPACING;
+      return line.length + from.gap(0) - spacing;
     }
     return Number.MAX_SAFE_INTEGER;
   }
@@ -686,6 +1010,8 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     for (const f of line.feeders) {
       if (f.outLane < 0) {
         this.wakeLane(f.lanes[lane as BeltLane]);
+        // A splitter half: the other half may send items across onto `line` too.
+        if (f.splitter !== 0) this.halfChanged(f, lane);
       } else if (f.outLane === lane) {
         if (f.outOnly !== BeltLane.Right) this.wakeLane(f.lanes[0]);
         if (f.outOnly !== BeltLane.Left) this.wakeLane(f.lanes[1]);
@@ -800,10 +1126,42 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     return fromLeft ? left : right;
   }
 
-  /** The belt that `id` continues (its feeder, if of the same tier), or 0. */
+  /** The belt that `id` continues (its feeder, if of the same tier), or 0. Splitters continue nothing, and nothing continues them. */
   private predecessor(id: number): number {
+    if (this.splitCol[this.row(id)]) return 0;
     const f = this.feederOf(id);
-    return f !== 0 && this.speedOf(f) === this.speedOf(id) ? f : 0;
+    return f !== 0 && this.speedOf(f) === this.speedOf(id) && !this.splitCol[this.row(f)] ? f : 0;
+  }
+
+  /** The tiles of a `proto` footprint with its top-left tile at `(x, y)` facing `dir`. */
+  private footprintTiles(
+    x: number,
+    y: number,
+    proto: { width: number; height: number },
+    dir: Direction,
+  ): [number, number][] {
+    const [w, h] = (dir & 1) === 1 ? [proto.height, proto.width] : [proto.width, proto.height];
+    const out: [number, number][] = [];
+    for (let ty = y; ty < y + h; ty++) for (let tx = x; tx < x + w; tx++) out.push([tx, ty]);
+    return out;
+  }
+
+  /**
+   * The line through tile `(x, y)` that belt `id` (just found there) starts,
+   * for a line ending right behind that tile and facing `dir`: a splitter's
+   * half there if the splitter faces `dir` too (items only enter a splitter
+   * from behind), else `undefined` for a splitter, and `null` for other belts
+   * (the caller decides).
+   */
+  private splitterInput(
+    id: number,
+    x: number,
+    y: number,
+    dir: Direction,
+  ): TransportLine | null | undefined {
+    if (!this.splitCol[this.row(id)]) return null;
+    if (this.dir(id) !== dir) return undefined;
+    return this.lineMap.get(this.beltLineAt(id, x, y));
   }
 
   /**
@@ -856,7 +1214,12 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * Rebuilds the lines around belts `seeds`, which were just placed or
    * rotated, or (with `removed`, one of them) is about to be removed.
    */
-  private relink(seeds: readonly number[], removed: number): void {
+  private relink(
+    seeds: readonly number[],
+    removed: number,
+    /** More tiles to rebuild around (a splitter turned across covered them). */
+    extra: readonly (readonly [number, number])[] = [],
+  ): void {
     const { store } = this.entities!;
 
     // 1. Take apart every line through a belt within two tiles of a seed, or
@@ -865,24 +1228,39 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     for (const s of seeds) this.pairingNeighbours(s, pairing);
     const dissolved: TransportLine[] = [];
     const dissolve = (b: number): void => {
-      const line = b !== 0 ? this.lineMap.get(this.lineCol[this.row(b)]!) : undefined;
-      if (line && !line.dead) {
-        line.dead = true;
-        dissolved.push(line);
+      if (b === 0) return;
+      for (const line of this.linesOf(b)) {
+        if (!line.dead) {
+          line.dead = true;
+          dissolved.push(line);
+        }
       }
     };
+    const tiles: (readonly [number, number])[] = [...extra];
     for (const s of seeds) {
-      const x = store.x(s);
-      const y = store.y(s);
+      const proto = this.entities!.prototypeOf(s)!;
+      tiles.push(...this.footprintTiles(store.x(s), store.y(s), proto, store.dir(s)));
+    }
+    for (const [x, y] of tiles) {
       for (const [dx, dy] of NEAR) dissolve(this.beltAt(x + dx, y + dy));
     }
     for (const b of pairing) dissolve(b);
     const saved = new Map<number, SavedItem[]>();
+    const savedHalves = new Map<string, SavedItem[]>();
     const belts: number[] = [];
     const feeders: TransportLine[] = [];
     for (const line of dissolved) {
       this.lineMap.delete(line.id);
+      if (line.splitter !== 0) {
+        // A splitter half's items stay on its tile (and lane, and offset).
+        const list: SavedItem[] = [];
+        this.forEachItem(line, (k, lane, offset, _moved, item) => {
+          list.push({ lane, offset: offset + k * BELT_LENGTH, item });
+        });
+        savedHalves.set(halfKey(line.splitter, line.tileX, line.tileY), list);
+      }
       this.forEachItem(line, (k, lane, offset, _moved, item) => {
+        if (line.splitter !== 0) return;
         // Items under the ground belong to the exit in front of them.
         let at = k;
         while (at > 0 && line.belts[at] === 0) at--;
@@ -958,10 +1336,13 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       created.push(this.createLine(list, saved));
     };
     for (const b of sorted) {
-      if (!hasSucc.has(b)) chain(b);
+      if (!hasSucc.has(b) && !this.splitCol[this.row(b)]) chain(b);
     }
     for (const b of sorted) {
-      if (!visited.has(b)) chain(b);
+      if (!visited.has(b) && !this.splitCol[this.row(b)]) chain(b);
+    }
+    for (const b of sorted) {
+      if (this.splitCol[this.row(b)]) created.push(...this.createHalves(b, savedHalves));
     }
 
     // 4. Where the new lines, and the old lines that fed the old ones, now end.
@@ -971,6 +1352,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     for (const line of [...created, ...feeders]) {
       this.wakeLane(line.lanes[0]);
       this.wakeLane(line.lanes[1]);
+      this.refreshMerge(line);
     }
     for (const b of sorted) this.notifyBelt(b);
   }
@@ -995,21 +1377,24 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       const floor = (): number =>
         target.count > 0 ? BELT_ITEM_SPACING - (out.length - target.total) : 0;
       if (target.total <= out.length && (lane.count === 0 || lane.gap(0) >= floor())) continue;
-      const entries: [number, number][] = [];
+      // [position, item, mark]: a splitter half's items keep their marks.
+      const entries: [number, number, boolean][] = [];
       while (target.count > 0 && target.total > out.length) {
         const pos = target.total - out.length;
-        entries.push([pos, target.removeAt(target.count - 1)]);
+        entries.push([pos, target.removeAt(target.count - 1), false]);
       }
       let d = 0;
-      for (let i = 0; i < lane.count; i++) entries.push([(d += lane.gap(i)), lane.item(i)]);
+      for (let i = 0; i < lane.count; i++) {
+        entries.push([(d += lane.gap(i)), lane.item(i), lane.marked(i)]);
+      }
       const total = lane.total;
       while (lane.count > 0) lane.removeAt(lane.count - 1);
       entries.sort((a, b) => a[0] - b[0]);
       let prev = 0;
-      for (const [pos, item] of entries) {
+      for (const [pos, item, mark] of entries) {
         const at =
           lane.count === 0 ? Math.max(pos, floor()) : Math.max(pos, prev + BELT_ITEM_SPACING);
-        lane.pushBack(at - prev, item);
+        lane.pushBack(at - prev, item, mark);
         prev = at;
       }
       if (lane.total > total) grew = true;
@@ -1074,7 +1459,26 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     line.outPos = 0;
     line.outOnly = -1;
     const head = line.belts[0]!;
+    if (line.splitter !== 0) {
+      this.computeHalfOutput(line);
+      return;
+    }
     const f = this.nextBelt(head);
+    if (f !== 0) {
+      const { store } = this.entities!;
+      const d = store.dir(head);
+      const into = this.splitterInput(
+        f,
+        store.x(head) + DIRECTION_DX[d]!,
+        store.y(head) + DIRECTION_DY[d]!,
+        d,
+      );
+      if (into !== null) {
+        // Into the back of a splitter half: onto its start. Into its side or front: nothing.
+        if (into) this.handOnto(line, into);
+        return;
+      }
+    }
     const target = f !== 0 ? this.lineMap.get(this.lineCol[this.row(f)]!) : undefined;
     if (!target) return;
     const k = this.indexCol[this.row(f)]!;
@@ -1103,6 +1507,102 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     line.out = target;
     target.feeders.push(line);
   }
+
+  /** `line` hands its items on lane by lane onto the start of `target`. */
+  private handOnto(line: TransportLine, target: TransportLine): void {
+    line.outPos = target.length;
+    line.out = target;
+    target.feeders.push(line);
+  }
+
+  /**
+   * Where a splitter half hands its items on: the line the belt in front of
+   * it starts, when that belt continues it (straight on, or as a curve), or
+   * the half of a splitter in front facing the same way. A splitter never
+   * side-loads: a belt in front that it would side-load (one fed from
+   * behind), or one facing it, gets nothing.
+   */
+  private computeHalfOutput(line: TransportLine): void {
+    const id = line.splitter;
+    const d = this.dir(id);
+    const x = line.tileX + DIRECTION_DX[d]!;
+    const y = line.tileY + DIRECTION_DY[d]!;
+    const f = this.beltAt(x, y);
+    if (f === 0) return;
+    const into = this.splitterInput(f, x, y, d);
+    if (into !== null) {
+      if (into) this.handOnto(line, into);
+      return;
+    }
+    const fd = this.dir(f);
+    if (fd === ((d + 2) & 3)) return;
+    if (fd === d && this.modeOf(f) === UndergroundMode.Exit) return;
+    if (this.feederOf(f) !== id) return;
+    const target = this.lineMap.get(this.lineCol[this.row(f)]!);
+    if (target) this.handOnto(line, target);
+  }
+
+  /**
+   * The two half lines of splitter `id`, with the items saved for its tiles
+   * (`saved`, by `halfKey`); items saved for a tile it no longer covers (it
+   * was turned across) go onto the half on the tile it newly covers.
+   */
+  private createHalves(id: number, saved: Map<string, SavedItem[]>): TransportLine[] {
+    const { store } = this.entities!;
+    const row = this.row(id);
+    const speed = this.speedCol[row]!;
+    const dir = this.dir(id);
+    const lines = [0, 1].map((half) => {
+      const line = new TransportLine(this.nextLine++, [id], BELT_ITEM_SPACING, speed);
+      const tile = splitterHalfTile(store.x(id), store.y(id), dir, half);
+      line.splitter = id;
+      line.half = half;
+      line.tileX = tile.x;
+      line.tileY = tile.y;
+      this.lineMap.set(line.id, line);
+      if (this.entities!.wake.isWatched(id)) line.watched.push(id);
+      return line;
+    });
+    const [a, b] = lines as [TransportLine, TransportLine];
+    a.sibling = b;
+    b.sibling = a;
+    this.lineCol[row] = a.id;
+    this.line2Col[row] = b.id;
+    this.indexCol[row] = 0;
+    this.shapeCol[row] = BeltShape.Straight;
+    const had = new Set(saved.keys());
+    const lists = lines.map((line) => {
+      const key = halfKey(id, line.tileX, line.tileY);
+      const list = saved.get(key) ?? [];
+      saved.delete(key);
+      return list;
+    });
+    // Turned across, it covers one of its old tiles and a new one: the items
+    // of the tile it left go onto the half on the new tile.
+    const fresh = lines.findIndex((line) => !had.has(halfKey(id, line.tileX, line.tileY)));
+    const prefix = `${String(id)}:`;
+    for (const [key, list] of saved) {
+      if (key.startsWith(prefix)) {
+        lists[fresh < 0 ? 0 : fresh]!.push(...list);
+        saved.delete(key);
+      }
+    }
+    lines.forEach((line, half) => {
+      for (const lane of line.lanes) {
+        const list = lists[half]!.filter((s) => s.lane === lane.index)
+          .map((s) => [s.offset, s.item] as const)
+          .sort((p, q) => p[0] - q[0]);
+        let prev = 0;
+        for (const [pos, item] of list) {
+          const at = lane.count === 0 ? pos : Math.max(pos, prev + BELT_ITEM_SPACING);
+          lane.pushBack(at - prev, item);
+          prev = at;
+        }
+      }
+    });
+    return lines;
+  }
+
   private dropRow(id: number): void {
     const row = this.set.remove(id);
     if (row < 0) return;
@@ -1114,6 +1614,9 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       this.speedCol[row] = this.speedCol[last]!;
       this.modeCol[row] = this.modeCol[last]!;
       this.partnerCol[row] = this.partnerCol[last]!;
+      this.splitCol[row] = this.splitCol[last]!;
+      this.line2Col[row] = this.line2Col[last]!;
+      this.nextCol[row] = this.nextCol[last]!;
       this.dirCol[row] = this.dirCol[last]!;
     }
     this.lineCol[last] = 0;
@@ -1122,6 +1625,9 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     this.speedCol[last] = 0;
     this.modeCol[last] = 0;
     this.partnerCol[last] = 0;
+    this.splitCol[last] = 0;
+    this.line2Col[last] = 0;
+    this.nextCol[last] = 0;
     this.dirCol[last] = 0;
   }
 
@@ -1138,6 +1644,11 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     }
     return row;
   }
+}
+
+/** The key of the items saved for splitter `id`'s half on tile `(x, y)` during a rebuild. */
+function halfKey(id: number, x: number, y: number): string {
+  return `${String(id)}:${String(x)}:${String(y)}`;
 }
 
 /** The belt table of `entities`, if one is registered. */

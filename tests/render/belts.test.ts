@@ -4,6 +4,7 @@ import { ItemId } from '../../src/data/items';
 import { beltPoint, laneLateral, progressOf } from '../../src/render/beltPath';
 import { BeltShape, beltTable } from '../../src/sim/belts/belts';
 import { BeltLane } from '../../src/sim/belts/line';
+import { SPLITTER_HALF_MODE } from '../../src/sim/belts/splitter';
 import { UndergroundMode } from '../../src/sim/belts/underground';
 import { BuildResult, placeEntity } from '../../src/sim/entities/build';
 import { Direction } from '../../src/sim/entities/direction';
@@ -97,5 +98,37 @@ describe('encodeBelts', () => {
     ]);
     expect(decodeBelts(encodeBelts(sim.state, null).buffer)).toEqual([]);
     expect(beltTable(sim.state.entities)!.lineCount).toBe(2);
+  });
+
+  it('encodes a splitter as one record per half, its left half first', () => {
+    const sim = new Sim({ seed: 1, startingKit: [{ item: ItemId.Splitter, count: 1 }] });
+    sim.state.players.x[0] = tileCenter(0);
+    sim.state.players.y[0] = tileCenter(0);
+    // Facing west on (3, 1)–(3, 2): its left half is the south one.
+    expect(placeEntity(sim.state, 0, ItemId.Splitter, 3, 1, West)).toBe(BuildResult.Ok);
+    const id = sim.state.entities.at(3, 2);
+    const table = beltTable(sim.state.entities)!;
+    expect(table.insertAt(table.beltLineAt(id, 3, 1), BeltLane.Left, 100, ItemId.Coal)).toBe(true);
+    const all = decodeBelts(encodeBelts(sim.state, { cx0: 0, cy0: 0, cx1: 0, cy1: 0 }).buffer);
+    expect(all).toEqual([
+      {
+        x: 3,
+        y: 2,
+        dir: West,
+        shape: BeltShape.Straight,
+        type: EntityTypeId.Splitter,
+        mode: SPLITTER_HALF_MODE,
+        items: [],
+      },
+      {
+        x: 3,
+        y: 1,
+        dir: West,
+        shape: BeltShape.Straight,
+        type: EntityTypeId.Splitter,
+        mode: SPLITTER_HALF_MODE + 1,
+        items: [{ lane: BeltLane.Left, offset: 100, moved: 0, item: ItemId.Coal }],
+      },
+    ]);
   });
 });

@@ -79,11 +79,11 @@ export const DETERMINISM_SCRIPTED_TICKS = 1_000;
 
 const AXES: readonly Axis[] = [-1, 0, 1];
 /** Random `Place` and `Insert` commands use item ids in `[0, ITEM_ID_SPAN)` (the last two unknown). */
-const ITEM_ID_SPAN = 37;
+const ITEM_ID_SPAN = 40;
 /** Random `Insert` and `Take` commands target entity ids in `[0, ENTITY_ID_SPAN)`. */
 const ENTITY_ID_SPAN = 16;
 /** Random `Craft` and `SetRecipe` commands use recipe ids in `[0, RECIPE_ID_SPAN)` (the last one unknown). */
-const RECIPE_ID_SPAN = 31;
+const RECIPE_ID_SPAN = 34;
 /** Random `SetResearch` commands use technology ids in `[0, TECH_ID_SPAN)` (the last one unknown). */
 const TECH_ID_SPAN = 10;
 /** Random `SetRecipe` commands target entity ids in `[0, RECIPE_ENTITY_SPAN)` (the assembler included). */
@@ -107,6 +107,7 @@ export const DETERMINISM_KIT: readonly ItemStack[] = [
   { item: ItemId.FastTransportBelt, count: 2 },
   { item: ItemId.Lab, count: 2 },
   { item: ItemId.AutomationSciencePack, count: 40 },
+  { item: ItemId.Splitter, count: 2 },
 ];
 
 interface Walker {
@@ -615,6 +616,64 @@ function beltTierPhase(): Command[] {
   ];
 }
 
+/** Tick player 2 builds its splitter (after player 1's labs, so those ids stay put). */
+export const DETERMINISM_SPLITTER_TICK = 950;
+/** Row of the splitter's input belt, relative to `DETERMINISM_CHAIN`. */
+export const DETERMINISM_SPLITTER_ROW = 10;
+/** Entity ids: the input belt, the splitter, and the output belts in front of its halves. */
+export const DETERMINISM_SPLITTER_IN = 52;
+export const DETERMINISM_SPLITTER = 53;
+export const DETERMINISM_SPLITTER_OUT_A = 54;
+export const DETERMINISM_SPLITTER_OUT_B = 55;
+
+/**
+ * Player 2's splitter, east of its chain: a transport belt on row
+ * `DETERMINISM_SPLITTER_ROW` facing east into the left half of a splitter
+ * (facing east, so it covers that row and the next), and a belt in front of
+ * each half. It drops its last coal (one unit, onto the right lane) and 2
+ * iron plates (one per lane) on the input belt, which the splitter shares
+ * out lane by lane: the right lane's coal and plate go to different
+ * outputs, the left lane's plate to the left one. Later it
+ * reverses the splitter (a `Rotate` on its right half) and turns it back,
+ * and places a second splitter across the first one's outputs, which is
+ * blocked.
+ */
+function splitterPhase(): Command[] {
+  const p = { playerId: 2 };
+  const t = DETERMINISM_SPLITTER_TICK;
+  const { x, y } = DETERMINISM_CHAIN;
+  const row = y + DETERMINISM_SPLITTER_ROW;
+  const place = (tick: number, item: number, dx: number, dy: number): Command => ({
+    ...p,
+    tick,
+    type: 'Place',
+    item,
+    x: x + dx,
+    y: row + dy,
+    dir: Direction.East,
+  });
+  const insert = (tick: number, item: number): Command => ({
+    ...p,
+    tick,
+    type: 'Insert',
+    entity: DETERMINISM_SPLITTER_IN,
+    item,
+    count: 2,
+  });
+  return [
+    place(t, ItemId.TransportBelt, 1, 0),
+    place(t, ItemId.Splitter, 2, 0),
+    place(t, ItemId.TransportBelt, 3, 0),
+    place(t, ItemId.TransportBelt, 3, 1),
+    insert(t + 1, ItemId.Coal),
+    insert(t + 10, ItemId.IronPlate),
+    { ...p, tick: t + 12, type: 'Rotate', x: x + 2, y: row + 1 },
+    { ...p, tick: t + 14, type: 'Rotate', x: x + 2, y: row + 1 },
+    // Blocked: the outputs are in the way.
+    place(t + 15, ItemId.Splitter, 3, 0),
+  ];
+}
+
 /** Tick player 1 builds its labs (after player 2's belt line, so those ids stay put). */
 export const DETERMINISM_RESEARCH_TICK = 945;
 /** Entity ids of player 1's labs. */
@@ -772,6 +831,7 @@ function scriptedPhase(): Command[] {
     ...chainPhase(),
     ...electricPhase(),
     ...beltTierPhase(),
+    ...splitterPhase(),
   ];
   const patches = startingPatches(DETERMINISM_SEED);
   for (let id = 0; id < DETERMINISM_PLAYERS; id++) {

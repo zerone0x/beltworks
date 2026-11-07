@@ -36,6 +36,7 @@ art/blender/
   bwart/terrain.py        seamless ground materials, rocks, foliage, ground stains
   models/<model>.py       one procedural model per entity (or several: MODELS)
   models/belts.py         every belt tier, shape and underground (MODELS: several per module)
+  models/splitters.py     the splitter gantry of every tier
   models/inserters.py     the four inserters, base and arm angles
   models/ground.py        the terrain: ground textures (and ore.py, trees.py, decor.py)
   models/icons.py         every item's icon
@@ -94,7 +95,13 @@ Every tier (yellow, red, blue) in `models/belts.py`, packed into the `logistics`
 
 The surface and the side frames stick out a few texels below their tile (their south end faces). The belt layer draws belts north to south (`BeltDrawOrder`), so the next belt of a vertical run covers that face with its own top; drawn the other way round it would show as a dark seam across the run at every tile.
 
-Curves come in at the west (`curve-left`) or east (`curve-right`) edge of a north-facing tile and leave at the north edge, like `BeltShape.CurveFromLeft` / `CurveFromRight`; the paths are the game's (`beltPath.ts`), so items follow the drawn belt. The tier comes from the belt record's entity type, the underground mode from its `mode`; an underground belt's ghost shows the hood of what it would be (an entrance or an exit). Splitters: not yet.
+Curves come in at the west (`curve-left`) or east (`curve-right`) edge of a north-facing tile and leave at the north edge, like `BeltShape.CurveFromLeft` / `CurveFromRight`; the paths are the game's (`beltPath.ts`), so items follow the drawn belt. The tier comes from the belt record's entity type, the underground mode from its `mode`; an underground belt's ghost shows the hood of what it would be (an entrance or an exit).
+
+### Splitters
+
+![A splitter sharing coal out between two belts, at 2× zoom](screenshots/art-splitters.png)
+
+`models/splitters.py`, in the `logistics` atlas: `splitter`, `fast-splitter`, `express-splitter` (2×1, 4 directions). The belt layer draws each half as a straight belt of the splitter's tier (the shared surface and the tier's side frames, `SPLITTER_TIER` in `beltSprites.ts`), and the model is only what stands over them: a gantry across the middle of both halves in the tier color, on legs at the outer sides and a dark divider between the halves that runs the whole tile, with a dark slot over each half on both faces and an arrow on top of each half. It is drawn with the underground hoods, above the items (`coverContainer`), so items pass under it, and casts a shadow. Its ghost is the gantry alone. Without sprites, the placeholder is a bar in the tier color across both halves.
 
 ### Inserters
 
@@ -194,7 +201,7 @@ The ground, ore, trees and decor are rendered too (atlas `terrain`) and baked pe
 
 ![Ore, belt, inserter and steam engine icons at 52, 26 and 13 pixels and in grayscale, before (left) and with shape cues](screenshots/art-readability-icons-before-after.png)
 
-Every item has a rendered icon (`models/icons.py`, atlas `icons`): items that place an entity with a model show that model's idle body; the rest (ores, plates, bricks, logs, gear, cable, circuit, and stand-ins for the belt, inserters and pole until they get models) are modeled there.
+Every item has a rendered icon (`models/icons.py`, atlas `icons`): items that place an entity with a model show that model's idle body; the rest (ores, plates, bricks, logs, gear, cable, circuit, and stand-ins for the belt, inserters and pole until they get models, and for the splitters, whose model is only the gantry over two belts: two belts under a gantry with the tier chevrons) are modeled there.
 
 Icons are read at 13 pixels on belts, so items that share a color family get a shape cue too, and stay apart in grayscale: the ores have their own silhouettes (iron in angular blocks, copper in round nuggets, coal in flat shards, stone as one big boulder); belt tiers carry one, two or three chevrons (on the belt in the tier color, on an underground's hood in black); inserters are drawn side-on with the arm reaching out to a light steel gripper, so they fill the icon instead of standing as a thin post (the long-handed one reaches further, the fast one has white bands). Icons are framed to fit (`frame_icon`, the game's camera angle without the stretch, a little steeper for flat items), rendered at 104² and box-filtered to 52² by the packer: four texels per pixel of the 13-pixel icons on belts, so they stay sharp at 4× zoom and on HiDPI screens. The game loads their sheet at resolution 4, so the textures are the same 13 units wide as the lettered ones and every layer draws them unchanged; DOM slots get the 52² image scaled smoothly.
 

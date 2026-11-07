@@ -20,6 +20,10 @@
  * behind that point.
  */
 
+/** The bits of a stored item that hold its id; the top bit is its mark (`Lane.marked`). */
+const ITEM_BITS = 0x7fff;
+const MARK = 0x8000;
+
 /** Where the items reaching the end of a lane can go (see `Lane.move`). */
 export interface LaneOutlet {
   /**
@@ -34,6 +38,13 @@ export interface LaneOutlet {
    * this tick's movement left; returns whether it did (and removed it).
    */
   handOn(lane: Lane, rem: number): boolean;
+  /**
+   * Whether item 0 is also offered (`handOn`) when it is held short of the
+   * end by `minFront` and can't move further this tick, not only at the
+   * end: a splitter's half can send it across to the other output from
+   * there.
+   */
+  readonly early?: boolean;
 }
 
 export class Lane {
@@ -62,16 +73,36 @@ export class Lane {
   movedFrom = 0;
   movedRest = 0;
 
+  /**
+   * Distance consecutive items close up to: `minSpacing`, or more while the
+   * lane is held open for items joining it (a splitter half that the other
+   * half merges into, see `setSpacing`). Gaps already narrower stay as they
+   * are, but never below `minSpacing`.
+   */
+  spacing: number;
+
   constructor(
     /** Minimum distance between consecutive items. */
-    readonly spacing: number,
+    readonly minSpacing: number,
     capacity = 4,
   ) {
+    this.spacing = minSpacing;
     let cap = 4;
     while (cap < capacity) cap *= 2;
     this.gapBuf = new Int32Array(cap);
     this.itemBuf = new Uint16Array(cap);
     this.mask = cap - 1;
+  }
+
+  /**
+   * Sets the distance items close up to (at least `minSpacing`). The packed
+   * run is recounted from the front, since gaps that were packed at the old
+   * spacing may be movable at the new one.
+   */
+  setSpacing(spacing: number): void {
+    if (spacing === this.spacing) return;
+    this.spacing = Math.max(this.minSpacing, spacing);
+    this.run = 1;
   }
 
   /** Gap in front of item `i` (see the class comment). */
@@ -81,7 +112,16 @@ export class Lane {
 
   /** Item id at index `i` (0 is closest to the end). */
   item(i: number): number {
-    return this.itemBuf[(this.head + i) & this.mask]!;
+    return this.itemBuf[(this.head + i) & this.mask]! & ITEM_BITS;
+  }
+
+  /**
+   * Whether item `i` is marked: a flag that travels with the item while it
+   * stays on the lane (a splitter half marks the items the other half sent
+   * across, which go straight on; see belts.ts). Items leave a lane unmarked.
+   */
+  marked(i: number): boolean {
+    return (this.itemBuf[(this.head + i) & this.mask]! & MARK) !== 0;
   }
 
   /** Distance from the end of the line to item `i` (O(i)). */
@@ -92,11 +132,11 @@ export class Lane {
   }
 
   /** Appends an item `gap` behind the current last item (or `gap` from the end of an empty lane). */
-  pushBack(gap: number, item: number): void {
+  pushBack(gap: number, item: number, mark = false): void {
     this.reserve(this.count + 1);
     const at = (this.head + this.count) & this.mask;
     this.gapBuf[at] = gap;
-    this.itemBuf[at] = item;
+    this.itemBuf[at] = mark ? item | MARK : item;
     this.count++;
     this.total += gap;
   }
@@ -106,33 +146,33 @@ export class Lane {
    * would get and the distance of the item in front of it (0 for index 0),
    * or `null` when it would come closer than `spacing` to a neighbour.
    */
-  private slotFor(pos: number): { index: number; before: number } | null {
+  private slotFor(pos: number, spacing: number): { index: number; before: number } | null {
     let d = 0;
     for (let i = 0; i < this.count; i++) {
       const next = d + this.gap(i);
       if (next >= pos) {
-        if (next - pos < this.spacing) return null;
-        if (i > 0 && pos - d < this.spacing) return null;
+        if (next - pos < spacing) return null;
+        if (i > 0 && pos - d < spacing) return null;
         return { index: i, before: d };
       }
       d = next;
     }
-    if (this.count > 0 && pos - d < this.spacing) return null;
+    if (this.count > 0 && pos - d < spacing) return null;
     return { index: this.count, before: d };
   }
 
   /** Whether an item fits at distance `pos` from the end (`pos >= 0`). */
   canInsert(pos: number): boolean {
-    return pos >= 0 && this.slotFor(pos) !== null;
+    return pos >= 0 && this.slotFor(pos, this.spacing) !== null;
   }
 
   /**
    * The nearest distance from the end in `[pos, pos + slack]` where an item
-   * fits (the spacing from the items on both sides of it), or -1.
+   * fits (`spacing`, by default the lane's, from the items on both sides of
+   * it), or -1.
    */
-  fitNear(pos: number, slack: number): number {
+  fitNear(pos: number, slack: number, spacing = this.spacing): number {
     if (pos < 0) return -1;
-    const { spacing } = this;
     let p = pos;
     let d = 0;
     for (let i = 0; i < this.count; i++) {
@@ -146,19 +186,23 @@ export class Lane {
     return p;
   }
 
-  /** Puts `item` at distance `pos` from the end if it fits; returns whether it did. */
-  insert(pos: number, item: number): boolean {
+  /**
+   * Puts `item` (marked with `mark`) at distance `pos` from the end if it
+   * fits (`spacing`, by default the lane's, from its neighbours); returns
+   * whether it did.
+   */
+  insert(pos: number, item: number, mark = false, spacing = this.spacing): boolean {
     if (pos < 0) return false;
-    const slot = this.slotFor(pos);
+    const slot = this.slotFor(pos, spacing);
     if (!slot) return false;
     const { index, before } = slot;
     if (index === this.count) {
-      this.pushBack(pos - before, item);
+      this.pushBack(pos - before, item, mark);
       return true;
     }
     const gapNew = pos - before;
     const gapAfter = this.gap(index) - gapNew;
-    this.insertAt(index, gapNew, item);
+    this.insertAt(index, gapNew, mark ? item | MARK : item);
     this.setGap(index + 1, gapAfter);
     // The new gap came out of the old one: the lane's total length is unchanged.
     this.total -= gapNew;
@@ -247,7 +291,10 @@ export class Lane {
         rem -= a;
         this.movedAll += a;
       }
-      if (rem === 0 || outlet === null || this.gap(0) !== 0 || !outlet.handOn(this, rem)) break;
+      if (rem === 0 || outlet === null) break;
+      const at = this.gap(0);
+      if (at !== 0 && !(outlet.early === true && at <= floor)) break;
+      if (!outlet.handOn(this, rem)) break;
       if (this.count === 0) return speed - rem;
     }
     if (rem > 0) {
@@ -269,13 +316,14 @@ export class Lane {
 
   /**
    * Distance from the end of the first item that moved on the last step
-   * (after it moved). O(1): the items between item 0 and it are packed at
-   * exactly `spacing`, or it is item 0. Only meaningful after a step that
-   * moved something.
+   * (after it moved), or a lower bound on it. O(1): the items between item
+   * 0 and it are packed (at exactly `spacing`, or closer but at least
+   * `minSpacing` after a `setSpacing`), or it is item 0. Only meaningful
+   * after a step that moved something.
    */
   firstMovedPosition(): number {
     if (this.movedAll > 0 || this.movedFrom === 0) return this.gap(0);
-    return this.gap(0) + (this.movedFrom - 1) * this.spacing + this.gap(this.movedFrom);
+    return this.gap(0) + (this.movedFrom - 1) * this.minSpacing + this.gap(this.movedFrom);
   }
 
   /** Clears the movement record (the lane didn't step this tick). */
@@ -301,6 +349,13 @@ export class Lane {
     const out = new Uint16Array(this.count);
     for (let i = 0; i < this.count; i++) out[i] = this.item(i);
     return out;
+  }
+
+  /** The indices of the marked items, in order (for hashing and tests). */
+  marks(): Uint32Array {
+    const out: number[] = [];
+    for (let i = 0; i < this.count; i++) if (this.marked(i)) out.push(i);
+    return Uint32Array.from(out);
   }
 
   private setGap(i: number, gap: number): void {
@@ -331,7 +386,7 @@ export class Lane {
     const items = new Uint16Array(cap);
     for (let i = 0; i < this.count; i++) {
       gaps[i] = this.gap(i);
-      items[i] = this.item(i);
+      items[i] = this.itemBuf[(this.head + i) & this.mask]!;
     }
     this.gapBuf = gaps;
     this.itemBuf = items;

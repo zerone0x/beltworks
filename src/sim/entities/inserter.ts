@@ -24,11 +24,12 @@
  *   item closest to the end of the belt's left lane, else its right lane,
  *   within the belt's own tile (`BeltTable.takeAt` from `beltOffset` to
  *   `beltEnd`, which for the belt at a line's start includes items at or
- *   past its start edge);
+ *   past its start edge; on a splitter, the half on that tile);
  * - dropping: the target's `insert` hook (a chest stores it, a furnace puts
  *   ores into its input and fuel into its fuel slot when the input doesn't
  *   take it, a drill or inserter only takes fuel), or the middle of the
- *   belt's far lane (`BeltTable.insertAt`, see `farLane`).
+ *   belt's far lane (`BeltTable.insertAt`, see `farLane`; on a splitter, of
+ *   the half on that tile).
  * Only items the target accepts at all (`accepts` hook) are picked up, so an
  * inserter never holds something its target will never take.
  *
@@ -432,7 +433,7 @@ export abstract class InserterTableBase implements EntityTypeTable {
       return InserterState.WaitingForTarget;
     }
     const item =
-      source !== 0 ? takeFrom(source, (it) => entities.accepts(target, it), entities) : 0;
+      source !== 0 ? takeFrom(source, from, (it) => entities.accepts(target, it), entities) : 0;
     if (item === 0) {
       this.waitOn(id, source, entities);
       return InserterState.WaitingForSource;
@@ -458,7 +459,7 @@ export abstract class InserterTableBase implements EntityTypeTable {
     if (target !== 0 && belts && isBeltType(store.type(target))) {
       const lane = farLane(dir, store.dir(target));
       const pos = belts.beltOffset(target) + BELT_LENGTH / 2;
-      ok = belts.insertAt(belts.beltLine(target), lane, pos, item);
+      ok = belts.insertAt(belts.beltLineAt(target, to.x, to.y), lane, pos, item);
     } else if (target !== 0) {
       ok = entities.insert(target, item, 1) === 1;
     }
@@ -513,10 +514,16 @@ export abstract class InserterTableBase implements EntityTypeTable {
  * lane, else of the right lane, on the belt's own tile (see
  * `BeltTable.beltEnd`).
  */
-function takeFrom(source: number, accept: (item: number) => boolean, entities: Entities): number {
+function takeFrom(
+  source: number,
+  tile: { x: number; y: number },
+  accept: (item: number) => boolean,
+  entities: Entities,
+): number {
   const belts = beltTable(entities);
   if (belts && isBeltType(entities.store.type(source))) {
-    const line = belts.beltLine(source);
+    // A splitter: the half on the pickup tile.
+    const line = belts.beltLineAt(source, tile.x, tile.y);
     const from = belts.beltOffset(source);
     const to = belts.beltEnd(source);
     for (let lane = 0; lane < 2; lane++) {
@@ -595,7 +602,9 @@ export class InserterTable extends InserterTableBase {
   /** Refuelling: with an empty fuel slot, it takes one unit of fuel from its source first. */
   protected override beforePickUp(row: number, id: number, source: number, entities: Entities) {
     if (source !== 0 && this.burner.fuelCount[row] === 0) {
-      const fuel = takeFrom(source, isFuel, entities);
+      const { store } = entities;
+      const tile = inserterPickupTile(store.x(id), store.y(id), store.dir(id), 1);
+      const fuel = takeFrom(source, tile, isFuel, entities);
       if (fuel !== 0) {
         this.burner.insert(row, fuel, 1);
         entities.notify(id);

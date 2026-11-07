@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { ENTITIES, EntityTypeId, type EntityPrototype } from '../../src/data/entities';
 import {
   BELT_SURFACE,
+  SPLITTER_TIER,
   UNDERGROUND_TIER,
   beltSprites,
   shapeSuffix,
@@ -24,6 +25,7 @@ import {
   type AtlasModelIndex,
 } from '../../src/render/sprites';
 import { BeltShape } from '../../src/sim/belts/belts';
+import { SPLITTER_HALF_MODE } from '../../src/sim/belts/splitter';
 import { UndergroundMode } from '../../src/sim/belts/underground';
 import { Direction } from '../../src/sim/entities/direction';
 
@@ -34,6 +36,7 @@ const read = (name: string): AtlasIndex =>
 
 const TIERS = ['transport-belt', 'fast-transport-belt', 'express-transport-belt'];
 const UNDERGROUNDS = ['underground-belt', 'fast-underground-belt', 'express-underground-belt'];
+const SPLITTERS = ['splitter', 'fast-splitter', 'express-splitter'];
 const INSERTERS = [
   EntityTypeId.BurnerInserter,
   EntityTypeId.ElectricInserter,
@@ -46,12 +49,13 @@ describe('the committed logistics atlas (public/sprites/logistics.json)', () => 
   const index = read('logistics');
   const byName = new Map<string, EntityPrototype>(Object.values(ENTITIES).map((p) => [p.name, p]));
 
-  it('has every belt tier and shape, the undergrounds, the inserters and the pole', () => {
+  it('has every belt tier and shape, the undergrounds, the splitters, the inserters and the pole', () => {
     expect(Object.keys(index.models).sort()).toEqual(
       [
         ...SHAPES.map((s) => BELT_SURFACE + s),
         ...TIERS.flatMap((t) => SHAPES.map((s) => t + s)),
         ...UNDERGROUNDS.flatMap((u) => [`${u}:entrance`, `${u}:exit`]),
+        ...SPLITTERS,
         ...INSERTERS.map((t) => ENTITIES[t].name),
         'small-electric-pole',
       ].sort(),
@@ -176,10 +180,29 @@ describe('belt sprites', () => {
       beltSprites(atlas, 'underground-belt', BeltShape.Straight, UndergroundMode.Entrance)!.hood,
     ).toBe(atlas.model('underground-belt:entrance'));
     for (const u of UNDERGROUNDS) expect(TIERS).toContain(UNDERGROUND_TIER[u]);
+    // A splitter's halves: straight belts of its tier, the left one with the gantry.
+    const split = fakeAtlas([BELT_SURFACE, 'fast-transport-belt', 'fast-splitter']);
+    const left = beltSprites(split, 'fast-splitter', BeltShape.Straight, SPLITTER_HALF_MODE)!;
+    expect(left.frame).toBe(split.model('fast-transport-belt'));
+    expect(left.splitter).toBe(split.model('fast-splitter'));
+    expect(left.hood).toBeNull();
+    const right = beltSprites(split, 'fast-splitter', BeltShape.Straight, SPLITTER_HALF_MODE + 1)!;
+    expect(right.splitter).toBeNull();
+    for (const t of SPLITTERS) expect(TIERS).toContain(SPLITTER_TIER[t]);
+    expect(
+      beltSprites(fakeAtlas([BELT_SURFACE, 'transport-belt']), 'splitter', 0, SPLITTER_HALF_MODE),
+    ).toBeNull();
     // Placeholders for anything missing.
     expect(beltSprites(null, 'transport-belt', BeltShape.Straight)).toBeNull();
     expect(beltSprites(atlas, 'wooden-chest', BeltShape.Straight)).toBeNull();
     expect(beltSprites(fakeAtlas(['transport-belt']), 'transport-belt', 0)).toBeNull();
+  });
+
+  it("shows a splitter's ghost as its gantry", () => {
+    const atlas = fakeAtlas([BELT_SURFACE, 'transport-belt', 'splitter']);
+    const proto = ENTITIES[EntityTypeId.Splitter];
+    const frames = ghostFrames(atlas, { proto, x: 0, y: 0, dir: Direction.East, valid: true });
+    expect(frames.map((f) => f.model)).toEqual([atlas.model('splitter')]);
   });
 
   it('shows a belt ghost with its surface and side frames', () => {

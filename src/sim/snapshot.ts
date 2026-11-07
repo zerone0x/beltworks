@@ -6,7 +6,8 @@
 import { SAT_ONE } from '../data/entities';
 import { RECIPE_IDS } from '../data/recipes';
 import { TECH_IDS, recipeUnlockedBy, technologyPrototype } from '../data/technologies';
-import { beltTable } from './belts/belts';
+import { BeltShape, beltTable } from './belts/belts';
+import { SPLITTER_HALF_MODE, splitterHalfTile } from './belts/splitter';
 import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
 import { reaches } from './entities/build';
 import { inserterTableOf } from './entities/inserter';
@@ -195,8 +196,10 @@ export const BELT_ITEM_STRIDE = 4;
  * `mode` an `UndergroundMode`; `offset` the item's distance from the belt's
  * end edge in subtiles, 0..256; `moved` how far it moved on the last tick,
  * for drawing it between ticks). Items under the ground between an
- * underground pair are on no belt and not sent. Belts come in the order of
- * `encodeEntities`.
+ * underground pair are on no belt and not sent. A splitter comes as two
+ * records, one per half (its left half first, see src/sim/belts/splitter.ts),
+ * each on its own tile with `mode` `SPLITTER_HALF_MODE + half`. Belts come
+ * in the order of `encodeEntities`.
  */
 export function encodeBelts(state: SimState, range: ChunkRange | null): Int32Array<ArrayBuffer> {
   const table = beltTable(state.entities);
@@ -208,22 +211,54 @@ export function encodeBelts(state: SimState, range: ChunkRange | null): Int32Arr
   // Walk each line once, picking out the items on the belts in range.
   const items = new Map<number, number[]>();
   const wanted = new Map<number, Map<number, number[]>>();
+  const want = (line: number, index: number, list: number[]) => {
+    let byIndex = wanted.get(line);
+    if (!byIndex) wanted.set(line, (byIndex = new Map<number, number[]>()));
+    byIndex.set(index, list);
+  };
+  /** The items of a splitter's right half (its left half's are in `items`). */
+  const rightHalf = new Map<number, number[]>();
+  let records = 0;
   for (const id of ids) {
     const list: number[] = [];
     items.set(id, list);
-    const line = table.beltLine(id);
-    let byIndex = wanted.get(line);
-    if (!byIndex) wanted.set(line, (byIndex = new Map<number, number[]>()));
-    byIndex.set(table.beltIndex(id), list);
+    records++;
+    if (table.isSplitter(id)) {
+      const [left, right] = table.halfLines(id);
+      const second: number[] = [];
+      rightHalf.set(id, second);
+      want(left.id, 0, list);
+      want(right.id, 0, second);
+      records++;
+      continue;
+    }
+    want(table.beltLine(id), table.beltIndex(id), list);
   }
   for (const [lineId, byIndex] of wanted) {
     table.forEachItem(table.line(lineId)!, (k, lane, offset, moved, item) => {
       byIndex.get(k)?.push(lane, offset, moved, item);
     });
   }
-  const out: number[] = [ids.length];
+  const out: number[] = [records];
   for (const id of ids) {
     const list = items.get(id)!;
+    const second = rightHalf.get(id);
+    if (second) {
+      for (const [half, halfItems] of [list, second].entries()) {
+        const tile = splitterHalfTile(store.x(id), store.y(id), store.dir(id), half);
+        out.push(
+          tile.x,
+          tile.y,
+          store.dir(id),
+          BeltShape.Straight,
+          halfItems.length / BELT_ITEM_STRIDE,
+          store.type(id),
+          SPLITTER_HALF_MODE + half,
+        );
+        for (const v of halfItems) out.push(v);
+      }
+      continue;
+    }
     out.push(
       store.x(id),
       store.y(id),
@@ -246,7 +281,10 @@ export interface BeltData {
   shape: number;
   /** Entity type (its prototype's `beltSpeed` is the tier). */
   type: number;
-  /** `UndergroundMode` (`None` for transport belts). */
+  /**
+   * `UndergroundMode` (`None` for transport belts), or for a splitter
+   * `SPLITTER_HALF_MODE` plus the half (0 left, 1 right).
+   */
   mode: number;
   items: { lane: number; offset: number; moved: number; item: number }[];
 }
