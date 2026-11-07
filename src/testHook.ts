@@ -5,7 +5,7 @@
  * contain it.
  */
 
-import { EntityTypeId } from './data/entities';
+import { isBeltType } from './data/entities';
 import { ITEM_IDS, ITEMS, MAX_STACK_SIZE, type ItemStack } from './data/items';
 import type { BuildInput } from './render/buildInput';
 import { ghostDrillDropTile, ghostInserterTiles } from './render/entityLayer';
@@ -71,6 +71,10 @@ export interface BeltState {
   dir: number;
   /** `BeltShape`: 0 straight, 1 and 2 curves. */
   shape: number;
+  /** Entity type id (its prototype's `beltSpeed` is the tier). */
+  type: number;
+  /** `UndergroundMode`: 0 a transport belt, 1 an entrance, 2 an exit. */
+  mode: number;
   /** Items: lane (0 left, 1 right), distance from the belt's end edge in subtiles, item id. */
   items: { lane: number; offset: number; item: number }[];
 }
@@ -116,6 +120,8 @@ export interface GhostState {
   /** For an inserter: the tiles it would pick up from and drop onto; for a mining drill, the tile it would drop onto. */
   pickup?: { x: number; y: number };
   drop?: { x: number; y: number };
+  /** For an underground belt: the mode it would get, and its partner's tile. */
+  underground?: { mode: number; partner: { x: number; y: number } | null };
 }
 
 export interface BeltworksTestHook {
@@ -309,12 +315,14 @@ export function installTestHook({
         y: b.y,
         dir: b.dir,
         shape: b.shape,
+        type: b.type,
+        mode: b.mode,
         items: b.items.map(({ lane, offset, item }) => ({ lane, offset, item })),
       })),
     inserters: () => view.inserters.data.map((i) => ({ ...i })),
     dropOnBelt: (x, y, item, count = 1) => {
       const entity = view.entityIndex.at(x, y);
-      if (entity?.type !== EntityTypeId.TransportBelt) return false;
+      if (!entity || !isBeltType(entity.type)) return false;
       client.sendCommands([
         { type: 'Insert', playerId: LOCAL_PLAYER_ID, entity: entity.id, item, count },
       ]);
@@ -333,6 +341,7 @@ export function installTestHook({
       if (!g) return null;
       const tiles = ghostInserterTiles(g);
       const drillDrop = ghostDrillDropTile(g);
+      const underground = view.belts.ghostInfo;
       return {
         name: g.proto.name,
         x: g.x,
@@ -341,6 +350,12 @@ export function installTestHook({
         valid: g.valid,
         ...tiles,
         ...(drillDrop ? { drop: drillDrop } : {}),
+        ...(underground && {
+          underground: {
+            mode: underground.mode,
+            partner: underground.partner && { x: underground.partner.x, y: underground.partner.y },
+          },
+        }),
       };
     },
     selectedSlot: () => build.selected,

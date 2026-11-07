@@ -38,6 +38,12 @@ export const ItemId = {
   IronChest: 24,
   FastInserter: 25,
   LongHandedInserter: 26,
+  // Belt tiers and underground belts (M3).
+  FastTransportBelt: 27,
+  ExpressTransportBelt: 28,
+  UndergroundBelt: 29,
+  FastUndergroundBelt: 30,
+  ExpressUndergroundBelt: 31,
 } as const;
 
 export type ItemId = (typeof ItemId)[keyof typeof ItemId];
@@ -263,6 +269,42 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 50,
     color: 0x4f9a4a,
   },
+  // Belt tiers (see src/data/entities.ts); colors match the entities.
+  [ItemId.FastTransportBelt]: {
+    id: ItemId.FastTransportBelt,
+    name: 'fast-transport-belt',
+    label: 'Fast transport belt',
+    stackSize: 100,
+    color: 0xd0473a,
+  },
+  [ItemId.ExpressTransportBelt]: {
+    id: ItemId.ExpressTransportBelt,
+    name: 'express-transport-belt',
+    label: 'Express transport belt',
+    stackSize: 100,
+    color: 0x3a8fd9,
+  },
+  [ItemId.UndergroundBelt]: {
+    id: ItemId.UndergroundBelt,
+    name: 'underground-belt',
+    label: 'Underground belt',
+    stackSize: 50,
+    color: 0xd9b23a,
+  },
+  [ItemId.FastUndergroundBelt]: {
+    id: ItemId.FastUndergroundBelt,
+    name: 'fast-underground-belt',
+    label: 'Fast underground belt',
+    stackSize: 50,
+    color: 0xd0473a,
+  },
+  [ItemId.ExpressUndergroundBelt]: {
+    id: ItemId.ExpressUndergroundBelt,
+    name: 'express-underground-belt',
+    label: 'Express underground belt',
+    stackSize: 50,
+    color: 0x3a8fd9,
+  },
 };
 
 /** Every real item id, in id order. */
@@ -293,6 +335,11 @@ export const ITEM_IDS: readonly RealItemId[] = [
   ItemId.IronChest,
   ItemId.FastInserter,
   ItemId.LongHandedInserter,
+  ItemId.FastTransportBelt,
+  ItemId.ExpressTransportBelt,
+  ItemId.UndergroundBelt,
+  ItemId.FastUndergroundBelt,
+  ItemId.ExpressUndergroundBelt,
 ];
 
 /** The prototype of item `id`, or `undefined` for 0 and unknown ids. */

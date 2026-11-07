@@ -74,6 +74,7 @@ import {
   ENTITIES,
   EntityTypeId,
   inserterReach,
+  isBeltType,
   type EntityPrototype,
   type RealEntityTypeId,
 } from '../../data/entities';
@@ -454,7 +455,7 @@ export abstract class InserterTableBase implements EntityTypeTable {
     const item = this.held[row]!;
     let ok = false;
     const belts = beltTable(entities);
-    if (target !== 0 && belts && store.type(target) === EntityTypeId.TransportBelt) {
+    if (target !== 0 && belts && isBeltType(store.type(target))) {
       const lane = farLane(dir, store.dir(target));
       const pos = belts.beltOffset(target) + BELT_LENGTH / 2;
       ok = belts.insertAt(belts.beltLine(target), lane, pos, item);
@@ -514,7 +515,7 @@ export abstract class InserterTableBase implements EntityTypeTable {
  */
 function takeFrom(source: number, accept: (item: number) => boolean, entities: Entities): number {
   const belts = beltTable(entities);
-  if (belts && entities.store.type(source) === EntityTypeId.TransportBelt) {
+  if (belts && isBeltType(entities.store.type(source))) {
     const line = belts.beltLine(source);
     const from = belts.beltOffset(source);
     const to = belts.beltEnd(source);

@@ -20,6 +20,21 @@
  * behind that point.
  */
 
+/** Where the items reaching the end of a lane can go (see `Lane.move`). */
+export interface LaneOutlet {
+  /**
+   * How close to the end item 0 of `lane` may come right now (0: all the
+   * way). Where the lane hands on to the start of another lane, item 0 has
+   * to stay the spacing behind that lane's last item.
+   */
+  minFront(lane: Lane): number;
+  /**
+   * Tries to hand item 0, at the end of `lane`, on, with `rem` subtiles of
+   * this tick's movement left; returns whether it did (and removed it).
+   */
+  handOn(lane: Lane, rem: number): boolean;
+}
+
 export class Lane {
   private gapBuf: Int32Array;
   private itemBuf: Uint16Array;
@@ -110,6 +125,26 @@ export class Lane {
     return pos >= 0 && this.slotFor(pos) !== null;
   }
 
+  /**
+   * The nearest distance from the end in `[pos, pos + slack]` where an item
+   * fits (the spacing from the items on both sides of it), or -1.
+   */
+  fitNear(pos: number, slack: number): number {
+    if (pos < 0) return -1;
+    const { spacing } = this;
+    let p = pos;
+    let d = 0;
+    for (let i = 0; i < this.count; i++) {
+      d += this.gap(i);
+      if (d + spacing <= p) continue;
+      if (d >= p + spacing) break;
+      // Too close: try right behind this item.
+      p = d + spacing;
+      if (p > pos + slack) return -1;
+    }
+    return p;
+  }
+
   /** Puts `item` at distance `pos` from the end if it fits; returns whether it did. */
   insert(pos: number, item: number): boolean {
     if (pos < 0) return false;
@@ -182,22 +217,36 @@ export class Lane {
   }
 
   /**
-   * Moves the lane by up to `speed`; returns how far its first movable item
-   * went (0 if nothing could move).
+   * Moves the lane by up to `speed`; returns how far its items went in all
+   * (0 if nothing could move).
+   *
+   * With an `outlet`, the first item only comes as close to the end as the
+   * outlet allows (`minFront`), and is offered to it whenever it is at the
+   * end with movement left this tick (at once, if it was already waiting
+   * there): when the outlet takes it (removing it from the lane), the next
+   * item moves on with what is left. So items leave the end of a lane at
+   * exactly `speed / spacing` per tick even where the spacing isn't a
+   * multiple of the speed (the express belt's 24).
    */
-  move(speed: number): number {
+  move(speed: number, outlet: LaneOutlet | null = null): number {
     this.movedAll = 0;
     this.movedFrom = 0;
     this.movedRest = 0;
     if (this.count === 0) return 0;
     let rem = speed;
-    const g0 = this.gap(0);
-    if (g0 > 0) {
-      const a = Math.min(rem, g0);
-      this.setGap(0, g0 - a);
-      this.total -= a;
-      rem -= a;
-      this.movedAll = a;
+    for (;;) {
+      const g0 = this.gap(0);
+      // The outlet's limit is at most the spacing, so it only matters near the end.
+      const floor = outlet !== null && g0 < rem + this.spacing ? outlet.minFront(this) : 0;
+      if (g0 > floor) {
+        const a = Math.min(rem, g0 - floor);
+        this.setGap(0, g0 - a);
+        this.total -= a;
+        rem -= a;
+        this.movedAll += a;
+      }
+      if (rem === 0 || outlet === null || this.gap(0) !== 0 || !outlet.handOn(this, rem)) break;
+      if (this.count === 0) return speed - rem;
     }
     if (rem > 0) {
       const { spacing } = this;

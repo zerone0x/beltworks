@@ -3,7 +3,7 @@
  * typed arrays whose buffers can be transferred to the main thread.
  */
 
-import { EntityTypeId, SAT_ONE } from '../data/entities';
+import { SAT_ONE } from '../data/entities';
 import { RECIPE_IDS } from '../data/recipes';
 import { beltTable } from './belts/belts';
 import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
@@ -180,17 +180,21 @@ export function encodeEntities(state: SimState, range: ChunkRange | null): Int32
 }
 
 /** Int32 fields per belt record in {@link encodeBelts}, before its items. */
-export const BELT_RECORD_HEADER = 5;
+export const BELT_RECORD_HEADER = 7;
 /** Int32 fields per item in {@link encodeBelts}. */
 export const BELT_ITEM_STRIDE = 4;
 
 /**
- * Encodes the belts whose tile lies in the chunks of `range`, with the items
- * on them, as int32s: `[beltCount]`, then per belt `[x, y, dir, shape,
- * itemCount]` followed by `itemCount` records `[lane, offset, moved, item]`
- * (`shape` a `BeltShape`; `offset` the item's distance from the belt's end
- * edge in subtiles, 0..256; `moved` how far it moved on the last tick, for
- * drawing it between ticks). Belts come in the order of `encodeEntities`.
+ * Encodes the belts (every tier, underground belts included) whose tile lies
+ * in the chunks of `range`, with the items on them, as int32s:
+ * `[beltCount]`, then per belt `[x, y, dir, shape, itemCount, type, mode]`
+ * followed by `itemCount` records `[lane, offset, moved, item]` (`shape` a
+ * `BeltShape`; `type` the entity type, whose `beltSpeed` is its tier;
+ * `mode` an `UndergroundMode`; `offset` the item's distance from the belt's
+ * end edge in subtiles, 0..256; `moved` how far it moved on the last tick,
+ * for drawing it between ticks). Items under the ground between an
+ * underground pair are on no belt and not sent. Belts come in the order of
+ * `encodeEntities`.
  */
 export function encodeBelts(state: SimState, range: ChunkRange | null): Int32Array<ArrayBuffer> {
   const table = beltTable(state.entities);
@@ -198,9 +202,7 @@ export function encodeBelts(state: SimState, range: ChunkRange | null): Int32Arr
     return new Int32Array(1);
   }
   const { store, occupancy } = state.entities;
-  const ids = occupancy
-    .originsIn(range)
-    .filter((id) => store.type(id) === EntityTypeId.TransportBelt);
+  const ids = occupancy.originsIn(range).filter((id) => table.isBelt(id));
   // Walk each line once, picking out the items on the belts in range.
   const items = new Map<number, number[]>();
   const wanted = new Map<number, Map<number, number[]>>();
@@ -226,6 +228,8 @@ export function encodeBelts(state: SimState, range: ChunkRange | null): Int32Arr
       store.dir(id),
       table.shape(id),
       list.length / BELT_ITEM_STRIDE,
+      store.type(id),
+      table.mode(id),
     );
     for (const v of list) out.push(v);
   }
@@ -238,6 +242,10 @@ export interface BeltData {
   y: number;
   dir: number;
   shape: number;
+  /** Entity type (its prototype's `beltSpeed` is the tier). */
+  type: number;
+  /** `UndergroundMode` (`None` for transport belts). */
+  mode: number;
   items: { lane: number; offset: number; moved: number; item: number }[];
 }
 
@@ -249,7 +257,15 @@ export function decodeBelts(buffer: ArrayBuffer): BeltData[] {
   const count = v[0] ?? 0;
   for (let b = 0; b < count && o + BELT_RECORD_HEADER <= v.length; b++) {
     const n = v[o + 4]!;
-    const belt: BeltData = { x: v[o]!, y: v[o + 1]!, dir: v[o + 2]!, shape: v[o + 3]!, items: [] };
+    const belt: BeltData = {
+      x: v[o]!,
+      y: v[o + 1]!,
+      dir: v[o + 2]!,
+      shape: v[o + 3]!,
+      type: v[o + 5]!,
+      mode: v[o + 6]!,
+      items: [],
+    };
     o += BELT_RECORD_HEADER;
     for (let i = 0; i < n && o + BELT_ITEM_STRIDE <= v.length; i++, o += BELT_ITEM_STRIDE) {
       belt.items.push({ lane: v[o]!, offset: v[o + 1]!, moved: v[o + 2]!, item: v[o + 3]! });

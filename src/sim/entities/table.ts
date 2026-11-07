@@ -21,6 +21,7 @@
 
 import type { ItemStack } from '../../data/items';
 import type { RealEntityTypeId } from '../../data/entities';
+import type { Direction } from './direction';
 import type { Entities } from './entities';
 import type { MachineState } from './machine';
 
@@ -49,8 +50,15 @@ export interface EntityDetail {
 }
 
 export interface EntityTypeTable {
-  /** The entity type whose rows this table holds. One table per type. */
+  /**
+   * The entity type whose rows this table holds. One table per type, except
+   * that a table can hold several types (`types`): it is then registered for
+   * each of them and hashed once, at this one (the belt table holds every
+   * belt tier, since transport lines run across them).
+   */
   readonly type: RealEntityTypeId;
+  /** Every type the table holds, `type` among them; just `type` when absent. */
+  readonly types?: readonly RealEntityTypeId[];
 
   /**
    * A new entity of this type was placed: add its row. The entity is already
@@ -72,6 +80,12 @@ export interface EntityTypeTable {
 
   /** The entity's direction changed (only for rotatable types). */
   rotated?(id: number, entities: Entities): void;
+
+  /**
+   * The direction a `Rotate` command turns the entity to; a quarter turn
+   * clockwise when absent. (Underground belts reverse instead.)
+   */
+  rotation?(id: number, entities: Entities): Direction;
 
   /**
    * Called on every table, in type id order, after any entity was placed or

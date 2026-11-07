@@ -39,6 +39,8 @@
  *    takes out the first cables, switches it to gears (the copper in it and
  *    in the craft under way comes back) and back to cable, and refills it,
  *    plus recipe commands that must be ignored.
+ *    Then it lays a belt line through an underground belt pair onto fast
+ *    belts and drops coal on it, and reverses the pair and back.
  *    Meanwhile the players hand-craft from the plates, wood and stone of
  *    `DETERMINISM_KIT`: crafts with auto-queued intermediates, crafts cut
  *    short by missing items, and cancels (of a craft, of an intermediate in
@@ -70,11 +72,11 @@ export const DETERMINISM_SCRIPTED_TICKS = 1_000;
 
 const AXES: readonly Axis[] = [-1, 0, 1];
 /** Random `Place` and `Insert` commands use item ids in `[0, ITEM_ID_SPAN)` (the last two unknown). */
-const ITEM_ID_SPAN = 29;
+const ITEM_ID_SPAN = 34;
 /** Random `Insert` and `Take` commands target entity ids in `[0, ENTITY_ID_SPAN)`. */
 const ENTITY_ID_SPAN = 16;
 /** Random `Craft` and `SetRecipe` commands use recipe ids in `[0, RECIPE_ID_SPAN)` (the last one unknown). */
-const RECIPE_ID_SPAN = 23;
+const RECIPE_ID_SPAN = 28;
 /** Random `SetRecipe` commands target entity ids in `[0, RECIPE_ENTITY_SPAN)` (the assembler included). */
 const RECIPE_ENTITY_SPAN = 48;
 
@@ -92,6 +94,8 @@ export const DETERMINISM_KIT: readonly ItemStack[] = [
   { item: ItemId.IronChest, count: 3 },
   { item: ItemId.FastInserter, count: 1 },
   { item: ItemId.LongHandedInserter, count: 1 },
+  { item: ItemId.UndergroundBelt, count: 2 },
+  { item: ItemId.FastTransportBelt, count: 2 },
 ];
 
 interface Walker {
@@ -549,6 +553,57 @@ function assemblerPhase(x: number, y: number): Command[] {
   ];
 }
 
+/** Tick player 2 lays its underground belt line (after player 1's logistics rig, so those ids stay put). */
+export const DETERMINISM_TIER_TICK = 940;
+/** Entity ids of that line, in placement order. */
+export const DETERMINISM_TIER_BELT = 45;
+export const DETERMINISM_TIER_ENTRANCE = 46;
+export const DETERMINISM_TIER_EXIT = 47;
+export const DETERMINISM_TIER_FAST = 48;
+/** Row of that line, relative to `DETERMINISM_CHAIN` (clear of the chain and the rig). */
+export const DETERMINISM_TIER_ROW = 8;
+
+/**
+ * Player 2's belt line on row `DETERMINISM_TIER_ROW` below its chain, running
+ * east: a transport belt, an underground entrance and its exit two tiles
+ * further on (placed facing east, the second one becomes the exit), then two
+ * fast belts (a tier boundary). It drops coal on the first belt, which runs
+ * under the ground onto the fast belts; later it reverses the pair (a
+ * `Rotate` on the exit) and turns it back.
+ */
+function beltTierPhase(): Command[] {
+  const p = { playerId: 2 };
+  const t = DETERMINISM_TIER_TICK;
+  const { x, y } = DETERMINISM_CHAIN;
+  const row = y + DETERMINISM_TIER_ROW;
+  const place = (item: number, dx: number): Command => ({
+    ...p,
+    tick: t,
+    type: 'Place',
+    item,
+    x: x + dx,
+    y: row,
+    dir: Direction.East,
+  });
+  return [
+    place(ItemId.TransportBelt, 1),
+    place(ItemId.UndergroundBelt, 2),
+    place(ItemId.UndergroundBelt, 5),
+    place(ItemId.FastTransportBelt, 6),
+    place(ItemId.FastTransportBelt, 7),
+    {
+      ...p,
+      tick: t + 1,
+      type: 'Insert',
+      entity: DETERMINISM_TIER_BELT,
+      item: ItemId.Coal,
+      count: 2,
+    },
+    { ...p, tick: t + 30, type: 'Rotate', x: x + 5, y: row },
+    { ...p, tick: t + 31, type: 'Rotate', x: x + 5, y: row },
+  ];
+}
+
 /**
  * Hand-crafting while the players walk and mine (it only uses
  * `DETERMINISM_KIT` items, so the mined ore stays untouched).
@@ -645,6 +700,7 @@ function scriptedPhase(): Command[] {
     ...craftPhase(),
     ...chainPhase(),
     ...electricPhase(),
+    ...beltTierPhase(),
   ];
   const patches = startingPatches(DETERMINISM_SEED);
   for (let id = 0; id < DETERMINISM_PLAYERS; id++) {

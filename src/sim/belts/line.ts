@@ -26,6 +26,9 @@ export class LineLane extends Lane {
   ) {
     super(spacing);
   }
+
+  /** The belt system's tick on which the lane last moved or handed an item on. */
+  changedAt = -2;
 }
 
 export class TransportLine {
@@ -43,6 +46,12 @@ export class TransportLine {
   outLane = -1;
   /** Distance from the end of `out` at which they enter it. */
   outPos = 0;
+  /**
+   * The only lane of this line that hands items on, or -1 for both: a line
+   * side-loading an underground belt only gets the lane on the belt's open
+   * half through (the other one is up against the hood).
+   */
+  outOnly = -1;
   /** Lines whose end feeds this one (their `out` is this line). */
   readonly feeders: TransportLine[] = [];
   /** Side-loading: the lane whose turn it is to move onto `out` when both are waiting. */
@@ -59,9 +68,16 @@ export class TransportLine {
   constructor(
     /** Line ids are handed out in increasing order and never reused. */
     readonly id: number,
-    /** Entity ids of the belts, from the one at the end of the line (index 0) back to its start. */
+    /**
+     * Entity ids of the belts, from the one at the end of the line (index 0)
+     * back to its start. The tiles an underground belt pair passes under are
+     * entries of 0 between the exit and its entrance: they count as belt
+     * length, but no belt is there.
+     */
     readonly belts: readonly number[],
     spacing: number,
+    /** How far items move per tick, in subtiles: the tier of every belt on the line. */
+    readonly speed: number,
   ) {
     this.lanes = [
       new LineLane(this, BeltLane.Left, spacing),

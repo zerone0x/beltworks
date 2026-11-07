@@ -51,7 +51,8 @@ Power comes before production chains because assemblers and labs are electric ([
 - [ ] Item and recipe tables (~30 items) with a craftability test
 - [ ] Tech tree UI and research progress
 - [ ] Red and green science
-- [ ] Underground belts, splitters, belt tiers
+- [x] Belt tiers (fast, express) and underground belts
+- [ ] Splitters
 - [ ] Iron chest and the other inserter types (fast, long-handed; the electric inserter comes with M2)
 
 **Done when:** you can go from nothing to automated red and green science and finish researching it.
