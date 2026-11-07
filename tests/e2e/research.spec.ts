@@ -8,11 +8,14 @@
  * D29), so nothing has to be crafted first.
  *
  * Automation is 10 units of 10 s; four labs research four units at once, so
- * it takes three rounds (30 s of game time).
+ * it takes three rounds (30 s of game time). Once the labs are fed, the
+ * simulation runs faster while the test watches (`setTimeScale`,
+ * docs/DECISIONS.md, D42).
  */
 
 import { expect, test, type Page } from '@playwright/test';
 import { MachineState } from '../../src/sim/entities/machine';
+import { setTimeScale } from './timeScale';
 
 /** The test kit, in hotbar order. */
 const KIT =
@@ -61,7 +64,7 @@ const research = (page: Page) => page.evaluate(() => window.__beltworks!.researc
 test('labs fed by hand research automation, which unlocks the assembling machine', async ({
   page,
 }, testInfo) => {
-  test.setTimeout(150_000);
+  test.setTimeout(120_000);
   const errors = collectErrors(page);
   await page.goto(`./?kit=${KIT}`);
   await page.waitForFunction(() => window.__beltworks?.player() != null);
@@ -152,8 +155,10 @@ test('labs fed by hand research automation, which unlocks the assembling machine
     (await page.evaluate(() => window.__beltworks!.entities())).filter((e) => e.name === 'lab');
   expect((await labs()).map((l) => l.status)).toEqual(Array(4).fill(MachineState.Working));
 
-  // Progress shows in the tree while the labs work.
+  // Progress shows in the tree while the labs work (at 4× speed, so the
+  // screenshot still catches them halfway).
   await page.keyboard.press('t');
+  await setTimeScale(page, 4);
   await expect
     .poll(async () => Number(await automation.getAttribute('data-progress')), { timeout: 30_000 })
     .toBeGreaterThan(20);
@@ -164,10 +169,12 @@ test('labs fed by hand research automation, which unlocks the assembling machine
     contentType: 'image/png',
   });
 
-  // Three rounds of 10 s: researched, and nothing is being researched any more.
+  // Three rounds of 10 s (at 8× speed): researched, and nothing is being researched any more.
+  await setTimeScale(page, 8);
   await expect
-    .poll(async () => (await research(page)).techs.automation, { timeout: 90_000 })
+    .poll(async () => (await research(page)).techs.automation, { timeout: 30_000 })
     .toEqual({ unitsDone: 10, researched: true });
+  await setTimeScale(page, 1);
   await expect(automation).toHaveAttribute('data-state', 'researched');
   await expect(tree.locator('.tech[data-tech="electronics"]')).toHaveAttribute(
     'data-state',

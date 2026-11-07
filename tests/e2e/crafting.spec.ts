@@ -5,6 +5,7 @@ import { STARTING_KIT } from '../../src/data/start';
 import { SUBTILES_PER_TILE } from '../../src/sim/fixed';
 import { inMiningReach } from '../../src/sim/player';
 import { startingPatches } from '../../src/sim/world/generate';
+import { fastForward } from './timeScale';
 import { player, walkNear } from './walk';
 
 /** Seed used by src/main.ts. */
@@ -77,12 +78,15 @@ test('mine stone, craft stone furnaces from it, and cancel the rest from the que
     ([x, y]) => window.__beltworks!.tileToScreen(x!, y!),
     [tile!.x, tile!.y],
   );
+  // The player stands still while mining, so the simulation runs at 8× speed
+  // meanwhile (`setTimeScale`, docs/DECISIONS.md, D42); the crafting below
+  // runs at normal speed again.
   await page.mouse.move(at.x, at.y);
   await page.mouse.down({ button: 'right' });
   await expect.poll(async () => (await player(page)).mining).toBe(true);
-  await expect
-    .poll(() => countOf(page, ItemId.Stone), { timeout: 40_000 })
-    .toBeGreaterThanOrEqual(50);
+  await fastForward(page, 8, () =>
+    expect.poll(() => countOf(page, ItemId.Stone), { timeout: 20_000 }).toBeGreaterThanOrEqual(50),
+  );
   await page.mouse.up({ button: 'right' });
   await expect.poll(async () => (await player(page)).mining).toBe(false);
   const stone = await countOf(page, ItemId.Stone);
