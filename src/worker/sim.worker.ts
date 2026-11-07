@@ -218,11 +218,11 @@ async function handle(msg: MainToWorker): Promise<void> {
       }
       start(
         loaded ??
-        new Sim({
-          seed: msg.seed,
-          ...(startingKit && { startingKit }),
-          ...(researched && { researched }),
-        }),
+          new Sim({
+            seed: msg.seed,
+            ...(startingKit && { startingKit }),
+            ...(researched && { researched }),
+          }),
       );
       if (msg.save) {
         post({ type: 'loaded', meta: loaded && saveMetaOf(loaded), error: loadError });

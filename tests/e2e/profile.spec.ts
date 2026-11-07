@@ -37,3 +37,19 @@ test('the render profile runs on the scripted factory', async ({ page }) => {
   expect(sprites.belts).toBeLessThan(still!.belts);
   expect(errors).toEqual([]);
 });
+
+test('a render scene starts at once even when there are saves (no start screen)', async ({
+  page,
+}) => {
+  await page.goto('./');
+  await page.waitForFunction(() => window.__beltworks !== undefined);
+  await expect.poll(() => page.evaluate(() => window.__beltworks!.latestTick())).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__beltworks!.autosave())).toBe('autosave-1');
+  // A plain reload would offer the save; a scene URL skips that and shows the scene.
+  await page.goto('./?scene=grid-1k');
+  await page.waitForFunction(() => window.__beltworks !== undefined);
+  await expect(page.locator('#start-screen')).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => window.__beltworks!.entities().length))
+    .toBeGreaterThan(500);
+});
