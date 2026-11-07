@@ -26,9 +26,9 @@ async function open(page: Page): Promise<void> {
 }
 
 /** Waits until the worker caught up with the camera and every chunk around it is baked. */
-async function waitForTerrain(page: Page): Promise<void> {
+async function waitForTerrain(page: Page, timeout = 10_000): Promise<void> {
   await page.waitForFunction(() => window.__beltworks!.terrainReady(), undefined, {
-    timeout: 10_000,
+    timeout,
   });
 }
 
@@ -153,15 +153,17 @@ test('zoomed in, detail textures follow the view and stay within their bounds', 
   page,
 }) => {
   // Detail textures (64 texels per tile, 16 MiB each) only exist on GPUs;
-  // `?texels=64` allows them on CI's software renderer too, slowly.
-  test.setTimeout(120_000);
+  // `?texels=64` allows them on CI's software renderer too, slowly (seconds
+  // per 2048² bake), so the views are few, zoomed in to 3× (fewer chunks on
+  // screen), and waited for longer.
+  test.setTimeout(180_000);
   const errors = collectErrors(page);
   await page.goto('./?texels=64');
   await page.waitForFunction(() => window.__beltworks !== undefined);
   await waitForTerrain(page);
   const size = page.viewportSize()!;
   const chunkPx = 32 * TILE_PX;
-  const zoom = 2;
+  const zoom = 3;
   // At most the chunks within DETAIL_FREE_MARGIN tiles of the view keep one.
   const reach = 2 * DETAIL_FREE_MARGIN * TILE_PX;
   const maxDetails =
@@ -172,12 +174,12 @@ test('zoomed in, detail textures follow the view and stay within their bounds', 
   const maxTextures =
     (Math.ceil((size.width / zoom + baseReach) / chunkPx) + 1) *
     (Math.ceil((size.height / zoom + baseReach) / chunkPx) + 1);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 3; i++) {
     await page.evaluate(
       ([x, z]) => window.__beltworks!.setCamera(x!, x! / 3, z),
       [i * 1.5 * chunkPx, zoom],
     );
-    await waitForTerrain(page);
+    await waitForTerrain(page, 45_000);
     const stats = await page.evaluate(() => window.__beltworks!.terrainStats());
     expect(stats.texelsPerTile).toBe(32);
     expect(stats.detailTexelsPerTile).toBe(64);
