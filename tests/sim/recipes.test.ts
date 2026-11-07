@@ -107,7 +107,7 @@ describe('recipe prototypes', () => {
       ticks: 30,
     });
     expect(HAND_RECIPES.map((r) => r.id)).toEqual([
-      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
     ]);
   });
 
@@ -231,7 +231,14 @@ describe('recipe prototypes', () => {
       }
     }
     // Copper cable comes in twos: circuits and poles need it crafted first.
-    expect(notAutoQueued).toEqual([ItemId.CopperCable]);
+    // So do transport belts (for fast belts and underground belts) and
+    // underground belts (for the next tier's).
+    expect(notAutoQueued).toEqual([
+      ItemId.CopperCable,
+      ItemId.TransportBelt,
+      ItemId.UndergroundBelt,
+      ItemId.FastUndergroundBelt,
+    ]);
     expect(intermediateRecipeFor(ItemId.ElectronicCircuit)?.id).toBe(RecipeId.ElectronicCircuit);
     expect(handRecipeFor(ItemId.IronGearWheel)?.id).toBe(RecipeId.IronGearWheel);
     // Plates are smelted, not hand-crafted.

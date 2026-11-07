@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { EntityTypeId } from '../../src/data/entities';
 import { ItemId } from '../../src/data/items';
 import { beltPoint, laneLateral, progressOf } from '../../src/render/beltPath';
 import { BeltShape, beltTable } from '../../src/sim/belts/belts';
 import { BeltLane } from '../../src/sim/belts/line';
+import { UndergroundMode } from '../../src/sim/belts/underground';
 import { BuildResult, placeEntity } from '../../src/sim/entities/build';
 import { Direction } from '../../src/sim/entities/direction';
 import { tileCenter } from '../../src/sim/fixed';
@@ -78,6 +80,8 @@ describe('encodeBelts', () => {
       y: 0,
       dir: South,
       shape: BeltShape.CurveFromRight,
+      type: EntityTypeId.TransportBelt,
+      mode: UndergroundMode.None,
       items: [{ lane: BeltLane.Right, offset: 120, moved: 8, item: ItemId.Coal }],
     });
     expect(all.find((b) => b.x === 2)).toMatchObject({

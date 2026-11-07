@@ -4,8 +4,14 @@
  * arrive, so only lines around the viewport are drawn.
  *
  * Straight belts are tiling sprites of a placeholder texture that scrolls
- * with the tick (8 subtiles a tick, like the items); curves are drawn as
- * arcs with bars sweeping around them. Items are drawn every frame between
+ * with the tick (at the belt's speed, like the items: 8, 16 or 24 subtiles a
+ * tick), with rails in the tier color (yellow, red, blue); curves are drawn
+ * as arcs with bars sweeping around them. Underground belts are straight
+ * belts with a hood over their closed half (an entrance's front half, an
+ * exit's rear half), which hides the items there; items under the ground
+ * aren't in the snapshot at all. While an underground belt is held, the
+ * overlay shows the tiles its partner can be on and the partner it would get
+ * (`undergroundGhost`, with the simulation's own pairing rule). Items are drawn every frame between
  * the last tick's position and the current one: each record says how far the
  * item moved on the tick, so an item is drawn `moved * (1 - α)` behind where
  * it is, with `α` the fraction of a tick since the snapshot arrived. Items
@@ -13,9 +19,17 @@
  */
 
 import { Container, Graphics, Sprite, Texture, TilingSprite } from 'pixi.js';
-import { ENTITIES, EntityTypeId } from '../data/entities';
+import { ENTITIES, EntityTypeId, entityPrototype, type EntityPrototype } from '../data/entities';
 import { BELT_SPEED, BeltShape } from '../sim/belts/belts';
 import { BELT_LENGTH } from '../sim/belts/line';
+import {
+  UndergroundMode,
+  findPartner,
+  placedMode,
+  type PartnerTile,
+  type UndergroundInfo,
+} from '../sim/belts/underground';
+import type { Direction } from '../sim/entities/direction';
 import { decodeBelts, type BeltData } from '../sim/snapshot';
 import { TICKS_PER_SECOND } from '../worker/protocol';
 import { beltPoint, laneLateral, progressOf } from './beltPath';
@@ -28,12 +42,35 @@ const BELT_BAR = 0x84878f;
 const BELT_RAIL = ENTITIES[EntityTypeId.TransportBelt].color;
 /** Bars per tile on the belt texture. */
 const BARS = 2;
+const HOOD = 0x3a3c42;
+/** Overlay of a held underground belt: the tiles its partner can be on, and the partner. */
+const REACH_COLOR = 0xf2f2f2;
+const PARTNER_COLOR = 0x5ad15a;
 
-/** Pixels the belt surface moves per tick. */
-const PX_PER_TICK = (BELT_SPEED / BELT_LENGTH) * TILE_PX;
+/** Belt speed and rail color of a belt type (the tier); yellow for unknown types. */
+function tierOf(type: number): { speed: number; rail: number } {
+  const proto = entityPrototype(type);
+  return { speed: proto?.beltSpeed ?? BELT_SPEED, rail: proto?.color ?? BELT_RAIL };
+}
+
+/** Point `(u, v)` of a north-facing tile (0..1 from its top-left corner), turned to face `dir`. */
+function turn(dir: number, u: number, v: number): [number, number] {
+  for (let i = 0; i < (dir & 3); i++) {
+    const nu = 1 - v;
+    v = u;
+    u = nu;
+  }
+  return [u, v];
+}
+
+/** The underground ghost the overlay shows: the mode it would get and its partner, if any. */
+export interface UndergroundGhost {
+  mode: UndergroundMode;
+  partner: PartnerTile | null;
+}
 
 /** The placeholder belt texture, one tile facing north: rails and bars across the belt. */
-function makeBeltTexture(): Texture {
+function makeBeltTexture(rail: number): Texture {
   const canvas = document.createElement('canvas');
   canvas.width = TILE_PX;
   canvas.height = TILE_PX;
@@ -51,7 +88,7 @@ function makeBeltTexture(): Texture {
       ctx.fillRect(x, Math.round(y + dy - 1.5), 1, 3);
     }
   }
-  ctx.fillStyle = hex(BELT_RAIL);
+  ctx.fillStyle = hex(rail);
   ctx.fillRect(0, 0, 3, TILE_PX);
   ctx.fillRect(TILE_PX - 3, 0, 3, TILE_PX);
   const texture = Texture.from(canvas);
@@ -64,24 +101,107 @@ export class BeltLayer {
   readonly container = new Container({ label: 'belts' });
   /** Items on belts, above the belts and below buildings. */
   readonly itemContainer = new Container({ label: 'belt-items' });
+  /** The overlay of a held underground belt (above the players, with the ghost). */
+  readonly overlayContainer = new Container({ label: 'underground-overlay' });
   private readonly straight: TilingSprite[] = [];
   private readonly curves = new Graphics({ label: 'belt-curves' });
+  private readonly hoods = new Graphics({ label: 'underground-hoods' });
+  private readonly overlay = new Graphics({ label: 'underground-reach' });
   /** Item icon sprites, reused from frame to frame. */
   private readonly items: Sprite[] = [];
-  private texture: Texture | null = null;
+  /** Belt textures by rail color (one per tier). */
+  private readonly textures = new Map<number, Texture>();
   private belts: BeltData[] = [];
+  /** Undergrounds of the latest snapshot by tile, built when first needed. */
+  private undergrounds: Map<string, UndergroundInfo> | null = null;
+  private overlayKey = '';
+  /** What the overlay shows for the held underground belt, or `null`. */
+  ghostInfo: UndergroundGhost | null = null;
   private tick = 0;
   private receivedAt = 0;
 
   constructor() {
     this.container.addChild(this.curves);
+    this.overlayContainer.addChild(this.overlay);
   }
 
   /** Takes the belts of a snapshot of tick `tick`, received at `nowMs`. */
   apply(buffer: ArrayBuffer, tick: number, nowMs: number): void {
     this.belts = decodeBelts(buffer);
+    this.undergrounds = null;
     this.tick = tick;
     this.receivedAt = nowMs;
+  }
+
+  /** The underground belt on tile `(x, y)` in the latest snapshot, as the pairing sees it. */
+  private readonly lookup = (x: number, y: number): UndergroundInfo | null => {
+    if (!this.undergrounds) {
+      this.undergrounds = new Map();
+      for (const b of this.belts) {
+        if (b.mode === UndergroundMode.None) continue;
+        const info = { speed: tierOf(b.type).speed, dir: b.dir as Direction, mode: b.mode };
+        this.undergrounds.set(`${String(b.x)},${String(b.y)}`, info as UndergroundInfo);
+      }
+    }
+    return this.undergrounds.get(`${String(x)},${String(y)}`) ?? null;
+  };
+
+  /**
+   * What an underground belt of `proto` placed facing `dir` on `(x, y)`
+   * would be, judged from the latest snapshot: an entrance or an exit, and
+   * its partner. `null` for other prototypes.
+   */
+  undergroundGhost(
+    proto: EntityPrototype,
+    x: number,
+    y: number,
+    dir: Direction,
+  ): UndergroundGhost | null {
+    const gap = proto.undergroundMaxGap;
+    if (gap === undefined) return null;
+    const speed = proto.beltSpeed ?? 0;
+    const mode = placedMode(this.lookup, x, y, dir, speed, gap);
+    return { mode, partner: findPartner(this.lookup, x, y, dir, mode, speed, gap) };
+  }
+
+  /**
+   * Shows, for a held underground belt (`proto` at `(x, y)` facing `dir`;
+   * `null` for anything else), the tiles its partner can be on (in front of
+   * an entrance, behind an exit), the partner it would get, and a hood on
+   * its closed half.
+   */
+  drawOverlay(
+    ghost: { proto: EntityPrototype; x: number; y: number; dir: Direction } | null,
+  ): void {
+    const info = ghost ? this.undergroundGhost(ghost.proto, ghost.x, ghost.y, ghost.dir) : null;
+    this.ghostInfo = info;
+    const key =
+      ghost && info
+        ? `${String(ghost.proto.id)}:${String(ghost.x)}:${String(ghost.y)}:${String(ghost.dir)}:${String(info.mode)}:${String(info.partner?.x)}:${String(info.partner?.y)}`
+        : '';
+    if (key === this.overlayKey) return;
+    this.overlayKey = key;
+    const g = this.overlay;
+    g.clear();
+    if (!ghost || !info) return;
+    const gap = ghost.proto.undergroundMaxGap!;
+    const step = info.mode === UndergroundMode.Entrance ? ghost.dir : (ghost.dir + 2) & 3;
+    const dx = [0, 1, 0, -1][step]!;
+    const dy = [-1, 0, 1, 0][step]!;
+    for (let k = 1; k <= gap + 1; k++) {
+      const tx = ghost.x + k * dx;
+      const ty = ghost.y + k * dy;
+      g.rect(tx * TILE_PX + 3, ty * TILE_PX + 3, TILE_PX - 6, TILE_PX - 6)
+        .fill({ color: REACH_COLOR, alpha: 0.12 })
+        .stroke({ width: 1, color: REACH_COLOR, alpha: 0.45 });
+    }
+    if (info.partner) {
+      const { x, y } = info.partner;
+      g.rect(x * TILE_PX + 1, y * TILE_PX + 1, TILE_PX - 2, TILE_PX - 2)
+        .fill({ color: PARTNER_COLOR, alpha: 0.25 })
+        .stroke({ width: 3, color: PARTNER_COLOR, alpha: 0.95 });
+    }
+    drawHood(g, ghost.x, ghost.y, ghost.dir, info.mode, ghost.proto.color, 0.7);
   }
 
   /** The belts of the latest snapshot. */
@@ -92,32 +212,47 @@ export class BeltLayer {
   /** Redraws belts and items for time `nowMs`. */
   draw(nowMs: number): void {
     const alpha = Math.min(1, Math.max(0, (nowMs - this.receivedAt) / TICK_MS));
-    const phase = (this.tick + alpha) * PX_PER_TICK;
-    this.texture ??= makeBeltTexture();
+    // Belt surface travelled since tick 0, in tiles per subtile/tick of speed.
+    const ticks = this.tick + alpha;
 
     let used = 0;
     const curves = this.curves;
+    const hoods = this.hoods;
     curves.clear();
+    hoods.clear();
     for (const belt of this.belts) {
+      const { speed, rail } = tierOf(belt.type);
+      const phase = (ticks * speed * TILE_PX) / BELT_LENGTH;
       if (belt.shape === BeltShape.Straight) {
+        let texture = this.textures.get(rail);
+        if (!texture) {
+          texture = makeBeltTexture(rail);
+          this.textures.set(rail, texture);
+        }
         let sprite = this.straight[used];
         if (!sprite) {
-          sprite = new TilingSprite({ texture: this.texture, width: TILE_PX, height: TILE_PX });
+          sprite = new TilingSprite({ texture, width: TILE_PX, height: TILE_PX });
           sprite.anchor.set(0.5);
           this.straight.push(sprite);
           this.container.addChild(sprite);
         }
         used++;
+        sprite.texture = texture;
         sprite.visible = true;
         sprite.position.set((belt.x + 0.5) * TILE_PX, (belt.y + 0.5) * TILE_PX);
         sprite.rotation = ((belt.dir & 3) * Math.PI) / 2;
         // The surface moves towards the belt's front (up in the texture).
         sprite.tilePosition.y = -(phase % TILE_PX);
+        if (belt.mode !== UndergroundMode.None) {
+          drawHood(hoods, belt.x, belt.y, belt.dir, belt.mode, rail, 1);
+        }
       } else {
-        drawCurve(curves, belt, phase / TILE_PX);
+        drawCurve(curves, belt, phase / TILE_PX, rail);
       }
     }
     for (let i = used; i < this.straight.length; i++) this.straight[i]!.visible = false;
+    // Hoods above every belt sprite.
+    this.container.addChild(hoods);
 
     // Item icons (src/render/itemIcons.ts) at one texel per world pixel,
     // about 0.4 tile: bigger than the quarter-tile spacing of packed items,
@@ -132,6 +267,7 @@ export class BeltLayer {
       for (const i of order) {
         const it = belt.items[i]!;
         const offset = it.offset + it.moved * (1 - alpha);
+        if (hidden(belt.mode, offset)) continue;
         const p = beltPoint(
           belt.dir,
           belt.shape,
@@ -157,12 +293,62 @@ export class BeltLayer {
   destroy(): void {
     this.container.destroy({ children: true });
     this.itemContainer.destroy({ children: true });
-    this.texture?.destroy(true);
+    this.overlayContainer.destroy({ children: true });
+    for (const texture of this.textures.values()) texture.destroy(true);
   }
 }
 
+/** Whether an item `offset` subtiles from the end edge of an underground in `mode` is under its hood. */
+function hidden(mode: number, offset: number): boolean {
+  if (mode === UndergroundMode.Entrance) return offset < BELT_LENGTH / 2;
+  if (mode === UndergroundMode.Exit) return offset > BELT_LENGTH / 2;
+  return false;
+}
+
+/**
+ * The hood of an underground belt on `(x, y)` facing `dir`: over its front
+ * half for an entrance (items go down there), its rear half for an exit
+ * (they come up there), with a band in the tier color along the opening.
+ */
+function drawHood(
+  g: Graphics,
+  x: number,
+  y: number,
+  dir: number,
+  mode: number,
+  rail: number,
+  alpha: number,
+): void {
+  // Facing north: an entrance's hood covers v in [0, 0.5], an exit's [0.5, 1].
+  const [v0, v1, edge] = mode === UndergroundMode.Entrance ? [0.04, 0.5, 0.5] : [0.5, 0.96, 0.5];
+  const poly = (corners: [number, number][]): number[] =>
+    corners.flatMap(([u, v]) => {
+      const [tu, tv] = turn(dir, u, v);
+      return [(x + tu) * TILE_PX, (y + tv) * TILE_PX];
+    });
+  g.poly(
+    poly([
+      [0.04, v0],
+      [0.96, v0],
+      [0.96, v1],
+      [0.04, v1],
+    ]),
+  )
+    .fill({ color: HOOD, alpha })
+    .stroke({ width: 2, color: rail, alpha });
+  const band = mode === UndergroundMode.Entrance ? [edge - 0.1, edge] : [edge, edge + 0.1];
+  g.poly(
+    poly([
+      [0.04, band[0]!],
+      [0.96, band[0]!],
+      [0.96, band[1]!],
+      [0.04, band[1]!],
+    ]),
+  ).fill({ color: rail, alpha });
+}
+
 /** A curved belt: base, rails along both arcs, and bars that sweep around at the belt's speed. */
-function drawCurve(g: Graphics, belt: BeltData, phaseTiles: number): void {
+function drawCurve(g: Graphics, belt: BeltData, phaseTiles: number, rail: number): void {
   const at = (lateral: number, t: number): [number, number] => {
     const p = beltPoint(belt.dir, belt.shape, lateral, t);
     return [(belt.x + p.x) * TILE_PX, (belt.y + p.y) * TILE_PX];
@@ -181,8 +367,8 @@ function drawCurve(g: Graphics, belt: BeltData, phaseTiles: number): void {
     g.moveTo(x0, y0).lineTo(x1, y1).lineTo(x2, y2).stroke({ width: 3, color: BELT_BAR });
   }
   for (const lateral of [-0.45, 0.45]) {
-    const rail: number[] = [];
-    for (let i = 0; i <= STEPS; i++) rail.push(...at(lateral, i / STEPS));
-    g.poly(rail, false).stroke({ width: 3, color: BELT_RAIL });
+    const points: number[] = [];
+    for (let i = 0; i <= STEPS; i++) points.push(...at(lateral, i / STEPS));
+    g.poly(points, false).stroke({ width: 3, color: rail });
   }
 }

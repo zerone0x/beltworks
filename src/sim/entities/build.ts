@@ -11,7 +11,7 @@ import { entityForItem, entityPrototype } from '../../data/entities';
 import type { ItemStack } from '../../data/items';
 import { isBuildable } from '../../data/tiles';
 import type { SimState } from '../state';
-import { isDirection, rotateClockwise, Direction } from './direction';
+import { isDirection, Direction } from './direction';
 import { Placement, checkPlacement, inBuildReach, type PlacementView } from './placement';
 
 /** Outcome of a build command. */
@@ -123,7 +123,9 @@ export function removeEntity(state: SimState, playerId: number, x: number, y: nu
 }
 
 /**
- * Turns the entity covering tile `(x, y)` a quarter turn clockwise. Entities
+ * Turns the entity covering tile `(x, y)` a quarter turn clockwise (or the
+ * way its table says, see `Entities.rotation`: underground belts reverse,
+ * together with their partner). Entities
  * whose footprint isn't square must have room for the turned footprint.
  */
 export function rotateEntity(state: SimState, playerId: number, x: number, y: number): BuildResult {
@@ -139,7 +141,7 @@ export function rotateEntity(state: SimState, playerId: number, x: number, y: nu
   if (!reaches(state, playerId, id)) {
     return BuildResult.OutOfReach;
   }
-  const dir = rotateClockwise(entities.store.dir(id));
+  const dir = entities.rotation(id);
   if (proto.width !== proto.height) {
     const { players } = state;
     const { x: ex, y: ey } = entities.footprint(id);

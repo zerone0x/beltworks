@@ -42,6 +42,12 @@ export const RecipeId = {
   IronChest: 19,
   FastInserter: 20,
   LongHandedInserter: 21,
+  // Hand recipes for belt tiers and underground belts (M3).
+  FastTransportBelt: 22,
+  ExpressTransportBelt: 23,
+  UndergroundBelt: 24,
+  FastUndergroundBelt: 25,
+  ExpressUndergroundBelt: 26,
 } as const;
 
 export type RecipeId = (typeof RecipeId)[keyof typeof RecipeId];
@@ -268,6 +274,58 @@ export const RECIPES: Readonly<Record<RealRecipeId, Recipe>> = {
     ticks: 30,
     category: 'hand',
   },
+  // Belt tiers: no lubricant in v1. Undergrounds come in pairs (an entrance
+  // and an exit), so their recipes make two and are never auto-queued.
+  [RecipeId.FastTransportBelt]: {
+    id: RecipeId.FastTransportBelt,
+    inputs: [
+      [ItemId.TransportBelt, 1],
+      [ItemId.IronGearWheel, 5],
+    ],
+    outputs: [[ItemId.FastTransportBelt, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
+  [RecipeId.ExpressTransportBelt]: {
+    id: RecipeId.ExpressTransportBelt,
+    inputs: [
+      [ItemId.FastTransportBelt, 1],
+      [ItemId.IronGearWheel, 10],
+    ],
+    outputs: [[ItemId.ExpressTransportBelt, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
+  [RecipeId.UndergroundBelt]: {
+    id: RecipeId.UndergroundBelt,
+    inputs: [
+      [ItemId.IronPlate, 10],
+      [ItemId.TransportBelt, 5],
+    ],
+    outputs: [[ItemId.UndergroundBelt, 2]],
+    ticks: 60,
+    category: 'hand',
+  },
+  [RecipeId.FastUndergroundBelt]: {
+    id: RecipeId.FastUndergroundBelt,
+    inputs: [
+      [ItemId.IronGearWheel, 40],
+      [ItemId.UndergroundBelt, 2],
+    ],
+    outputs: [[ItemId.FastUndergroundBelt, 2]],
+    ticks: 120,
+    category: 'hand',
+  },
+  [RecipeId.ExpressUndergroundBelt]: {
+    id: RecipeId.ExpressUndergroundBelt,
+    inputs: [
+      [ItemId.IronGearWheel, 80],
+      [ItemId.FastUndergroundBelt, 2],
+    ],
+    outputs: [[ItemId.ExpressUndergroundBelt, 2]],
+    ticks: 120,
+    category: 'hand',
+  },
 };
 
 /** Every real recipe id, in id order. */
@@ -293,6 +351,11 @@ export const RECIPE_IDS: readonly RealRecipeId[] = [
   RecipeId.IronChest,
   RecipeId.FastInserter,
   RecipeId.LongHandedInserter,
+  RecipeId.FastTransportBelt,
+  RecipeId.ExpressTransportBelt,
+  RecipeId.UndergroundBelt,
+  RecipeId.FastUndergroundBelt,
+  RecipeId.ExpressUndergroundBelt,
 ];
 
 /** The hand recipes, in id order (the order of the crafting panel). */

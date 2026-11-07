@@ -10,7 +10,7 @@
 import { entityPrototype, type EntityPrototype } from '../../data/entities';
 import type { ItemStack } from '../../data/items';
 import { fnv1a32 } from '../hash';
-import type { Direction } from './direction';
+import { rotateClockwise, type Direction } from './direction';
 import { MachineState } from './machine';
 import { Occupancy } from './occupancy';
 import { EntityStore, footprintSize } from './store';
@@ -37,10 +37,12 @@ export class Entities {
 
   constructor(tables: readonly EntityTypeTable[] = []) {
     for (const table of tables) {
-      if (this.byType.has(table.type)) {
-        throw new RangeError(`two tables registered for entity type ${String(table.type)}`);
+      for (const type of table.types ?? [table.type]) {
+        if (this.byType.has(type)) {
+          throw new RangeError(`two tables registered for entity type ${String(type)}`);
+        }
+        this.byType.set(type, table);
       }
-      this.byType.set(table.type, table);
     }
     this.tableList = tables.slice().sort((a, b) => a.type - b.type);
     this.wake.onWatch = (target) => {
@@ -169,6 +171,14 @@ export class Entities {
     for (const t of this.tableList) {
       t.entityReconfigured?.(id, this);
     }
+  }
+
+  /**
+   * The direction a `Rotate` command turns entity `id` (which must exist) to:
+   * its table's `rotation`, else a quarter turn clockwise.
+   */
+  rotation(id: number): Direction {
+    return this.tableOf(id)?.rotation?.(id, this) ?? rotateClockwise(this.store.dir(id));
   }
 
   /** Machine state of entity `id` (Idle for types without one and for missing entities). */

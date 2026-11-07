@@ -57,6 +57,12 @@ const ICONS: Readonly<Partial<Record<RealItemId, IconSpec>>> = {
   [ItemId.IronChest]: { label: 'IC', shape: 'item' },
   [ItemId.FastInserter]: { label: 'FI', shape: 'item' },
   [ItemId.LongHandedInserter]: { label: 'LI', shape: 'item' },
+  // Belt tiers: F(ast) and (e)X(press), in the tier colors.
+  [ItemId.FastTransportBelt]: { label: 'FB', shape: 'item' },
+  [ItemId.ExpressTransportBelt]: { label: 'XB', shape: 'item' },
+  [ItemId.UndergroundBelt]: { label: 'UG', shape: 'item' },
+  [ItemId.FastUndergroundBelt]: { label: 'UF', shape: 'item' },
+  [ItemId.ExpressUndergroundBelt]: { label: 'UX', shape: 'item' },
 };
 
 /** Color of unknown items, so bad data is obvious. */

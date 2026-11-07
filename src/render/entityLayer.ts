@@ -19,6 +19,7 @@ import { Container, Graphics, Sprite } from 'pixi.js';
 import {
   EntityTypeId,
   inserterReach,
+  isBeltType,
   isInserterPrototype,
   type EntityPrototype,
 } from '../data/entities';
@@ -288,7 +289,7 @@ export class EntityLayer {
         drawPowerIcon(this.icons, (e.x + e.w / 2) * TILE_PX, (e.y + e.h / 2) * TILE_PX, icon);
         this.iconCount++;
       }
-      if (e.type === EntityTypeId.TransportBelt) continue;
+      if (isBeltType(e.type)) continue;
       if (this.sprites.modelFor(e.proto?.name)) continue;
       drawEntity(g, e.proto, e.x, e.y, e.dir, 1, e.status);
     }

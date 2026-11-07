@@ -88,6 +88,7 @@ export class GameView {
       this.entities.iconContainer,
       this.players.container,
       this.power.overlayContainer,
+      this.belts.overlayContainer,
       this.ghost.container,
     );
     app.stage.addChild(this.world);
@@ -154,10 +155,12 @@ export class GameView {
 
   /**
    * Shows the ghost preview, or hides it for `null`, together with the power
-   * overlay of a pole ghost or (with no ghost) of the pole under the pointer.
+   * overlay of a pole ghost or (with no ghost) of the pole under the pointer,
+   * and the reach and partner of an underground belt ghost.
    */
   drawGhost(ghost: Ghost | null): void {
     this.ghost.draw(ghost);
+    this.belts.drawOverlay(ghost);
     const tile = this.hoveredTile();
     const hovered = tile && this.entityIndex.at(tile.x, tile.y);
     this.power.drawOverlay(powerFocus(ghost, hovered, this.power.data));

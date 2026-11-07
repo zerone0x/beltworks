@@ -7,8 +7,9 @@
  *
  * Chests (wooden and iron), furnaces, mining drills, inserters (burner,
  * electric, fast and long-handed) and assembling machines have their own
- * tables and behavior (src/sim/entities/), belts theirs in
- * src/sim/belts/, small electric poles (the power grid), boilers and steam
+ * tables and behavior (src/sim/entities/), belts (every tier, underground
+ * belts included, in one table) theirs in src/sim/belts/, small electric
+ * poles (the power grid), boilers and steam
  * engines theirs in src/sim/power/.
  *
  * Energy is in integer joules; a burner entity burns `energyPerTick` joules on
@@ -38,6 +39,12 @@ export const EntityTypeId = {
   IronChest: 13,
   FastInserter: 14,
   LongHandedInserter: 15,
+  // Belt tiers and underground belts (M3).
+  FastTransportBelt: 16,
+  ExpressTransportBelt: 17,
+  UndergroundBelt: 18,
+  FastUndergroundBelt: 19,
+  ExpressUndergroundBelt: 20,
 } as const;
 
 export type EntityTypeId = (typeof EntityTypeId)[keyof typeof EntityTypeId];
@@ -91,8 +98,19 @@ export interface EntityPrototype {
    * mining drill mines; absent when it mines exactly its own footprint.
    */
   readonly miningArea?: number;
-  /** How far items on a belt move per tick, in subtiles (1/256 tile). */
+  /**
+   * How far items on a belt move per tick, in subtiles (1/256 tile). Every
+   * belt type has one (transport belts and underground belts); it is also the
+   * belt's tier: only belts of the same speed join one transport line, and an
+   * underground belt only pairs with one of the same speed.
+   */
   readonly beltSpeed?: number;
+  /**
+   * Underground belts: most tiles between an entrance and its exit (the
+   * exit can be at most `undergroundMaxGap + 1` tiles in front of the
+   * entrance).
+   */
+  readonly undergroundMaxGap?: number;
   /**
    * Ticks an inserter's arm takes to swing from its pickup tile to its drop
    * tile (and as many to swing back). Every inserter has it, and only
@@ -127,7 +145,8 @@ export const SAT_ONE = 65_536;
 /**
  * Closest two items on one belt lane may be, in subtiles: a quarter tile, so
  * a lane holds 4 items per belt and carries `60 * speed / spacing` items/s
- * (7.5 at the yellow belt's 8 subtiles/tick, 15 per belt over both lanes).
+ * (7.5 at the yellow belt's 8 subtiles/tick, 15 per belt over both lanes;
+ * 30 per belt for the fast belt's 16 and 45 for the express belt's 24).
  */
 export const BELT_ITEM_SPACING = 64;
 
@@ -378,6 +397,68 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     // Picks up 2 tiles behind it and drops 2 tiles in front of it.
     reach: 2,
   },
+  // Belt tiers (M3), with the shared design numbers: 15 / 30 / 45 items/s
+  // per belt, undergrounds reaching over 4 / 6 / 8 tiles.
+  [EntityTypeId.FastTransportBelt]: {
+    id: EntityTypeId.FastTransportBelt,
+    name: 'fast-transport-belt',
+    label: 'Fast transport belt',
+    width: 1,
+    height: 1,
+    rotatable: true,
+    item: ItemId.FastTransportBelt,
+    color: 0xd0473a,
+    // 3.75 tiles/s.
+    beltSpeed: 16,
+  },
+  [EntityTypeId.ExpressTransportBelt]: {
+    id: EntityTypeId.ExpressTransportBelt,
+    name: 'express-transport-belt',
+    label: 'Express transport belt',
+    width: 1,
+    height: 1,
+    rotatable: true,
+    item: ItemId.ExpressTransportBelt,
+    color: 0x3a8fd9,
+    // 5.625 tiles/s.
+    beltSpeed: 24,
+  },
+  [EntityTypeId.UndergroundBelt]: {
+    id: EntityTypeId.UndergroundBelt,
+    name: 'underground-belt',
+    label: 'Underground belt',
+    width: 1,
+    height: 1,
+    rotatable: true,
+    item: ItemId.UndergroundBelt,
+    color: 0xd9b23a,
+    beltSpeed: 8,
+    undergroundMaxGap: 4,
+  },
+  [EntityTypeId.FastUndergroundBelt]: {
+    id: EntityTypeId.FastUndergroundBelt,
+    name: 'fast-underground-belt',
+    label: 'Fast underground belt',
+    width: 1,
+    height: 1,
+    rotatable: true,
+    item: ItemId.FastUndergroundBelt,
+    color: 0xd0473a,
+    beltSpeed: 16,
+    undergroundMaxGap: 6,
+  },
+  [EntityTypeId.ExpressUndergroundBelt]: {
+    id: EntityTypeId.ExpressUndergroundBelt,
+    name: 'express-underground-belt',
+    label: 'Express underground belt',
+    width: 1,
+    height: 1,
+    rotatable: true,
+    item: ItemId.ExpressUndergroundBelt,
+    color: 0x3a8fd9,
+    beltSpeed: 24,
+    undergroundMaxGap: 8,
+  },
 };
 
 /** Every real entity type id, in id order. */
@@ -397,6 +478,11 @@ export const ENTITY_TYPE_IDS: readonly RealEntityTypeId[] = [
   EntityTypeId.IronChest,
   EntityTypeId.FastInserter,
   EntityTypeId.LongHandedInserter,
+  EntityTypeId.FastTransportBelt,
+  EntityTypeId.ExpressTransportBelt,
+  EntityTypeId.UndergroundBelt,
+  EntityTypeId.FastUndergroundBelt,
+  EntityTypeId.ExpressUndergroundBelt,
 ];
 
 /** Whether `proto` is an inserter (burner, electric, fast or long-handed). */
@@ -412,6 +498,26 @@ export function inserterReach(proto: EntityPrototype): number {
 /** Whether `proto` is a chest (wooden or iron): the only entities with `slots`. */
 export function isChestPrototype(proto: EntityPrototype | undefined): boolean {
   return proto?.slots !== undefined;
+}
+
+/** The belt types (transport and underground belts of every tier), in id order. */
+export const BELT_TYPE_IDS: readonly RealEntityTypeId[] = [
+  EntityTypeId.TransportBelt,
+  EntityTypeId.FastTransportBelt,
+  EntityTypeId.ExpressTransportBelt,
+  EntityTypeId.UndergroundBelt,
+  EntityTypeId.FastUndergroundBelt,
+  EntityTypeId.ExpressUndergroundBelt,
+];
+
+/** Whether entity type `type` is a belt (any tier, underground or not). */
+export function isBeltType(type: number): boolean {
+  return entityPrototype(type)?.beltSpeed !== undefined;
+}
+
+/** Whether entity type `type` is an underground belt. */
+export function isUndergroundType(type: number): boolean {
+  return entityPrototype(type)?.undergroundMaxGap !== undefined;
 }
 
 /** Largest footprint edge of any entity, in tiles (the steam engine's 5). */

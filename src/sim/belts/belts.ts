@@ -2,31 +2,53 @@
  * Transport belts: the belt entity table and the belt system
  * (docs/ARCHITECTURE.md, "Belts: transport lines").
  *
- * Topology. Every belt moves items towards the tile in front of it. Belt F
- * continues belt B (B is F's predecessor) when B points into F and either
- * sits right behind F facing the same way, or is the only belt pointing into
- * one of F's sides while nothing feeds F from behind (F is then a curve). A
- * belt pointing into the side of any other belt side-loads it instead, and
- * two belts pointing into each other don't connect. Runs of belts that
- * continue each other form one `TransportLine` (line.ts) with a left and a
- * right lane; a closed loop is cut at its belt with the smallest id.
+ * One table holds every belt type: transport belts of each tier and
+ * underground belts (`BELT_TYPE_IDS`); a type's `beltSpeed` is its tier.
+ *
+ * Topology. Every belt moves items towards the tile in front of it, except
+ * an underground entrance, which sends them under the ground to its exit
+ * (underground.ts has the pairing rule). Belt B feeds belt F when B points
+ * into F and either sits right behind F facing the same way, or is the only
+ * belt pointing into one of F's sides while nothing feeds F from behind (F
+ * is then a curve); an exit is fed by its entrance only, an entrance only
+ * from behind (never as a curve), and an entrance feeds nothing in front of
+ * it. Where B feeds F and both are of the same tier, F continues B (B is
+ * F's predecessor). A belt pointing into the side of any other belt
+ * side-loads it instead (into the back of an exit it does nothing), and two
+ * belts pointing into each other don't connect. Runs of belts that continue
+ * each other form one `TransportLine` (line.ts) with a left and a right
+ * lane; a closed loop is cut at its belt with the smallest id. Where a line
+ * feeds a belt of another tier, its end hands items on to the start of that
+ * belt's line, lane by lane, like a loop's end hands them to its own start.
  *
  * Positions on a line are distances from its end in subtiles: the belt at
  * index `k` of `line.belts` spans `[k * 256, (k + 1) * 256)`. Curves count
- * as a full tile on both lanes.
+ * as a full tile on both lanes, and the tiles an underground pair passes
+ * under count as belt length too (entries of 0 in `line.belts`, right behind
+ * the exit). Items there belong to the exit (removing it refunds them).
  *
- * Each tick, every awake lane (belt system, src/sim/tick.ts):
- * 1. hands its first item on if it has reached the end and the line ends in
- *    another line: the next line's start for a loop, the middle of the
- *    belt's near lane for a side-load (both lanes of a side-loading line take
- *    turns when both are waiting). Otherwise items stop at the end.
- * 2. moves by `BELT_SPEED` (see lane.ts).
- * A lane that did neither goes to sleep: it leaves the active list until it
+ * Each tick, every awake lane (belt system, src/sim/tick.ts) moves by its
+ * line's speed (see lane.ts); whenever its first item is at the end with
+ * movement left and the line ends in another line, the item is handed on
+ * and the next one moves on with what is left: to the next line's start for
+ * a loop or a tier boundary, to the middle of the belt's near lane for a
+ * side-load (both lanes of a side-loading line take turns when both are
+ * waiting; onto an underground belt, only the lane on its open half gets
+ * through, onto the middle of that half). Otherwise items stop at the end.
+ * A lane that neither moved nor handed an item on goes to sleep: it leaves the active list until it
  * gets an item, loses one, or the lane it feeds changes (it then wakes the
- * lanes feeding it). Empty lanes sleep too.
+ * lanes feeding it). Empty lanes sleep too. A lane waiting at its end for
+ * room on a lane that moved on this tick or the last one stays awake, so it
+ * hands on as soon as there is room (lanes stuck in a jammed cycle stop
+ * moving, so they all go to sleep); and an item handed on may enter up to
+ * one tick of the target's movement behind the hand-over point
+ * (`Lane.fitNear`). Together they make every boundary and side-load run at
+ * exactly the slower lane's rate.
  *
  * Rebuilds. Placing, rotating or removing a belt can only change the links
- * of belts within two tiles of it, so the lines through those belts are
+ * of belts within two tiles of it, and the pairing of the nearest
+ * underground belts of its tier on its row and column (and their partners),
+ * so the lines through those belts are
  * taken apart (keeping every item's belt, lane and position on its belt) and
  * rebuilt from their belts; other lines keep their ids and items. Items that
  * end up closer than the minimum spacing where two lines join are pushed back
@@ -49,17 +71,30 @@
  * lines nobody watches pay nothing for it.
  */
 
-import { ENTITIES, EntityTypeId, BELT_ITEM_SPACING } from '../../data/entities';
+import {
+  BELT_ITEM_SPACING,
+  BELT_TYPE_IDS,
+  ENTITIES,
+  EntityTypeId,
+  entityPrototype,
+} from '../../data/entities';
 import { itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
 import { DIRECTION_DX, DIRECTION_DY, type Direction } from '../entities/direction';
 import type { Entities } from '../entities/entities';
 import { SparseSet, growTo } from '../entities/sparseSet';
 import type { EntityTypeTable } from '../entities/table';
 import { fnv1a32 } from '../hash';
+import type { Lane, LaneOutlet } from './lane';
 import { BELT_LENGTH, BeltLane, LineLane, TransportLine } from './line';
+import { UndergroundMode, findPartner, placedMode, type UndergroundInfo } from './underground';
 
-/** How far items on a belt move per tick, in subtiles. */
+/** How far items on a (yellow) transport belt move per tick, in subtiles. */
 export const BELT_SPEED = ENTITIES[EntityTypeId.TransportBelt].beltSpeed ?? 0;
+
+/** Belt speed of entity type `type` (its tier), or 0 if it isn't a belt. */
+export function beltSpeedOf(type: number): number {
+  return entityPrototype(type)?.beltSpeed ?? 0;
+}
 
 /** How a belt is drawn: straight, or curving in from its left or right side. */
 export const BeltShape = {
@@ -106,8 +141,9 @@ const Output = {
   Yielded: 2,
 } as const;
 
-export class BeltTable implements EntityTypeTable {
+export class BeltTable implements EntityTypeTable, LaneOutlet {
   readonly type = EntityTypeId.TransportBelt;
+  readonly types = BELT_TYPE_IDS;
   private readonly set = new SparseSet();
   /** Line id per belt row. */
   private lineCol = new Uint32Array(0);
@@ -115,6 +151,32 @@ export class BeltTable implements EntityTypeTable {
   private indexCol = new Uint32Array(0);
   /** `BeltShape` per row. */
   private shapeCol = new Uint8Array(0);
+  /** Belt speed (tier) per row, from the type. */
+  private speedCol = new Uint8Array(0);
+  /** `UndergroundMode` per row (`None` for transport belts). */
+  private modeCol = new Uint8Array(0);
+  /** The paired underground belt per row, or 0. */
+  private partnerCol = new Uint32Array(0);
+  /**
+   * Direction per row as of the last change (equal to the store's outside of
+   * `rotated`, so not hashed): tells `rotated` whether an underground was reversed.
+   */
+  private dirCol = new Uint8Array(0);
+  /** Set while `rotated` turns an underground's partner along with it. */
+  private flipping = false;
+  /** What the lane being stepped did at its end this tick (see `handOn`). */
+  private handed = false;
+  private yielded = false;
+  /**
+   * The lane being stepped found no room on the lane it feeds, which moved
+   * this tick or the last one: it stays awake to try again next tick (a lane
+   * woken during `update` only runs from the next tick, so sleeping and
+   * being woken would lose a tick per hand-over). Only lanes that move keep
+   * their feeders awake, so a jammed cycle of lines falls asleep.
+   */
+  private waiting = false;
+  /** Ticks the belt system has run (see `LineLane.changedAt`). */
+  private tick = 0;
   /** Lines by id, in creation (= id) order. */
   private readonly lineMap = new Map<number, TransportLine>();
   private nextLine = 1;
@@ -181,6 +243,26 @@ export class BeltTable implements EntityTypeTable {
     return this.shapeCol[this.row(belt)]! as BeltShape;
   }
 
+  /** Whether entity `id` is a belt (any tier, underground or not). */
+  isBelt(id: number): boolean {
+    return this.set.has(id);
+  }
+
+  /** Whether belt `belt` is an underground entrance, exit, or neither (`None`). */
+  mode(belt: number): UndergroundMode {
+    return this.modeCol[this.row(belt)]! as UndergroundMode;
+  }
+
+  /** The underground belt paired with `belt`, or 0. */
+  partner(belt: number): number {
+    return this.partnerCol[this.row(belt)]!;
+  }
+
+  /** How far items on belt `belt` move per tick, in subtiles (its tier). */
+  speed(belt: number): number {
+    return this.speedCol[this.row(belt)]!;
+  }
+
   // Entity hooks.
 
   add(id: number, entities: Entities): void {
@@ -190,16 +272,63 @@ export class BeltTable implements EntityTypeTable {
     this.lineCol = growTo(this.lineCol, min);
     this.indexCol = growTo(this.indexCol, min);
     this.shapeCol = growTo(this.shapeCol, min);
-    this.relink(id, 0);
+    this.speedCol = growTo(this.speedCol, min);
+    this.modeCol = growTo(this.modeCol, min);
+    this.partnerCol = growTo(this.partnerCol, min);
+    this.dirCol = growTo(this.dirCol, min);
+    const { store } = entities;
+    const type = store.type(id);
+    const dir = store.dir(id);
+    const speed = beltSpeedOf(type);
+    this.speedCol[row] = speed;
+    this.dirCol[row] = dir;
+    this.partnerCol[row] = 0;
+    const gap = entityPrototype(type)?.undergroundMaxGap;
+    // A new underground is an exit when an entrance behind it would pair with it.
+    this.modeCol[row] =
+      gap === undefined
+        ? UndergroundMode.None
+        : placedMode(this.lookup, store.x(id), store.y(id), dir, speed, gap);
+    this.relink([id], 0);
   }
 
   remove(id: number): void {
     if (!this.set.has(id)) return;
-    this.relink(id, id);
+    this.relink([id], id);
   }
 
-  rotated(id: number): void {
-    this.relink(id, 0);
+  /** Underground belts reverse (and swap entrance and exit) instead of turning. */
+  rotation(id: number, entities: Entities): Direction {
+    const dir = entities.store.dir(id);
+    const turn = this.modeCol[this.row(id)] !== UndergroundMode.None ? 2 : 1;
+    return ((dir + turn) & 3) as Direction;
+  }
+
+  /**
+   * A belt turned. An underground belt that was reversed swaps entrance and
+   * exit, and its partner is reversed with it, so the pair keeps carrying
+   * items between the same two tiles, the other way. Turned any other way,
+   * it keeps its mode.
+   */
+  rotated(id: number, entities: Entities): void {
+    const row = this.row(id);
+    const dir = entities.store.dir(id);
+    const reversed = dir === ((this.dirCol[row]! + 2) & 3);
+    this.dirCol[row] = dir;
+    const mode = this.modeCol[row]!;
+    if (mode === UndergroundMode.None) {
+      this.relink([id], 0);
+      return;
+    }
+    if (reversed) this.modeCol[row] = 3 - mode;
+    if (this.flipping) return;
+    const partner = this.partnerCol[row]!;
+    if (reversed && partner !== 0) {
+      this.flipping = true;
+      entities.setDirection(partner, ((entities.store.dir(partner) + 2) & 3) as Direction);
+      this.flipping = false;
+    }
+    this.relink(partner !== 0 ? [id, partner] : [id], 0);
   }
 
   watched(id: number): void {
@@ -207,9 +336,10 @@ export class BeltTable implements EntityTypeTable {
     if (line && !line.watched.includes(id)) line.watched.push(id);
   }
 
+  /** The items on the belt, and for an underground exit those under the ground behind it. */
   contents(id: number): readonly ItemStack[] {
     const out: ItemStack[] = [];
-    for (const { item } of this.itemsOn(id)) {
+    for (const { item } of this.itemsOwnedBy(id)) {
       const stack = out.find((s) => s.item === item);
       if (stack) {
         out[out.indexOf(stack)] = { item: stack.item, count: stack.count + 1 };
@@ -259,20 +389,27 @@ export class BeltTable implements EntityTypeTable {
     h = fnv1a32(this.lineCol.subarray(0, n), h);
     h = fnv1a32(this.indexCol.subarray(0, n), h);
     h = fnv1a32(this.shapeCol.subarray(0, n), h);
+    h = fnv1a32(this.modeCol.subarray(0, n), h);
+    h = fnv1a32(this.partnerCol.subarray(0, n), h);
     for (const line of this.lineMap.values()) {
       h = fnv1a32(
         Uint32Array.of(
           line.id,
           line.belts.length,
+          line.speed,
           line.out?.id ?? 0,
           line.outLane + 1,
           line.outPos,
+          line.outOnly + 1,
           line.turn,
         ),
         h,
       );
+      h = fnv1a32(Uint32Array.from(line.belts), h);
       for (const lane of line.lanes) {
-        h = fnv1a32(Uint32Array.of(lane.count, lane.total, lane.active ? 1 : 0), h);
+        // Whether the lane moved this tick or the last (all `changedAt` is used for).
+        const recent = lane.changedAt >= this.tick - 1 ? 1 : 0;
+        h = fnv1a32(Uint32Array.of(lane.count, lane.total, lane.active ? 1 : 0, recent), h);
         h = fnv1a32(lane.gaps(), h);
         h = fnv1a32(lane.items(), h);
       }
@@ -353,6 +490,24 @@ export class BeltTable implements EntityTypeTable {
   }
 
   /**
+   * The items `belt` owns: those on it (`itemsOn`), and for an underground
+   * exit also those under the ground behind it, with offsets past 256.
+   */
+  itemsOwnedBy(belt: number): BeltItem[] {
+    const line = this.lineOfBelt(belt);
+    const k = this.indexCol[this.row(belt)]!;
+    let last = k;
+    while (last + 1 < line.belts.length && line.belts[last + 1] === 0) last++;
+    const out: BeltItem[] = [];
+    this.forEachItem(line, (index, lane, offset, moved, item) => {
+      if (index >= k && index <= last) {
+        out.push({ lane, offset: offset + (index - k) * BELT_LENGTH, moved, item });
+      }
+    });
+    return out;
+  }
+
+  /**
    * Calls `fn` for every item on `line`, lane by lane from the end
    * backwards, with the index of its belt and its distance from that belt's
    * end edge.
@@ -375,6 +530,7 @@ export class BeltTable implements EntityTypeTable {
 
   /** Steps every awake lane by one tick. */
   update(): void {
+    this.tick++;
     const list = this.active;
     const n = list.length;
     let w = 0;
@@ -396,34 +552,91 @@ export class BeltTable implements EntityTypeTable {
   private step(lane: LineLane): boolean {
     if (lane.count === 0) return false;
     const { line } = lane;
-    let busy = false;
-    let changed = false;
-    // The stretch of the lane that changed, as distances from the end.
-    let lo = 0;
-    let hi = 0;
-    if (line.out && lane.gap(0) === 0) {
-      const r = this.output(line, lane);
-      busy = r !== Output.Blocked;
-      changed = r === Output.Moved;
-    }
-    if (lane.move(BELT_SPEED) > 0) {
-      if (!changed) lo = lane.firstMovedPosition();
-      hi = lane.total + lane.movedAll + lane.movedRest;
-      busy = changed = true;
-    }
+    this.handed = false;
+    this.yielded = false;
+    this.waiting = false;
+    const moved = lane.move(line.speed, line.out ? this : null) > 0;
+    const changed = moved || this.handed;
     if (changed) {
+      lane.changedAt = this.tick;
+      // The stretch of the lane that changed, as distances from the end:
+      // from the end (an item left) or the first item that moved, to where
+      // the last item was before the move.
+      const lo = this.handed ? 0 : lane.firstMovedPosition();
+      const hi = lane.total + lane.movedAll + lane.movedRest;
       this.wakeFeeders(line, lane.index);
       this.notifyWatchers(line, lo, hi);
     }
-    return busy;
+    return changed || this.yielded || this.waiting;
   }
 
-  /** Hands the lane's first item (at the very end) on to `line.out`. */
-  private output(line: TransportLine, lane: LineLane): number {
+  /**
+   * `LaneOutlet`: where a line hands on to the start of another line (a
+   * tier boundary, or a loop of several lines), the first item of a lane
+   * stays the spacing behind the last item of the lane it feeds, counting
+   * across the boundary, so the spacing holds across lines too. (A loop of
+   * one line needs no limit: its first and last items move together.) A lane
+   * held back like this by a lane that is moving stays awake (see `waiting`).
+   */
+  minFront(l: Lane): number {
+    const lane = l as LineLane;
+    const { line } = lane;
     const out = line.out!;
+    if (line.outLane >= 0) return 0;
+    const target = out.lanes[lane.index];
+    if (target === lane || target.count === 0) return 0;
+    // At most the spacing (`Lane.move` relies on it): items a rebuild pushed
+    // past the target's start edge only hold this lane back that far.
+    const floor = Math.min(BELT_ITEM_SPACING, BELT_ITEM_SPACING - (out.length - target.total));
+    if (floor <= 0) return 0;
+    if (target.changedAt >= this.tick - 1) this.waiting = true;
+    return floor;
+  }
+
+  /** `LaneOutlet`: the lane being stepped offers its first item, at the end, to `line.out`. */
+  handOn(l: Lane, rem: number): boolean {
+    const lane = l as LineLane;
+    const r = this.output(lane.line, lane, rem);
+    if (r === Output.Moved) this.handed = true;
+    else if (r === Output.Yielded) this.yielded = true;
+    return r === Output.Moved;
+  }
+
+  /**
+   * Hands the lane's first item (at the very end) on to `line.out`, with
+   * `rem` subtiles of the lane's movement left this tick.
+   */
+  private output(line: TransportLine, lane: LineLane, rem: number): number {
+    const out = line.out!;
+    if (line.outOnly >= 0 && lane.index !== line.outOnly) return Output.Blocked;
     const target = out.lanes[line.outLane < 0 ? lane.index : line.outLane]!;
-    if (!target.canInsert(line.outPos)) return Output.Blocked;
-    if (line.outLane >= 0 && line.turn !== lane.index) {
+    let pos: number;
+    if (line.outLane >= 0) {
+      // A side-load may land up to one tick of the target's movement behind
+      // the side-load point (further up the same lane, where the spacing is
+      // checked), so a lane fed at a fixed point fills at exactly the
+      // spacing even when the spacing isn't a multiple of its speed (the
+      // express belt's 24).
+      pos = target.fitNear(line.outPos, out.speed - 1);
+    } else if (target === lane) {
+      // A loop of one line: onto its own start edge (the lane moves on as a whole).
+      pos = target.fitNear(line.outPos, 0);
+    } else {
+      // Onto the start of another line (a tier boundary, or a loop of
+      // several lines): the item goes on with what is left of this tick's
+      // movement, at the target's speed, but no closer than the spacing to
+      // the target's last item (`minFront` kept it that far behind). Behind
+      // the start edge is this lane's own belt, so it can't land there.
+      const carry = Math.floor((rem * out.speed) / line.speed);
+      pos = line.outPos - carry;
+      if (target.count > 0) pos = Math.max(pos, target.total + BELT_ITEM_SPACING);
+      if (pos > line.outPos) pos = -1;
+    }
+    if (pos < 0) {
+      if (target !== lane && target.changedAt >= this.tick - 1) this.waiting = true;
+      return Output.Blocked;
+    }
+    if (line.outLane >= 0 && line.outOnly < 0 && line.turn !== lane.index) {
       const other = line.lanes[1 - lane.index]!;
       if (other.count > 0 && other.gap(0) === 0) {
         this.wakeLane(other);
@@ -431,10 +644,10 @@ export class BeltTable implements EntityTypeTable {
       }
     }
     const item = lane.removeAt(0);
-    target.insert(line.outPos, item);
+    target.insert(pos, item);
     line.turn = (1 - lane.index) as BeltLane;
     this.wakeLane(target);
-    this.notifyWatchers(out, line.outPos, line.outPos);
+    this.notifyWatchers(out, pos, pos);
     return Output.Moved;
   }
 
@@ -450,8 +663,8 @@ export class BeltTable implements EntityTypeTable {
       if (f.outLane < 0) {
         this.wakeLane(f.lanes[lane as BeltLane]);
       } else if (f.outLane === lane) {
-        this.wakeLane(f.lanes[0]);
-        this.wakeLane(f.lanes[1]);
+        if (f.outOnly !== BeltLane.Right) this.wakeLane(f.lanes[0]);
+        if (f.outOnly !== BeltLane.Left) this.wakeLane(f.lanes[1]);
       }
     }
   }
@@ -508,64 +721,153 @@ export class BeltTable implements EntityTypeTable {
     return this.entities!.store.dir(id);
   }
 
-  /** The belt `id` points into, unless that one points straight back. */
-  private frontBelt(id: number): number {
-    const { store } = this.entities!;
-    const d = store.dir(id);
-    const f = this.beltAt(store.x(id) + DIRECTION_DX[d]!, store.y(id) + DIRECTION_DY[d]!);
-    return f !== 0 && this.dir(f) === ((d + 2) & 3) ? 0 : f;
+  private modeOf(id: number): number {
+    return this.modeCol[this.row(id)]!;
   }
 
-  /** The belt that `id` continues (see the file comment), or 0. */
-  private predecessor(id: number): number {
+  private speedOf(id: number): number {
+    return this.speedCol[this.row(id)]!;
+  }
+
+  /** The pairing's view of the undergrounds (see underground.ts). */
+  private readonly lookup = (x: number, y: number): UndergroundInfo | null => {
+    const b = this.beltAt(x, y);
+    if (b === 0) return null;
+    const row = this.row(b);
+    const mode = this.modeCol[row]! as UndergroundMode;
+    if (mode === UndergroundMode.None) return null;
+    return { speed: this.speedCol[row]!, dir: this.dir(b), mode };
+  };
+
+  /** Most tiles between underground belt `id` and its partner. */
+  private maxGap(id: number): number {
+    return this.entities!.prototypeOf(id)?.undergroundMaxGap ?? 0;
+  }
+
+  /** Whether `id` moves items on into the tile in front of it (every belt but an entrance). */
+  private feedsFront(id: number): boolean {
+    return this.modeOf(id) !== UndergroundMode.Entrance;
+  }
+
+  /**
+   * The belt whose items move on into `id` (see the file comment), of any
+   * tier, or 0: an exit's entrance; the belt right behind facing the same
+   * way; for a transport belt with nothing behind it feeding it, the only
+   * belt pointing into one of its sides (a curve).
+   */
+  private feederOf(id: number): number {
+    const mode = this.modeOf(id);
+    if (mode === UndergroundMode.Exit) return this.partnerCol[this.row(id)]!;
     const { store } = this.entities!;
     const d = store.dir(id);
     const x = store.x(id);
     const y = store.y(id);
     const behind = this.beltAt(x - DIRECTION_DX[d]!, y - DIRECTION_DY[d]!);
-    if (behind !== 0 && this.dir(behind) === d) return behind;
+    if (behind !== 0 && this.dir(behind) === d && this.feedsFront(behind)) return behind;
+    if (mode === UndergroundMode.Entrance) return 0;
     // Sides: the left one must point clockwise of `d` to point into this belt.
     const l = ccw(d);
     const left = this.beltAt(x + DIRECTION_DX[l]!, y + DIRECTION_DY[l]!);
     const r = cw(d);
     const right = this.beltAt(x + DIRECTION_DX[r]!, y + DIRECTION_DY[r]!);
-    const fromLeft = left !== 0 && this.dir(left) === r;
-    const fromRight = right !== 0 && this.dir(right) === l;
+    const fromLeft = left !== 0 && this.dir(left) === r && this.feedsFront(left);
+    const fromRight = right !== 0 && this.dir(right) === l && this.feedsFront(right);
     if (fromLeft === fromRight) return 0;
     return fromLeft ? left : right;
   }
 
+  /** The belt that `id` continues (its feeder, if of the same tier), or 0. */
+  private predecessor(id: number): number {
+    const f = this.feederOf(id);
+    return f !== 0 && this.speedOf(f) === this.speedOf(id) ? f : 0;
+  }
+
   /**
-   * Rebuilds the lines around belt `id`, which was just placed or rotated,
-   * or (with `removed === id`) is about to be removed.
+   * Where the items at the end of `id` go: an entrance's partner, or the belt
+   * `id` points into, unless that one points straight back or `id` points
+   * into the closed back of an exit. 0 for none.
    */
-  private relink(id: number, removed: number): void {
+  private nextBelt(id: number): number {
+    if (this.modeOf(id) === UndergroundMode.Entrance) return this.partnerCol[this.row(id)]!;
+    const { store } = this.entities!;
+    const d = store.dir(id);
+    const f = this.beltAt(store.x(id) + DIRECTION_DX[d]!, store.y(id) + DIRECTION_DY[d]!);
+    if (f === 0) return 0;
+    const fd = this.dir(f);
+    if (fd === ((d + 2) & 3)) return 0;
+    if (fd === d && this.modeOf(f) === UndergroundMode.Exit) return 0;
+    return f;
+  }
+
+  /**
+   * Adds to `out` the underground belts whose pairing a change to belt `id`
+   * can affect: its partner, and on each of the four sides the nearest
+   * underground of its tier on that axis within reach, with its partner.
+   */
+  private pairingNeighbours(id: number, out: Set<number>): void {
+    const row = this.set.indexOf(id);
+    if (row < 0 || this.modeCol[row] === UndergroundMode.None) return;
+    const partner = this.partnerCol[row]!;
+    if (partner !== 0) out.add(partner);
     const { store } = this.entities!;
     const x = store.x(id);
     const y = store.y(id);
+    const speed = this.speedCol[row]!;
+    const reach = this.maxGap(id) + 1;
+    for (let d = 0; d < 4; d++) {
+      for (let k = 1; k <= reach; k++) {
+        const b = this.beltAt(x + k * DIRECTION_DX[d]!, y + k * DIRECTION_DY[d]!);
+        if (b === 0) continue;
+        const r = this.row(b);
+        if (this.modeCol[r] === UndergroundMode.None || this.speedCol[r] !== speed) continue;
+        if ((this.dir(b) & 1) !== (d & 1)) continue;
+        out.add(b);
+        if (this.partnerCol[r] !== 0) out.add(this.partnerCol[r]!);
+        break;
+      }
+    }
+  }
 
-    // 1. Take apart every line through a belt within two tiles.
+  /**
+   * Rebuilds the lines around belts `seeds`, which were just placed or
+   * rotated, or (with `removed`, one of them) is about to be removed.
+   */
+  private relink(seeds: readonly number[], removed: number): void {
+    const { store } = this.entities!;
+
+    // 1. Take apart every line through a belt within two tiles of a seed, or
+    //    through an underground whose pairing may change.
+    const pairing = new Set<number>();
+    for (const s of seeds) this.pairingNeighbours(s, pairing);
     const dissolved: TransportLine[] = [];
-    for (const [dx, dy] of NEAR) {
-      const b = this.beltAt(x + dx, y + dy);
+    const dissolve = (b: number): void => {
       const line = b !== 0 ? this.lineMap.get(this.lineCol[this.row(b)]!) : undefined;
       if (line && !line.dead) {
         line.dead = true;
         dissolved.push(line);
       }
+    };
+    for (const s of seeds) {
+      const x = store.x(s);
+      const y = store.y(s);
+      for (const [dx, dy] of NEAR) dissolve(this.beltAt(x + dx, y + dy));
     }
+    for (const b of pairing) dissolve(b);
     const saved = new Map<number, SavedItem[]>();
     const belts: number[] = [];
     const feeders: TransportLine[] = [];
     for (const line of dissolved) {
       this.lineMap.delete(line.id);
       this.forEachItem(line, (k, lane, offset, _moved, item) => {
-        const belt = line.belts[k]!;
+        // Items under the ground belong to the exit in front of them.
+        let at = k;
+        while (at > 0 && line.belts[at] === 0) at--;
+        const belt = line.belts[at]!;
         let list = saved.get(belt);
         if (!list) saved.set(belt, (list = []));
-        list.push({ lane, offset, item });
+        list.push({ lane, offset: offset + (k - at) * BELT_LENGTH, item });
       });
-      belts.push(...line.belts);
+      for (const b of line.belts) if (b !== 0) belts.push(b);
       for (const f of line.feeders) {
         if (!f.dead && !feeders.includes(f)) feeders.push(f);
       }
@@ -575,15 +877,35 @@ export class BeltTable implements EntityTypeTable {
     if (dissolved.length > 0) {
       this.active = this.active.filter((lane) => !lane.line.dead);
     }
-    if (removed !== 0) {
-      this.dropRow(removed);
-    } else if (!belts.includes(id)) {
-      belts.push(id);
+    if (removed !== 0) this.dropRow(removed);
+    for (const s of seeds) {
+      if (s !== removed && !belts.includes(s)) belts.push(s);
     }
     const members = new Set(belts.filter((b) => b !== removed));
     const sorted = Array.from(members).sort((a, b) => a - b);
 
-    // 2. Links among those belts.
+    // 2. Pairs and links among those belts.
+    for (const b of sorted) {
+      if (this.modeOf(b) !== UndergroundMode.None) this.partnerCol[this.row(b)] = 0;
+    }
+    for (const b of sorted) {
+      const row = this.row(b);
+      if (this.modeCol[row] !== UndergroundMode.Entrance) continue;
+      const p = findPartner(
+        this.lookup,
+        store.x(b),
+        store.y(b),
+        this.dir(b),
+        UndergroundMode.Entrance,
+        this.speedCol[row]!,
+        this.maxGap(b),
+      );
+      const exit = p ? this.beltAt(p.x, p.y) : 0;
+      if (exit !== 0 && members.has(exit)) {
+        this.partnerCol[row] = exit;
+        this.partnerCol[this.row(exit)] = b;
+      }
+    }
     const pred = new Map<number, number>();
     const hasSucc = new Set<number>();
     for (const b of sorted) {
@@ -595,6 +917,7 @@ export class BeltTable implements EntityTypeTable {
     }
 
     // 3. New lines: chains from each belt nothing continues, then loops.
+    //    Behind an exit come the tiles under the ground, then its entrance.
     const created: TransportLine[] = [];
     const visited = new Set<number>();
     const chain = (head: number): void => {
@@ -602,8 +925,13 @@ export class BeltTable implements EntityTypeTable {
       for (let b = head; b !== 0 && !visited.has(b); b = pred.get(b) ?? 0) {
         visited.add(b);
         list.push(b);
+        const p = pred.get(b) ?? 0;
+        if (p !== 0 && this.modeOf(b) === UndergroundMode.Exit) {
+          const hidden = Math.abs(store.x(b) - store.x(p)) + Math.abs(store.y(b) - store.y(p)) - 1;
+          for (let i = 0; i < hidden; i++) list.push(0);
+        }
       }
-      created.push(this.createLine(list, pred, saved));
+      created.push(this.createLine(list, saved));
     };
     for (const b of sorted) {
       if (!hasSucc.has(b)) chain(b);
@@ -621,19 +949,22 @@ export class BeltTable implements EntityTypeTable {
     for (const b of sorted) this.notifyBelt(b);
   }
 
-  private createLine(
-    belts: number[],
-    pred: Map<number, number>,
-    saved: Map<number, SavedItem[]>,
-  ): TransportLine {
-    const line = new TransportLine(this.nextLine++, belts, BELT_ITEM_SPACING);
+  private createLine(belts: number[], saved: Map<number, SavedItem[]>): TransportLine {
+    const line = new TransportLine(
+      this.nextLine++,
+      belts,
+      BELT_ITEM_SPACING,
+      this.speedOf(belts[0]!),
+    );
     this.lineMap.set(line.id, line);
     const entries: [number, number][][] = [[], []];
     belts.forEach((belt, k) => {
+      if (belt === 0) return;
       const row = this.row(belt);
       this.lineCol[row] = line.id;
       this.indexCol[row] = k;
-      const p = pred.get(belt) ?? 0;
+      // The shape follows the feeder, whatever its tier.
+      const p = this.modeCol[row] === UndergroundMode.None ? this.feederOf(belt) : 0;
       const d = this.dir(belt);
       this.shapeCol[row] =
         p === 0 || this.dir(p) === d
@@ -666,23 +997,37 @@ export class BeltTable implements EntityTypeTable {
     line.out = null;
     line.outLane = -1;
     line.outPos = 0;
+    line.outOnly = -1;
     const head = line.belts[0]!;
-    const f = this.frontBelt(head);
+    const f = this.nextBelt(head);
     const target = f !== 0 ? this.lineMap.get(this.lineCol[this.row(f)]!) : undefined;
     if (!target) return;
     const k = this.indexCol[this.row(f)]!;
-    if (this.predecessor(f) === head) {
-      // Only a loop gets here: everything else that continues merged into one line.
-      line.outPos = (k + 1) * BELT_LENGTH;
+    if (this.feederOf(f) === head) {
+      // A loop, or a belt of another tier: `f` starts its line (everything
+      // else that continues merged into one line). Lane by lane onto its start.
+      line.outPos = target.length;
     } else {
       // Side-load onto the middle of the near lane.
-      line.outLane = this.dir(head) === cw(this.dir(f)) ? BeltLane.Left : BeltLane.Right;
-      line.outPos = k * BELT_LENGTH + BELT_LENGTH / 2;
+      const fd = this.dir(f);
+      const hd = this.dir(head);
+      line.outLane = hd === cw(fd) ? BeltLane.Left : BeltLane.Right;
+      const mode = this.modeOf(f);
+      if (mode === UndergroundMode.None) {
+        line.outPos = k * BELT_LENGTH + BELT_LENGTH / 2;
+      } else {
+        // Only the open half of an underground takes items: an entrance's
+        // rear half, an exit's front half. The lane of this line on that
+        // side gets through, onto the middle of that half.
+        const open = mode === UndergroundMode.Entrance ? (fd + 2) & 3 : fd;
+        line.outOnly = ccw(hd) === open ? BeltLane.Left : BeltLane.Right;
+        line.outPos =
+          k * BELT_LENGTH + (mode === UndergroundMode.Entrance ? 3 : 1) * (BELT_LENGTH / 4);
+      }
     }
     line.out = target;
     target.feeders.push(line);
   }
-
   private dropRow(id: number): void {
     const row = this.set.remove(id);
     if (row < 0) return;
@@ -691,10 +1036,18 @@ export class BeltTable implements EntityTypeTable {
       this.lineCol[row] = this.lineCol[last]!;
       this.indexCol[row] = this.indexCol[last]!;
       this.shapeCol[row] = this.shapeCol[last]!;
+      this.speedCol[row] = this.speedCol[last]!;
+      this.modeCol[row] = this.modeCol[last]!;
+      this.partnerCol[row] = this.partnerCol[last]!;
+      this.dirCol[row] = this.dirCol[last]!;
     }
     this.lineCol[last] = 0;
     this.indexCol[last] = 0;
     this.shapeCol[last] = 0;
+    this.speedCol[last] = 0;
+    this.modeCol[last] = 0;
+    this.partnerCol[last] = 0;
+    this.dirCol[last] = 0;
   }
 
   private lineOfBelt(belt: number): TransportLine {

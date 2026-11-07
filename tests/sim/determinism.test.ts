@@ -5,6 +5,7 @@ import { RecipeId } from '../../src/data/recipes';
 import { TREE_WOOD } from '../../src/data/trees';
 import { BeltShape, beltTable } from '../../src/sim/belts/belts';
 import { BeltLane } from '../../src/sim/belts/line';
+import { UndergroundMode } from '../../src/sim/belts/underground';
 import { CRAFT_QUEUE_LENGTH } from '../../src/sim/crafting/queue';
 import { Direction } from '../../src/sim/entities/direction';
 import { assemblerTable } from '../../src/sim/entities/assembler';
@@ -47,6 +48,12 @@ import {
   DETERMINISM_ELECTRIC_DRILL,
   DETERMINISM_ELECTRIC_INSERTER,
   DETERMINISM_ELECTRIC_POLE,
+  DETERMINISM_TIER_BELT,
+  DETERMINISM_TIER_ENTRANCE,
+  DETERMINISM_TIER_EXIT,
+  DETERMINISM_TIER_FAST,
+  DETERMINISM_TIER_ROW,
+  DETERMINISM_TIER_TICK,
   DETERMINISM_ELECTRIC_TICK,
   DETERMINISM_POLE_REBRIDGE,
   DETERMINISM_POLE_SOUTH,
@@ -225,8 +232,11 @@ describe('determinism', () => {
     expect(entities.detail(inserter)!.burning).toBe(ItemId.Coal);
     expect(entities.status(inserter)).toBe(InserterState.WaitingForSource);
     expect(entities.wake.watchersOf(9)).toEqual([inserter]);
-    // Nothing moves any more: every lane and both inserters sleep.
-    expect(belts.activeLanes).toBe(0);
+    // Nothing moves here any more: every lane and both inserters sleep.
+    for (const line of [main, feeder]) {
+      expect(belts.laneAwake(line.id, BeltLane.Left)).toBe(false);
+      expect(belts.laneAwake(line.id, BeltLane.Right)).toBe(false);
+    }
     expect(inserterTable(entities)!.activeCount).toBe(0);
   });
 
@@ -409,15 +419,10 @@ describe('determinism', () => {
     const { entities } = sim.state;
     const { x, y } = DETERMINISM_CHAIN;
     // Player 2 sends no command after fuelling the chain, until the random
-    // phase, but for its electric rig off to the side.
+    // phase, but for its electric rig and its belt line off to the side.
     const last = Math.max(
       ...script
-        .filter(
-          (c) =>
-            c.playerId === 2 &&
-            c.tick < DETERMINISM_SCRIPTED_TICKS &&
-            c.tick !== DETERMINISM_ELECTRIC_TICK,
-        )
+        .filter((c) => c.playerId === 2 && c.tick < DETERMINISM_ELECTRIC_TICK)
         .map((c) => c.tick),
     );
     expect(last).toBe(DETERMINISM_CHAIN_TICK + 2);
@@ -469,6 +474,52 @@ describe('determinism', () => {
     ]);
     // Nothing but stone runs on the belt.
     expect(belts.itemsOn(20).every((i) => i.item === ItemId.Stone)).toBe(true);
+  });
+
+  it('runs coal through an underground pair onto fast belts, reversing the pair and back', () => {
+    const sim = createDeterminismSim();
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    const { entities } = sim.state;
+    const belts = beltTable(entities)!;
+    const { x, y } = DETERMINISM_CHAIN;
+    const row = y + DETERMINISM_TIER_ROW;
+    while (sim.tick < DETERMINISM_TIER_TICK + 2) sim.step();
+    const ids = [1, 2, 5, 6, 7].map((dx) => entities.at(x + dx, row));
+    const [belt, entrance, exit, fast] = [
+      DETERMINISM_TIER_BELT,
+      DETERMINISM_TIER_ENTRANCE,
+      DETERMINISM_TIER_EXIT,
+      DETERMINISM_TIER_FAST,
+    ];
+    expect(ids).toEqual([belt, entrance, exit, fast, fast + 1]);
+    expect(belts.mode(entrance)).toBe(UndergroundMode.Entrance);
+    expect(belts.mode(exit)).toBe(UndergroundMode.Exit);
+    expect(belts.partner(entrance)).toBe(exit);
+    // One yellow line through the pair (two tiles under the ground), handing on to the fast line.
+    const yellow = belts.line(belts.beltLine(belt))!;
+    expect(yellow.belts).toEqual([exit, 0, 0, entrance, belt]);
+    const red = belts.line(belts.beltLine(fast))!;
+    expect(red.speed).toBe(16);
+    expect(yellow.out).toBe(red);
+    expect(yellow.outPos).toBe(red.length);
+    const coalOnLine = () =>
+      [belt, entrance, exit, fast, fast + 1].reduce(
+        (n, id) => n + (entities.contents(id).find((s) => s.item === ItemId.Coal)?.count ?? 0),
+        0,
+      );
+    expect(coalOnLine()).toBe(2);
+    // Reversed (a Rotate on the exit): the pair swaps ends and faces west.
+    while (sim.tick < DETERMINISM_TIER_TICK + 31) sim.step();
+    expect(belts.mode(exit)).toBe(UndergroundMode.Entrance);
+    expect(entities.store.dir(entrance)).toBe(Direction.West);
+    expect(belts.partner(exit)).toBe(entrance);
+    // And back: by the end of the script both coal are under the ground,
+    // which counts as the exit's (it would refund them).
+    while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
+    expect(belts.mode(exit)).toBe(UndergroundMode.Exit);
+    expect(coalOnLine()).toBe(2);
+    expect(entities.contents(exit)).toEqual([{ item: ItemId.Coal, count: 2 }]);
+    expect(belts.itemsOn(exit)).toEqual([]);
   });
 
   it("strings poles on player 1's patch: a network, a split, a merge, and a lone pole", () => {
