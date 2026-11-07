@@ -28,6 +28,7 @@ import { InserterLayer } from './inserterLayer';
 import { PlayerLayer } from './playerLayer';
 import { PlayerTrack } from './playerTrack';
 import { PowerLayer, powerFocus } from './powerLayer';
+import type { SpriteAtlas } from './sprites';
 import { TerrainLayer, type TileInfo } from './terrainLayer';
 
 export interface HoveredTile extends Point {
@@ -64,6 +65,7 @@ export class GameView {
   /** Everything positioned in world pixels; transformed by the camera. */
   private readonly world = new Container({ label: 'world' });
   private sentViewport: Viewport | null = null;
+  private atlas: SpriteAtlas | null = null;
 
   /**
    * @param onViewport Called with the tiles on screen whenever they change;
@@ -77,6 +79,7 @@ export class GameView {
       this.terrain.container,
       this.belts.container,
       this.belts.itemContainer,
+      this.entities.shadowContainer,
       this.entities.container,
       this.assemblers.container,
       this.generators.container,
@@ -93,6 +96,22 @@ export class GameView {
       this.following = false;
     };
     this.camera.resize(app.screen.width, app.screen.height);
+  }
+
+  /**
+   * Draws entities that have a model in `atlas` with its sprites from now on
+   * (placeholders for the rest, and for all of them with `null`).
+   */
+  setSprites(atlas: SpriteAtlas | null): void {
+    this.atlas = atlas;
+    this.entities.setAtlas(atlas);
+    this.ghost.setAtlas(atlas);
+    this.assemblers.setAtlas(atlas);
+  }
+
+  /** Names of the sprite models in use (empty without an atlas). */
+  spriteModels(): string[] {
+    return this.atlas?.modelNames ?? [];
   }
 
   /** Feeds a snapshot from the worker into the layers. */
@@ -170,7 +189,7 @@ export class GameView {
     this.applyCamera();
     this.terrain.update();
     this.belts.draw(now);
-    this.entities.draw(this.entityIndex);
+    this.entities.draw(this.entityIndex, dtMs);
     this.assemblers.draw(this.entityIndex, dtMs);
     this.generators.draw(this.entityIndex, this.power.data, dtMs);
     this.inserters.draw(now);

@@ -6,3 +6,5 @@ test-results/
 blob-report/
 *.log
 .DS_Store
+art/build/
+__pycache__/

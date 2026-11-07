@@ -8,7 +8,7 @@
 import { EntityTypeId } from './data/entities';
 import { ITEM_IDS, ITEMS, MAX_STACK_SIZE, type ItemStack } from './data/items';
 import type { BuildInput } from './render/buildInput';
-import { ghostInserterTiles } from './render/entityLayer';
+import { ghostDrillDropTile, ghostInserterTiles } from './render/entityLayer';
 import { TILE_PX } from './render/camera';
 import type { GameView } from './render/gameView';
 import type { TerrainStats, TileInfo } from './render/terrainLayer';
@@ -113,7 +113,7 @@ export interface GhostState {
   y: number;
   dir: number;
   valid: boolean;
-  /** For an inserter: the tiles it would pick up from and drop onto. */
+  /** For an inserter: the tiles it would pick up from and drop onto; for a mining drill, the tile it would drop onto. */
   pickup?: { x: number; y: number };
   drop?: { x: number; y: number };
 }
@@ -177,6 +177,12 @@ export interface BeltworksTestHook {
   powerIcons(): number;
   /** Assembling machines as drawn last: the product icon shown (0 for none) and animation speed (0..1). */
   assemblers(): { id: number; item: number; speed: number }[];
+  /**
+   * Pre-rendered sprites: the models of the loaded atlas (empty until it
+   * loads), the entities drawn with sprites and how many of them animate,
+   * and whether the ghost shows a sprite.
+   */
+  sprites(): { models: string[]; entities: number; animated: number; ghost: boolean };
 }
 
 declare global {
@@ -326,12 +332,26 @@ export function installTestHook({
       const g = build.ghost;
       if (!g) return null;
       const tiles = ghostInserterTiles(g);
-      return { name: g.proto.name, x: g.x, y: g.y, dir: g.dir, valid: g.valid, ...tiles };
+      const drillDrop = ghostDrillDropTile(g);
+      return {
+        name: g.proto.name,
+        x: g.x,
+        y: g.y,
+        dir: g.dir,
+        valid: g.valid,
+        ...tiles,
+        ...(drillDrop ? { drop: drillDrop } : {}),
+      };
     },
     selectedSlot: () => build.selected,
     openEntity: () => entityPanel.entity,
     openPowerPanel: () => powerPanel.pole,
     powerIcons: () => view.entities.powerIcons,
     assemblers: () => view.assemblers.machines.map((m) => ({ ...m })),
+    sprites: () => ({
+      models: view.spriteModels(),
+      ...view.entities.sprites.stats,
+      ghost: view.ghost.spriteShown,
+    }),
   };
 }
