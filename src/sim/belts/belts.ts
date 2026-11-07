@@ -76,8 +76,9 @@
  * turns (`refreshMerge`).
  *
  * Other systems move items with `insertAt`, `takeAt`, `peekAt` and `peekEnd`
- * on a line and lane, and `beltLine`/`beltOffset`/`beltEnd` find a belt's
- * line and its stretch of it. The generic item hooks put items onto the
+ * on a line and lane (inserters drop with `dropOnTile`: anywhere on their
+ * tile where the item fits), and `beltLine`/`beltOffset`/`beltEnd` find a
+ * belt's line and its stretch of it. The generic item hooks put items onto the
  * middle of a belt (see `insert`). Notifications (`entities.notify`): every tick a lane of a
  * line changes (items move, arrive or leave), the line notifies those of its
  * watched belts, the ones something subscribed to (the `watched` hook keeps
@@ -681,6 +682,86 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   }
 
   /**
+   * Drops `item` onto lane `lane` of tile `(x, y)` of belt `belt` the way an
+   * inserter does: at `dropSpot`, anywhere on the tile where it fits.
+   * Returns whether it went on.
+   */
+  dropOnTile(belt: number, x: number, y: number, lane: number, item: number): boolean {
+    if (!itemPrototype(item)) return false;
+    const pos = this.dropSpot(belt, x, y, lane);
+    if (pos < 0) return false;
+    const line = this.lineMap.get(this.beltLineAt(belt, x, y))!;
+    const l = line.lanes[lane as BeltLane];
+    if (!l.insert(pos, item)) return false;
+    this.wakeLane(l);
+    this.halfChanged(line, lane);
+    this.notifyWatchers(line, pos, pos);
+    return true;
+  }
+
+  /**
+   * Where an inserter would drop an item onto lane `lane` of tile `(x, y)`
+   * of belt `belt` now (a distance from the end of the line through that
+   * tile), or -1 if it doesn't fit anywhere there: the spot closest to the
+   * middle of the tile (`beltOffset + 128`; the one nearer the line's end
+   * on a tie), so an inserter uses any free slot on a busy belt as it
+   * passes. The tile's stretch of its line is `[beltOffset, beltOffset +
+   * 255]` (on a splitter, of the half on that tile); an underground belt
+   * only takes items on its open half (an entrance its rear half, an exit
+   * its front half, `beltOffset + 128` in both, as for side-loads). The
+   * spacing holds within the lane (the lane's own, so a merging splitter
+   * half keeps its free slots) and across hand-overs: no closer than 64 to
+   * the last item of the line this one hands on to (as `minFront` counts
+   * it), nor to the first item of the line handing on to this one's start
+   * (`backLimit`). O(items from the end of the lane to the tile), like
+   * `insertAt`.
+   */
+  dropSpot(belt: number, x: number, y: number, lane: number): number {
+    const row = this.set.indexOf(belt);
+    if (row < 0 || (lane !== 0 && lane !== 1)) return -1;
+    const line = this.lineMap.get(this.beltLineAt(belt, x, y));
+    if (!line) return -1;
+    const offset = this.indexCol[row]! * BELT_LENGTH;
+    const middle = offset + BELT_LENGTH / 2;
+    let lo = offset;
+    let hi = offset + BELT_LENGTH - 1;
+    const mode = this.modeCol[row]!;
+    if (mode === UndergroundMode.Entrance) lo = middle;
+    else if (mode === UndergroundMode.Exit) hi = middle;
+    const l = line.lanes[lane];
+    lo = Math.max(lo, this.frontLimit(line, l));
+    hi = Math.min(hi, this.backLimit(line, l, l.spacing));
+    return l.fitBetween(lo, hi, middle);
+  }
+
+  /**
+   * How close to the end of `line` an item may be put on `lane` so it stays
+   * `BELT_ITEM_SPACING` behind the last item of the lane it is handed on to
+   * at another line's start, counted across the boundary (what `minFront`
+   * holds the lane's first item to); 0 where the line hands on to nothing,
+   * side-loads, or is a loop of one line.
+   */
+  private frontLimit(line: TransportLine, lane: LineLane): number {
+    const out = line.out;
+    if (!out || line.outLane >= 0) return 0;
+    const target = out.lanes[lane.index];
+    if (target === lane || target.count === 0) return 0;
+    const floor = BELT_ITEM_SPACING - (out.length - target.total);
+    return floor > 0 ? floor : 0;
+  }
+
+  /**
+   * The first item of a lane of `line` left it without being handed on
+   * (taken, or sent across inside a splitter): the line it hands on to may
+   * now take an item closer to its start (`backLimit`, as `dropSpot` uses
+   * it), so the watchers of that start are told.
+   */
+  private frontLeft(line: TransportLine): void {
+    const out = line.out;
+    if (out && line.outLane < 0 && out !== line) this.notifyWatchers(out, out.length, out.length);
+  }
+
+  /**
    * Takes the item closest to the end among those on lane `lane` of line
    * `lineId` at a distance in `[from, to]` from the end (with `accept`,
    * among those it accepts). Returns its item id, or 0 if there is none.
@@ -702,6 +783,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     this.wakeFeeders(line, lane);
     this.halfChanged(line, lane);
     this.notifyWatchers(line, from, to);
+    if (i === 0) this.frontLeft(line);
     return item;
   }
 
@@ -931,6 +1013,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
         target.insert(pos, lane.removeAt(0), true, BELT_ITEM_SPACING);
         this.wakeLane(target);
         this.notifyWatchers(sib, pos, pos);
+        this.frontLeft(line);
       }
       if (!marked && t === pref) this.nextCol[row] = this.nextCol[row]! ^ (1 << i);
       this.handed = true;

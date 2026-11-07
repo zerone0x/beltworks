@@ -89,9 +89,10 @@ const UNDER_B = 10;
  * the next belt; blue ones move 72, so 3 rounds fit. A full loop would jam
  * (nothing could move or be dropped onto it), so one in every `FILL_SKIP` belts
  * (and the splitters and undergrounds) get nothing: each leaves a hole of 3–4 item
- * spots that circulates with the loop, where inserters can drop items
- * (they drop at one exact spot, so a hole of a single item spot rarely
- * lines up with it).
+ * spots that circulates with the loop, where inserters can drop items.
+ * (Inserters used to drop at one exact spot, which a hole of a single item
+ * spot rarely lined up with; since #83 they use any free spot on their
+ * tile, but the fill is kept so the scenes' numbers stay comparable.)
  */
 const FILL = [
   { rounds: 4, interval: 8 },

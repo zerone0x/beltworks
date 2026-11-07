@@ -518,7 +518,7 @@ describe('burner inserter', () => {
     expect(s.entities.slots(furnace)[FurnaceSlot.Output]!.count).toBe(0);
   });
 
-  it('drops onto the middle of the far lane of a belt, and waits while there is no room', () => {
+  it('drops onto the middle of the far lane of a belt, else anywhere on its tile, and waits while there is no room', () => {
     const s = setup();
     const chest = s.place(ItemId.WoodenChest, 2, 1);
     // The inserter north of a single east-facing belt, so its far lane is the right one.
@@ -531,18 +531,22 @@ describe('burner inserter', () => {
     expect(belts.itemsOn(belt)).toEqual([
       { lane: BeltLane.Right, offset: BELT_LENGTH / 2, moved: 0, item: PLATE },
     ]);
-    // Items stop at the end of the belt: three fit at the middle and in front of it.
+    // Items stop at the end of the belt; once the middle is taken the
+    // inserter drops behind it too, so the tile fills: four at the spacing.
     s.step(10 * INSERTER_CYCLE_TICKS);
-    expect(belts.itemsOn(belt).filter((i) => i.lane === BeltLane.Right)).toHaveLength(3);
+    expect(belts.itemsOn(belt).filter((i) => i.lane === BeltLane.Right)).toEqual(
+      [0, 1, 2, 3].map((k) => ({ lane: BeltLane.Right, offset: 64 * k, moved: 0, item: PLATE })),
+    );
     expect(belts.itemsOn(belt).filter((i) => i.lane === BeltLane.Left)).toHaveLength(0);
     expect(s.entities.status(inserter)).toBe(InserterState.WaitingForTarget);
     expect(s.entities.wake.watchersOf(belt)).toEqual([inserter]);
     expect(s.table.activeCount).toBe(0);
-    // Taking the front item lets the lane close up; the inserter drops again.
+    // Taking the front item lets the lane close up; the inserter drops again
+    // into the slot that opens at the back of the tile.
     const line = belts.beltLine(belt);
     expect(belts.takeAt(line, BeltLane.Right, 0, 0)).toBe(PLATE);
     s.step(BELT_LENGTH / 4);
-    expect(belts.itemsOn(belt).filter((i) => i.lane === BeltLane.Right)).toHaveLength(3);
+    expect(belts.itemsOn(belt).filter((i) => i.lane === BeltLane.Right)).toHaveLength(4);
     expect(s.entities.status(inserter)).toBe(InserterState.Swinging);
   });
 
