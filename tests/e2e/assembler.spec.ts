@@ -10,6 +10,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { ItemId } from '../../src/data/items';
 import { Direction } from '../../src/sim/entities/direction';
 import { MachineState } from '../../src/sim/entities/machine';
+import { closeWindows } from './windows';
 
 /** The test kit, in hotbar order. */
 const KIT =
@@ -79,7 +80,7 @@ test('an assembling machine makes gears from plates fed by hand', async ({ page 
   };
   /** Opens the window of the entity covering `r`, with nothing in hand. */
   const openAt = async (r: Rect, name: string) => {
-    await page.keyboard.press('Escape');
+    await closeWindows(page);
     if ((await page.evaluate(() => window.__beltworks!.selectedSlot())) !== null) {
       await page.keyboard.press('q');
       await expect.poll(() => page.evaluate(() => window.__beltworks!.selectedSlot())).toBeNull();

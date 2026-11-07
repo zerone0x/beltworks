@@ -26,6 +26,7 @@ import { ENTITIES, EntityTypeId, FURNACE_OUTPUT_LIMIT } from '../../data/entitie
 import { fuelValue, itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
 import { recipePrototype, smeltingRecipeFor, type Recipe } from '../../data/recipes';
 import { fnv1a32 } from '../hash';
+import type { SaveReader, SaveWriter } from '../save/codec';
 import { BurnerColumns } from './burner';
 import type { Entities } from './entities';
 import { MachineState } from './machine';
@@ -213,6 +214,38 @@ export class FurnaceTable implements EntityTypeTable {
       h = fnv1a32(c.subarray(0, n), h);
     }
     return this.burner.hashInto(h, n);
+  }
+
+  save(w: SaveWriter): void {
+    const n = this.set.size;
+    w.sparseSet(this.set);
+    w.sparseSet(this.active);
+    for (const c of [
+      this.inputItem,
+      this.inputCount,
+      this.outputItem,
+      this.outputCount,
+      this.recipe,
+      this.progress,
+      this.state,
+    ]) {
+      w.column(c, n);
+    }
+    this.burner.save(w, n);
+  }
+
+  load(r: SaveReader): void {
+    r.sparseSet(this.set);
+    r.sparseSet(this.active);
+    const n = this.set.size;
+    this.inputItem = r.column(this.inputItem, n);
+    this.inputCount = r.column(this.inputCount, n);
+    this.outputItem = r.column(this.outputItem, n);
+    this.outputCount = r.column(this.outputCount, n);
+    this.recipe = r.column(this.recipe, n);
+    this.progress = r.column(this.progress, n);
+    this.state = r.column(this.state, n);
+    this.burner.load(r, n);
   }
 
   /** One tick of the furnace in row `row`; returns its new state. */

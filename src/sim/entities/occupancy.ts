@@ -9,6 +9,7 @@
  */
 
 import { FNV1A32_OFFSET_BASIS, fnv1a32 } from '../hash';
+import { SaveError, type SaveReader, type SaveWriter } from '../save/codec';
 import { CHUNK_AREA, CHUNK_MASK, CHUNK_SHIFT, tileIndex } from '../world/chunk';
 import { chunkKey, isChunkCoord } from '../world/world';
 
@@ -113,6 +114,48 @@ export class Occupancy {
       h = fnv1a32(chunk.tiles, h);
     }
     return h;
+  }
+
+  /**
+   * Saves the order of each chunk's origin list (it is the order the
+   * snapshot lists entities in). The covered tiles are not saved: `load`'s
+   * caller fills them again from the entities' footprints.
+   */
+  save(w: SaveWriter): void {
+    w.u32(this.chunks.size);
+    for (const chunk of this.chunks.values()) {
+      w.i32(chunk.cx);
+      w.i32(chunk.cy);
+      w.ids(chunk.origins);
+    }
+  }
+
+  /**
+   * Restores the origin lists `save` wrote, after every entity was filled in
+   * again (which recreated the same chunk records, origins in row order).
+   */
+  load(r: SaveReader): void {
+    const count = r.u32();
+    if (count !== this.chunks.size) {
+      throw new SaveError(
+        `occupancy: ${String(count)} chunks saved, ${String(this.chunks.size)} filled`,
+      );
+    }
+    // Recreate the records in their saved order, so iterating them stays the same.
+    const filled = new Map(this.chunks);
+    this.chunks.clear();
+    for (let i = 0; i < count; i++) {
+      const cx = r.i32();
+      const cy = r.i32();
+      const origins = r.ids();
+      const key = isChunkCoord(cx) && isChunkCoord(cy) ? chunkKey(cx, cy) : -1;
+      const chunk = filled.get(key);
+      if (!chunk || chunk.origins.length !== origins.length) {
+        throw new SaveError(`occupancy: chunk (${String(cx)}, ${String(cy)}) doesn't match`);
+      }
+      chunk.origins.splice(0, origins.length, ...origins);
+      this.chunks.set(key, chunk);
+    }
   }
 
   private peek(cx: number, cy: number): OccupancyChunk | undefined {

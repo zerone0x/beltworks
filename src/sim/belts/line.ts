@@ -4,6 +4,7 @@
  */
 
 import { SUBTILES_PER_TILE } from '../fixed';
+import type { SaveReader, SaveWriter } from '../save/codec';
 import { Lane } from './lane';
 
 /** Lane indices, relative to the direction the belts move. */
@@ -29,6 +30,16 @@ export class LineLane extends Lane {
 
   /** The belt system's tick on which the lane last moved or handed an item on. */
   changedAt = -2;
+
+  override save(w: SaveWriter): void {
+    super.save(w);
+    w.u53(this.changedAt + 2);
+  }
+
+  override load(r: SaveReader): void {
+    super.load(r);
+    this.changedAt = r.u53() - 2;
+  }
 }
 
 export class TransportLine {

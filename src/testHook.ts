@@ -15,6 +15,7 @@ import type { GameView } from './render/gameView';
 import type { TerrainStats, TileInfo } from './render/terrainLayer';
 import type { EntityPanel } from './ui/entityPanel';
 import type { PowerPanel } from './ui/powerPanel';
+import type { SaveController } from './ui/saves';
 import type { TechTreePanel } from './ui/techTree';
 import { TECH_IDS, TECHNOLOGIES, technologyPrototype } from './data/technologies';
 import { SUBTILES_PER_TILE } from './sim/fixed';
@@ -221,6 +222,8 @@ export interface BeltworksTestHook {
    * player walks faster too, so tests walk and build at normal speed.
    */
   setTimeScale(scale: number): void;
+  /** Autosaves now (into the next slot of the rotation); resolves with the slot's id, or null. */
+  autosave(): Promise<string | null>;
 }
 
 declare global {
@@ -317,6 +320,7 @@ export interface TestHookContext {
   entityPanel: EntityPanel;
   powerPanel: PowerPanel;
   techTree: TechTreePanel;
+  saves: SaveController;
   /** The world seed the game runs with. */
   seed: number;
   /** The local player's inventory as last shown by the UI. */
@@ -332,6 +336,7 @@ export function installTestHook({
   entityPanel,
   powerPanel,
   techTree,
+  saves,
   seed,
   inventory,
   research,
@@ -478,5 +483,6 @@ export function installTestHook({
     setTimeScale: (scale) => {
       client.setTimeScale(scale);
     },
+    autosave: async () => (await saves.autosave())?.id ?? null,
   };
 }

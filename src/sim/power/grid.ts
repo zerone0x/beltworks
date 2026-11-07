@@ -51,6 +51,7 @@ import type { Entities } from '../entities/entities';
 import { SparseSet, growTo } from '../entities/sparseSet';
 import type { EntityTypeTable } from '../entities/table';
 import { fnv1a32 } from '../hash';
+import type { SaveReader, SaveWriter } from '../save/codec';
 import {
   MAX_SUPPLY_RADIUS,
   MAX_WIRE_REACH,
@@ -398,6 +399,59 @@ export class PowerGrid implements EntityTypeTable {
       h = fnv1a32(c.subarray(0, n), h);
     }
     return h;
+  }
+
+  /**
+   * Saves the union-find trees as they are (parents, sizes: which root wins
+   * a later union depends on them), the wires, the networks with the latest
+   * tick's figures, and the members with their poles and cached networks.
+   */
+  save(w: SaveWriter): void {
+    const nPoles = this.poles.size;
+    w.sparseSet(this.poles);
+    for (const c of [this.parent, this.size, this.rootNet]) w.column(c, nPoles);
+    for (let row = 0; row < nPoles; row++) w.ids(this.neighbourLists[row]!);
+    const nNets = this.nets.size;
+    w.u32(this.nextNet);
+    w.sparseSet(this.nets);
+    for (const c of [this.netPoles, this.netDemand, this.netSupply, this.netSat, this.netLoad]) {
+      w.column(c, nNets);
+    }
+    const n = this.members.size;
+    w.bool(this.netsDirty);
+    w.sparseSet(this.members);
+    w.column(this.memType, n);
+    for (const c of [this.memPole, this.memNet, this.memDemand, this.memOutput, this.memDrawn]) {
+      w.column(c, n);
+    }
+  }
+
+  load(r: SaveReader): void {
+    r.sparseSet(this.poles);
+    const nPoles = this.poles.size;
+    this.parent = r.column(this.parent, nPoles);
+    this.size = r.column(this.size, nPoles);
+    this.rootNet = r.column(this.rootNet, nPoles);
+    this.neighbourLists = [];
+    for (let row = 0; row < nPoles; row++) this.neighbourLists.push(r.ids());
+    this.nextNet = r.u32();
+    r.sparseSet(this.nets);
+    const nNets = this.nets.size;
+    this.netPoles = r.column(this.netPoles, nNets);
+    this.netDemand = r.column(this.netDemand, nNets);
+    this.netSupply = r.column(this.netSupply, nNets);
+    this.netSat = r.column(this.netSat, nNets);
+    this.netLoad = r.column(this.netLoad, nNets);
+    this.netCum = growTo(this.netCum, nNets);
+    this.netsDirty = r.bool();
+    r.sparseSet(this.members);
+    const n = this.members.size;
+    this.memType = r.column(this.memType, n);
+    this.memPole = r.column(this.memPole, n);
+    this.memNet = r.column(this.memNet, n);
+    this.memDemand = r.column(this.memDemand, n);
+    this.memOutput = r.column(this.memOutput, n);
+    this.memDrawn = r.column(this.memDrawn, n);
   }
 
   // Internals.

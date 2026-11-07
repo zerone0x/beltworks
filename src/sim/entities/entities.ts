@@ -10,6 +10,7 @@
 import { entityPrototype, type EntityPrototype } from '../../data/entities';
 import type { ItemStack } from '../../data/items';
 import { fnv1a32 } from '../hash';
+import { SaveError, type SaveReader, type SaveWriter } from '../save/codec';
 import { rotateClockwise, type Direction } from './direction';
 import { MachineState } from './machine';
 import { Occupancy } from './occupancy';
@@ -240,6 +241,36 @@ export class Entities {
       h = table.hashInto(h);
     }
     return this.wake.hashInto(h);
+  }
+
+  /**
+   * Saves the generic store, the occupancy index's origin lists and the
+   * subscriptions. Each per-type table saves itself into a section of its
+   * own (src/sim/save/save.ts).
+   */
+  save(w: SaveWriter): void {
+    this.store.save(w);
+    this.occupancy.save(w);
+    this.wake.save(w);
+  }
+
+  /** Restores what `save` wrote into these empty entities (before the tables load). */
+  load(r: SaveReader): void {
+    if (this.count !== 0) throw new Error('loading into entities that are not empty');
+    this.store.load(r);
+    for (const id of this.store.ids) {
+      if (!this.prototypeOf(id)) {
+        throw new SaveError(`entities: unknown entity type ${String(this.store.type(id))}`);
+      }
+      const { x, y, w, h } = this.footprint(id);
+      try {
+        this.occupancy.fill(id, x, y, w, h);
+      } catch (err) {
+        throw new SaveError(`entities: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    this.occupancy.load(r);
+    this.wake.load(r);
   }
 
   private tableOf(id: number): EntityTypeTable | undefined {

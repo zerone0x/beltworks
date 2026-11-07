@@ -21,6 +21,7 @@ import { UndergroundMode } from '../../src/sim/belts/underground';
 import { Direction } from '../../src/sim/entities/direction';
 import { MachineState } from '../../src/sim/entities/machine';
 import { sceneFps } from './walk';
+import { closeWindows } from './windows';
 
 interface Rect {
   x: number;
@@ -90,7 +91,7 @@ async function place(
 
 /** Opens the window of the entity covering `r`, with nothing in hand. */
 async function openEntityAt(page: Page, r: Rect, name: string) {
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   if ((await page.evaluate(() => window.__beltworks!.selectedSlot())) !== null) {
     await page.keyboard.press('q');
     await expect.poll(() => page.evaluate(() => window.__beltworks!.selectedSlot())).toBeNull();
@@ -220,7 +221,7 @@ test('belts, inserters and poles are drawn with their pre-rendered sprites', asy
     await openAt(chest, 'wooden-chest');
     await panel.locator('.player-inventory .slot[data-item="coal"]').first().click();
   }
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await expect(panel).toBeHidden();
 
   // Belts, inserters (with arms) and poles are sprites; the electric inserters have power.
@@ -370,7 +371,7 @@ test('the four inserters side by side, with their arm shadows', async ({ page },
   }
   await openEntityAt(page, boiler, 'boiler');
   await page.locator('#entity-panel .player-inventory .slot[data-item="coal"]').first().click();
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await expect.poll(async () => (await sprites(page)).arms).toBe(TYPES.length);
   for (const ins of row.slice(1)) {
     await expect

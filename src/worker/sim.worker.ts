@@ -5,7 +5,9 @@
 
 import { MAX_STACK_SIZE, itemPrototype, type ItemStack, type RealItemId } from '../data/items';
 import { technologyPrototype } from '../data/technologies';
+import { gunzip, gzip } from '../save/compress';
 import { validateCommandInput } from '../sim/commands';
+import { loadSim, saveMetaOf, saveSim } from '../sim/save/save';
 import {
   encodeBelts,
   encodeChunks,
@@ -157,16 +159,31 @@ function sendSnapshot(ticksRun: number): void {
   );
 }
 
-function handle(msg: MainToWorker): void {
+async function handle(msg: MainToWorker): Promise<void> {
   switch (msg.type) {
     case 'init': {
       const startingKit = validateKit(msg.startingKit);
       const researched = validateResearched(msg.researched);
-      sim = new Sim({
-        seed: msg.seed,
-        ...(startingKit && { startingKit }),
-        ...(researched && { researched }),
-      });
+      // Continue from a save; if it can't be read, start a new game and say why.
+      let loaded: Sim | null = null;
+      let loadError: string | null = null;
+      if (msg.save) {
+        try {
+          loaded = loadSim(await gunzip(new Uint8Array(msg.save)));
+        } catch (err) {
+          loadError = err instanceof Error ? err.message : String(err);
+        }
+      }
+      sim =
+        loaded ??
+        new Sim({
+          seed: msg.seed,
+          ...(startingKit && { startingKit }),
+          ...(researched && { researched }),
+        });
+      if (msg.save) {
+        post({ type: 'loaded', meta: loaded && saveMetaOf(loaded), error: loadError });
+      }
       // A fresh streamer resends every chunk in the window, replacing the main
       // thread's copies from the previous world.
       streamer = new ChunkStreamer(sim.state.world);
@@ -224,7 +241,35 @@ function handle(msg: MainToWorker): void {
       viewport = sanitizeViewport(msg.viewport);
       streamer?.setViewport(viewport);
       break;
+    case 'save':
+      saveGame(msg.id);
+      break;
   }
+}
+
+/**
+ * Serializes the simulation between two ticks (synchronously, so the save
+ * is of one tick), then gzips it off the message queue and sends it.
+ */
+function saveGame(id: number): void {
+  if (!sim) throw new Error('save requested before init');
+  let bytes: Uint8Array;
+  const meta = saveMetaOf(sim);
+  try {
+    bytes = saveSim(sim);
+  } catch (err) {
+    post({ type: 'saved', id, data: null, meta: null, error: String(err) });
+    return;
+  }
+  gzip(bytes).then(
+    (packed) => {
+      const data = packed.buffer;
+      post({ type: 'saved', id, data, meta, error: null }, [data]);
+    },
+    (err: unknown) => {
+      post({ type: 'saved', id, data: null, meta: null, error: String(err) });
+    },
+  );
 }
 
 /** Checks an `init` message's starting kit: known items, counts in [1, 65535]. */
@@ -259,10 +304,17 @@ function validateResearched(techs: unknown): number[] | undefined {
   });
 }
 
+/**
+ * Messages are handled one at a time, in order: loading a save is
+ * asynchronous (decompression), and commands sent meanwhile must reach the
+ * loaded game, not the one before it.
+ */
+let inbox: Promise<void> = Promise.resolve();
+
 self.onmessage = (event: MessageEvent<MainToWorker>) => {
-  try {
-    handle(event.data);
-  } catch (err) {
-    post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
-  }
+  inbox = inbox
+    .then(() => handle(event.data))
+    .catch((err: unknown) => {
+      post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+    });
 };

@@ -24,6 +24,7 @@ import { SUBTILES_PER_TILE } from '../../src/sim/fixed';
 import { World } from '../../src/sim/world/world';
 import { fastForward } from './timeScale';
 import { walkNear } from './walk';
+import { closeWindows } from './windows';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -243,7 +244,7 @@ test('drills slow down on an overloaded network and recover with a second genera
   /** Left-clicks spot `s` of the layout with nothing in hand. */
   const clickSpot = async (spot: Spot) => {
     const { x, y } = onSite(spot);
-    await page.keyboard.press('Escape');
+    await closeWindows(page);
     // Q only deselects with something selected; with nothing, it is the pipette.
     if ((await page.evaluate(() => window.__beltworks!.selectedSlot())) !== null) {
       await page.keyboard.press('q');
@@ -261,7 +262,7 @@ test('drills slow down on an overloaded network and recover with a second genera
       'data-item',
       'coal',
     );
-    await page.keyboard.press('Escape');
+    await closeWindows(page);
   };
   /** Opens the power panel of pole `p`. */
   const openPowerPanel = async (p: Spot) => {
@@ -309,7 +310,7 @@ test('drills slow down on an overloaded network and recover with a second genera
         { timeout: 60_000 },
       )
       .toBeGreaterThanOrEqual(ticks);
-    await page.keyboard.press('Escape');
+    await closeWindows(page);
     return ((end.ore - start.ore) / (end.tick - start.tick)) * (120 / 2);
   };
   const screenshot = async (name: string, title: string) => {
@@ -403,7 +404,7 @@ test('drills slow down on an overloaded network and recover with a second genera
   await screenshot('m2-power.png', 'the power panel after the network recovered');
 
   // Escape closes it.
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await expect(powerPanel).toBeHidden();
   expect(await page.evaluate(() => window.__beltworks!.openPowerPanel())).toBe(0);
   expect(errors).toEqual([]);

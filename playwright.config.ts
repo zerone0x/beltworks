@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4173;
+/** `E2E_PORT` picks another port, e.g. when another checkout's preview server is on 4173. */
+const PORT = Number(process.env.E2E_PORT ?? 4173);
 const BASE_PATH = process.env.BASE_PATH ?? '/';
 const base = `/${BASE_PATH.replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/');
 /**

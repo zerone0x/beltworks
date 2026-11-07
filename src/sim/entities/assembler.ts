@@ -59,6 +59,7 @@ import {
   type Recipe,
 } from '../../data/recipes';
 import { fnv1a32 } from '../hash';
+import type { SaveReader, SaveWriter } from '../save/codec';
 import { NOT_GRANTED, PowerBudget } from '../power/consumer';
 import type { Entities } from './entities';
 import { MachineState } from './machine';
@@ -336,6 +337,29 @@ export class AssemblerTable implements EntityTypeTable {
     }
     h = fnv1a32(this.inputs.subarray(0, n * ASSEMBLER_MAX_INPUTS), h);
     return fnv1a32(this.outputs.subarray(0, n * ASSEMBLER_MAX_OUTPUTS), h);
+  }
+
+  save(w: SaveWriter): void {
+    const n = this.set.size;
+    w.sparseSet(this.set);
+    w.sparseSet(this.active);
+    for (const c of [this.recipeId, this.busy, this.progress, this.state]) w.column(c, n);
+    w.column(this.inputs, n * ASSEMBLER_MAX_INPUTS);
+    w.column(this.outputs, n * ASSEMBLER_MAX_OUTPUTS);
+  }
+
+  load(r: SaveReader): void {
+    r.sparseSet(this.set);
+    r.sparseSet(this.active);
+    const n = this.set.size;
+    this.recipeId = r.column(this.recipeId, n);
+    this.busy = r.column(this.busy, n);
+    this.progress = r.column(this.progress, n);
+    this.state = r.column(this.state, n);
+    this.inputs = r.column(this.inputs, n * ASSEMBLER_MAX_INPUTS);
+    this.outputs = r.column(this.outputs, n * ASSEMBLER_MAX_OUTPUTS);
+    // Power grants only live within a tick (consumer.ts): not saved.
+    this.budget.grow(n);
   }
 
   /** One tick of the machine in row `row`; returns its new state. */

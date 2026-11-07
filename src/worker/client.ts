@@ -5,7 +5,9 @@
  */
 
 import type { CommandInput } from '../sim/commands';
+import type { SaveMeta } from '../sim/save/container';
 import type {
+  LoadedMessage,
   MainToWorker,
   SnapshotMessage,
   StatsMessage,
@@ -21,22 +23,37 @@ export interface SimStats {
   ups: number;
 }
 
+/** A save made by the worker: the gzipped bytes and what they hold. */
+export interface WorkerSave {
+  data: Uint8Array;
+  meta: SaveMeta;
+}
+
 export class SimClient {
   private readonly worker: Worker;
   private lastStats: { tick: number; at: number } | null = null;
+  private nextSaveId = 1;
+  private readonly saves = new Map<
+    number,
+    { resolve: (save: WorkerSave) => void; reject: (err: Error) => void }
+  >();
 
   latestSnapshot: SnapshotMessage | null = null;
   onStats: ((stats: SimStats) => void) | null = null;
   onSnapshot: ((snapshot: SnapshotMessage) => void) | null = null;
+  /** The answer to a `save` given to the constructor: loaded, or why not (a new game runs). */
+  onLoaded: ((msg: LoadedMessage) => void) | null = null;
 
   /**
    * `startingKit` replaces the default kit and `researched` technologies are
    * researched from the start (dev and test builds only, see `InitMessage`).
+   * With `save`, the game continues from that save instead (see `onLoaded`).
    */
   constructor(
     seed: number,
     startingKit?: { item: number; count: number }[],
     researched?: number[],
+    save?: Uint8Array,
   ) {
     this.worker = new Worker(new URL('./sim.worker.ts', import.meta.url), {
       type: 'module',
@@ -48,11 +65,25 @@ export class SimClient {
     this.worker.onerror = (event) => {
       console.error('Simulation worker failed:', event.message);
     };
-    this.send({
-      type: 'init',
-      seed: seed >>> 0,
-      ...(startingKit && { startingKit }),
-      ...(researched && { researched }),
+    const buffer = save?.slice().buffer;
+    this.worker.postMessage(
+      {
+        type: 'init',
+        seed: seed >>> 0,
+        ...(startingKit && { startingKit }),
+        ...(researched && { researched }),
+        ...(buffer && { save: buffer }),
+      } satisfies MainToWorker,
+      buffer ? [buffer] : [],
+    );
+  }
+
+  /** Asks the worker for a save of the game as it is now (serialized and gzipped in the worker). */
+  save(): Promise<WorkerSave> {
+    const id = this.nextSaveId++;
+    return new Promise((resolve, reject) => {
+      this.saves.set(id, { resolve, reject });
+      this.send({ type: 'save', id });
     });
   }
 
@@ -95,6 +126,17 @@ export class SimClient {
         break;
       case 'error':
         console.error('Simulation worker error:', msg.message);
+        break;
+      case 'saved': {
+        const pending = this.saves.get(msg.id);
+        this.saves.delete(msg.id);
+        if (msg.data && msg.meta)
+          pending?.resolve({ data: new Uint8Array(msg.data), meta: msg.meta });
+        else pending?.reject(new Error(msg.error ?? 'the save failed'));
+        break;
+      }
+      case 'loaded':
+        this.onLoaded?.(msg);
         break;
     }
   }

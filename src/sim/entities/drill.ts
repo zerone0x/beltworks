@@ -58,6 +58,7 @@ import {
 } from '../../data/entities';
 import { fuelValue, minedItem, type ItemStack, type RealItemId } from '../../data/items';
 import { fnv1a32 } from '../hash';
+import type { SaveReader, SaveWriter } from '../save/codec';
 import { NOT_GRANTED } from '../power/consumer';
 import type { World } from '../world/world';
 import { BurnerColumns } from './burner';
@@ -267,6 +268,27 @@ export abstract class MiningDrillTable implements EntityTypeTable {
     return this.hashRows?.(h, n) ?? h;
   }
 
+  save(w: SaveWriter): void {
+    const n = this.set.size;
+    w.sparseSet(this.set);
+    w.sparseSet(this.active);
+    for (const c of [this.progress, this.cursor, this.held, this.state]) w.column(c, n);
+    this.saveRows?.(w, n);
+  }
+
+  load(r: SaveReader): void {
+    r.sparseSet(this.set);
+    r.sparseSet(this.active);
+    const n = this.set.size;
+    this.progress = r.column(this.progress, n);
+    this.cursor = r.column(this.cursor, n);
+    this.held = r.column(this.held, n);
+    this.state = r.column(this.state, n);
+    this.loadRows?.(r, n);
+    // Columns of the subclass that aren't saved (per-tick power grants) only need the room.
+    this.growRows?.(n);
+  }
+
   /** The drop tile of drill `id` (see {@link drillDropTileFor}). */
   dropTile(id: number, entities: Entities): { x: number; y: number } {
     const { store } = entities;
@@ -294,6 +316,8 @@ export abstract class MiningDrillTable implements EntityTypeTable {
   protected moveRow?(from: number, to: number): void;
   protected clearRow?(row: number): void;
   protected hashRows?(h: number, rows: number): number;
+  protected saveRows?(w: SaveWriter, rows: number): void;
+  protected loadRows?(r: SaveReader, rows: number): void;
 
   /** Working ticks done on the current unit (whole ticks at full speed), for the GUI. */
   protected progressTicks(row: number): number {
@@ -512,6 +536,14 @@ export class DrillTable extends MiningDrillTable {
 
   protected override hashRows(h: number, rows: number): number {
     return this.burner.hashInto(h, rows);
+  }
+
+  protected override saveRows(w: SaveWriter, rows: number): void {
+    this.burner.save(w, rows);
+  }
+
+  protected override loadRows(r: SaveReader, rows: number): void {
+    this.burner.load(r, rows);
   }
 }
 

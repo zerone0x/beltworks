@@ -25,6 +25,7 @@
 import type { ItemStack, RealItemId } from '../../data/items';
 import { recipePrototype, type Recipe } from '../../data/recipes';
 import { fnv1a32 } from '../hash';
+import { SaveError, type SaveReader, type SaveWriter } from '../save/codec';
 import type { Inventory } from '../inventory';
 import type { PlayerTable } from '../player';
 import { countItems, maxCraftable, planCraft, type RecipeFilter } from './plan';
@@ -215,6 +216,26 @@ export class CraftingTable {
       h = fnv1a32(column, h);
     }
     return h;
+  }
+
+  save(w: SaveWriter): void {
+    w.u32(this.count);
+    w.u32(CRAFT_QUEUE_LENGTH);
+    for (const column of [this.length, this.progress, this.recipe, this.crafts, this.flags]) {
+      w.column(column);
+    }
+  }
+
+  /** Restores what `save` wrote into a table with the same number of players. */
+  load(r: SaveReader): void {
+    const count = r.u32();
+    const length = r.u32();
+    if (count !== this.count || length !== CRAFT_QUEUE_LENGTH) {
+      throw new SaveError(`crafting: ${String(count)} queues of ${String(length)} entries`);
+    }
+    for (const column of [this.length, this.progress, this.recipe, this.crafts, this.flags]) {
+      r.columnInto(column);
+    }
   }
 
   private isIntermediate(slot: number): boolean {

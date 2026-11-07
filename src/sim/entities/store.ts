@@ -11,6 +11,7 @@
 
 import type { EntityPrototype } from '../../data/entities';
 import { fnv1a32 } from '../hash';
+import { SaveError, type SaveReader, type SaveWriter } from '../save/codec';
 import type { Direction } from './direction';
 import { SparseSet, growTo } from './sparseSet';
 
@@ -123,6 +124,30 @@ export class EntityStore {
     h = fnv1a32(this.yCol.subarray(0, n), h);
     h = fnv1a32(this.dirCol.subarray(0, n), h);
     return h;
+  }
+
+  save(w: SaveWriter): void {
+    const n = this.count;
+    w.u32(this.next);
+    w.sparseSet(this.set);
+    w.column(this.typeCol, n);
+    w.column(this.xCol, n);
+    w.column(this.yCol, n);
+    w.column(this.dirCol, n);
+  }
+
+  /** Restores what `save` wrote into this empty store. */
+  load(r: SaveReader): void {
+    this.next = r.u32();
+    r.sparseSet(this.set);
+    const n = this.count;
+    this.typeCol = r.column(this.typeCol, n);
+    this.xCol = r.column(this.xCol, n);
+    this.yCol = r.column(this.yCol, n);
+    this.dirCol = r.column(this.dirCol, n);
+    for (const id of this.set.dense) {
+      if (id >= this.next) throw new SaveError(`entities: id ${String(id)} not below the next id`);
+    }
   }
 
   private row(id: number): number {

@@ -72,7 +72,7 @@ Met: `tests/e2e/science.spec.ts` builds, from a new game and with real input nex
 
 ## M5 — Polish
 
-- [ ] Save and load (IndexedDB), autosave, save-version migrations
+- [x] Save and load (IndexedDB), autosave, save-version migrations
 - [ ] Blueprints: box-select copy, paste, string import and export
 - [ ] Minimap and map mode
 - [ ] Sound effects and music (CC0 or original)

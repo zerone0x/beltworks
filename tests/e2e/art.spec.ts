@@ -19,6 +19,7 @@ import { Direction } from '../../src/sim/entities/direction';
 import { drillDropTile } from '../../src/sim/entities/drill';
 import { MachineState } from '../../src/sim/entities/machine';
 import { sceneFps } from './walk';
+import { closeWindows } from './windows';
 
 /** The test kit, in hotbar order. */
 const KIT = [
@@ -164,7 +165,7 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
   };
   /** Opens the window of the entity covering `r`, with nothing in hand. */
   const openAt = async (r: Rect, name: string) => {
-    await page.keyboard.press('Escape');
+    await closeWindows(page);
     if ((await page.evaluate(() => window.__beltworks!.selectedSlot())) !== null) {
       await page.keyboard.press('q');
       await expect.poll(() => page.evaluate(() => window.__beltworks!.selectedSlot())).toBeNull();
@@ -187,7 +188,7 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
   await place(KEY.pole, SCENE.pole, 'small-electric-pole');
   await place(KEY.electricDrill, SCENE.electricDrill, 'electric-mining-drill');
   // The electric inserter from the inventory (past the hotbar).
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await page.keyboard.press('e');
   await page.locator('#inventory-panel .slot[data-item="electric-inserter"]').click();
   await page.keyboard.press('e');
@@ -210,7 +211,7 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
   await expect(panel).toHaveAttribute('data-status', 'working');
   await openAt(SCENE.boiler, 'boiler');
   await panel.locator('.player-inventory .slot[data-item="coal"]').click();
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await expect(panel).toBeHidden();
   await expect
     .poll(async () => (await entityAt(page, SCENE.furnace.x, SCENE.furnace.y))?.status)

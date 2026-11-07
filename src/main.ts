@@ -21,11 +21,14 @@ import { loadItemIcons } from './render/itemIcons';
 import { CraftQueueStrip, CraftingPanel } from './ui/crafting';
 import { DebugOverlay } from './ui/debugOverlay';
 import { EntityPanel, hasEntityGui } from './ui/entityPanel';
+import { GameMenu } from './ui/gameMenu';
 import { HelpPanel } from './ui/help';
 import { Hotbar, InventoryPanel } from './ui/inventory';
 import { PowerHistory } from './ui/powerHistory';
 import { PowerPanel } from './ui/powerPanel';
+import { SaveController, chooseStart } from './ui/saves';
 import { TechTreePanel } from './ui/techTree';
+import { SaveStore } from './save/store';
 import { SimClient } from './worker/client';
 import { LOCAL_PLAYER_ID } from './worker/protocol';
 
@@ -40,10 +43,14 @@ async function main(): Promise<void> {
   // `?research=` researched technologies.
   const testHook =
     import.meta.env.DEV || import.meta.env.MODE === 'test' ? await import('./testHook') : null;
+  // A save to continue (the start screen, or the menu's Load before it reloaded the page), or a new game.
+  const store = await SaveStore.open();
+  const start = await chooseStart(store);
   const client = new SimClient(
     WORLD_SEED,
     testHook?.startingKitFromUrl(window.location.search),
     testHook?.researchedFromUrl(window.location.search),
+    start.save,
   );
   const overlay = new DebugOverlay(document.body);
   /** The local player's inventory as of the latest snapshot. */
@@ -101,7 +108,39 @@ async function main(): Promise<void> {
     client.inspect(pole);
   });
   const techTree = new TechTreePanel(document.body, crafting);
-  new HelpPanel(document.body);
+  const help = new HelpPanel(document.body);
+  let menu: GameMenu | null = null;
+  const saves = new SaveController(store, client, (message) => {
+    menu?.notify(message);
+    if (menu?.isOpen) menu.setStatus(message);
+  });
+  menu = new GameMenu(document.body, {
+    save: (name) => saves.save(name),
+    list: () => saves.list(),
+    load: (slot) => {
+      saves.load(slot);
+    },
+    export: (slot) => saves.export(slot),
+    delete: (slot) => saves.delete(slot),
+    import: (file) => saves.import(file),
+    newGame: () => {
+      saves.newGame();
+    },
+    otherWindowOpen: () =>
+      entityPanel.isOpen ||
+      inventoryPanel.isOpen ||
+      powerPanel.isOpen ||
+      techTree.isOpen ||
+      help.isOpen,
+  });
+  client.onLoaded = (msg) => {
+    if (msg.error !== null) {
+      menu?.notify(`Couldn't load the save: ${msg.error} A new game was started instead.`, 10_000);
+    } else if (start.slot) {
+      menu?.notify(`Loaded “${start.slot.name}”.`);
+    }
+  };
+  saves.startAutosave();
   client.onStats = (stats) => {
     overlay.update(stats);
   };
@@ -243,6 +282,7 @@ async function main(): Promise<void> {
       entityPanel,
       powerPanel,
       techTree,
+      saves,
       seed: WORLD_SEED,
       inventory: () => inventory,
       research: () => research,

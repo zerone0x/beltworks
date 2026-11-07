@@ -20,6 +20,8 @@
  * behind that point.
  */
 
+import { SaveError, type SaveReader, type SaveWriter } from '../save/codec';
+
 /** The bits of a stored item that hold its id; the top bit is its mark (`Lane.marked`). */
 const ITEM_BITS = 0x7fff;
 const MARK = 0x8000;
@@ -356,6 +358,43 @@ export class Lane {
     const out: number[] = [];
     for (let i = 0; i < this.count; i++) if (this.marked(i)) out.push(i);
     return Uint32Array.from(out);
+  }
+
+  /**
+   * Writes the lane to a save: its items (gaps, ids and marks) and
+   * everything that steers its next steps (spacing, the cached packed run,
+   * whether it is awake, the last step's movement).
+   */
+  save(w: SaveWriter): void {
+    w.u32(this.spacing);
+    w.u32(this.run);
+    w.bool(this.active);
+    w.u32(this.movedAll);
+    w.u32(this.movedFrom);
+    w.u32(this.movedRest);
+    w.column(this.gaps());
+    const items = new Uint16Array(this.count);
+    for (let i = 0; i < this.count; i++) items[i] = this.itemBuf[(this.head + i) & this.mask]!;
+    w.column(items);
+  }
+
+  /** Restores what `save` wrote into this new, empty lane. */
+  load(r: SaveReader): void {
+    if (this.count !== 0) throw new Error('loading into a lane that is not empty');
+    this.spacing = r.u32();
+    const run = r.u32();
+    this.active = r.bool();
+    this.movedAll = r.u32();
+    this.movedFrom = r.u32();
+    this.movedRest = r.u32();
+    const gaps = r.column(new Int32Array(0));
+    const items = r.column(new Uint16Array(0), gaps.length);
+    for (let i = 0; i < gaps.length; i++) {
+      if (gaps[i]! < 0) throw new SaveError('belt lane: negative gap');
+      const stored = items[i]!;
+      this.pushBack(gaps[i]!, stored & ITEM_BITS, (stored & MARK) !== 0);
+    }
+    this.run = run;
   }
 
   private setGap(i: number, gap: number): void {

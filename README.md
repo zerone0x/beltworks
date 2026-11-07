@@ -45,6 +45,7 @@ Press **H** in the game (or click the hint in the bottom-left corner) for a list
 - **Middle-drag** or **arrow keys**: pan the camera freely; **F**: follow the player again.
 - **Mouse wheel**: zoom (towards the cursor with a free camera, around the player while following).
 - **H**: show or hide the list of controls.
+- **Esc** with no window open (or the **Menu** button in the top-right corner): the **game menu**. Save the game under a name (saving under an existing name replaces that save), load, export (download a `.bwsave` file) or delete a save, import a save file, or start a new game. The game also **autosaves** every 5 minutes, rotating through three autosave slots. Saves live in the browser (IndexedDB); when there are any, the game starts on a screen offering to **Continue** the newest one or start a new game.
 
 Items show as placeholder icons, the same on belts, in inserter hands and in the inventory: the item's color with a one- or two-letter label (**FE** iron, **CU** copper, **C** coal, **S** stone, ...). Ores are rough chunks, plates and bricks bevelled squares, and everything else rounded squares.
 

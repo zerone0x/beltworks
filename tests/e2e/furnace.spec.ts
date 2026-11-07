@@ -8,6 +8,7 @@ import { SUBTILES_PER_TILE } from '../../src/sim/fixed';
 import { inMiningReach } from '../../src/sim/player';
 import { startingPatches } from '../../src/sim/world/generate';
 import { player, walkNear } from './walk';
+import { closeWindows } from './windows';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -189,7 +190,7 @@ test('place a furnace, fuel and load it from the GUI, and take the iron plates',
   await expect.poll(async () => (await entityAt(page, fx, fy))?.status).toBe(MachineState.NoInput);
 
   // Escape closes the panel.
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await expect(panel).toBeHidden();
   expect(await page.evaluate(() => window.__beltworks!.openEntity())).toBe(0);
   expect(errors).toEqual([]);

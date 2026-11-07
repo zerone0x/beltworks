@@ -18,6 +18,7 @@
 
 import { TECH_SLOTS, technologyPrototype } from '../../data/technologies';
 import { fnv1a32 } from '../hash';
+import { SaveError, type SaveReader, type SaveWriter } from '../save/codec';
 
 export class ResearchState {
   /** Number of forces. */
@@ -110,5 +111,31 @@ export class ResearchState {
     h = fnv1a32(Uint32Array.of(this.forces, TECH_SLOTS), h);
     h = fnv1a32(this.current, h);
     return fnv1a32(this.units, h);
+  }
+
+  /** Writes the state to a save (its own section). */
+  save(w: SaveWriter): void {
+    w.u32(this.forces);
+    w.u32(TECH_SLOTS);
+    w.column(this.current);
+    w.column(this.units);
+  }
+
+  /** Restores what `save` wrote into this fresh state (same number of forces). */
+  load(r: SaveReader): void {
+    const forces = r.u32();
+    if (forces !== this.forces) {
+      throw new SaveError(`research: ${String(forces)} forces in the save`);
+    }
+    const slots = r.u32();
+    if (slots > TECH_SLOTS) {
+      throw new SaveError(`research: more technologies in the save than this version has`);
+    }
+    r.columnInto(this.current);
+    // Technologies added since the save was made start unresearched.
+    const units = r.column(this.units, forces * slots);
+    for (let f = 0; f < forces; f++) {
+      this.units.set(units.subarray(f * slots, (f + 1) * slots), f * TECH_SLOTS);
+    }
   }
 }

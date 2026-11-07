@@ -16,6 +16,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { MachineState } from '../../src/sim/entities/machine';
 import { setTimeScale } from './timeScale';
+import { closeWindows } from './windows';
 
 /** The test kit, in hotbar order. */
 const KIT =
@@ -93,7 +94,7 @@ test('labs fed by hand research automation, which unlocks the assembling machine
   };
   /** Opens the window of the entity covering `r`, with nothing in hand. */
   const openAt = async (r: Rect, name: string) => {
-    await page.keyboard.press('Escape');
+    await closeWindows(page);
     if ((await page.evaluate(() => window.__beltworks!.selectedSlot())) !== null) {
       await page.keyboard.press('q');
       await expect.poll(() => page.evaluate(() => window.__beltworks!.selectedSlot())).toBeNull();
@@ -117,7 +118,7 @@ test('labs fed by hand research automation, which unlocks the assembling machine
   await expect(panel).toHaveAttribute('data-status', 'no-research');
 
   // The tech tree: automation is available, electronics needs it first.
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   await page.keyboard.press('t');
   await expect(tree).toBeVisible();
   const automation = tree.locator('.tech[data-tech="automation"]');
@@ -150,7 +151,7 @@ test('labs fed by hand research automation, which unlocks the assembling machine
   }
   await expect(panel.locator('[data-role="research"]')).toHaveText('Researching Automation');
   await expect(panel.locator('[data-role="power"]')).toHaveText('Power: 60 kW / 60 kW');
-  await page.keyboard.press('Escape');
+  await closeWindows(page);
   const labs = async () =>
     (await page.evaluate(() => window.__beltworks!.entities())).filter((e) => e.name === 'lab');
   expect((await labs()).map((l) => l.status)).toEqual(Array(4).fill(MachineState.Working));

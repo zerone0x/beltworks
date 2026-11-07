@@ -19,6 +19,7 @@ import { TREE_ITEM, TREE_MINING_TICKS, TREE_WOOD } from '../data/trees';
 import type { Axis } from './commands';
 import { HALF_TILE, SUBTILES_PER_TILE, fixedToTile, isInt32, tileToFixed } from './fixed';
 import { fnv1a32 } from './hash';
+import { SaveError, type SaveReader, type SaveWriter } from './save/codec';
 import { Inventory, PLAYER_INVENTORY_SLOTS } from './inventory';
 import type { World } from './world/world';
 
@@ -150,6 +151,38 @@ export class PlayerTable {
       h = fnv1a32(column, h);
     }
     return h;
+  }
+
+  /** The columns `save` and `load` cover, in order (every column of the table). */
+  private columns() {
+    return [
+      this.x,
+      this.y,
+      this.moveX,
+      this.moveY,
+      this.mining,
+      this.mineX,
+      this.mineY,
+      this.mineProgress,
+      this.invItems,
+      this.invCounts,
+    ];
+  }
+
+  save(w: SaveWriter): void {
+    w.u32(this.count);
+    w.u32(PLAYER_INVENTORY_SLOTS);
+    for (const column of this.columns()) w.column(column);
+  }
+
+  /** Restores what `save` wrote into a table with the same number of players. */
+  load(r: SaveReader): void {
+    const count = r.u32();
+    const slots = r.u32();
+    if (count !== this.count || slots !== PLAYER_INVENTORY_SLOTS) {
+      throw new SaveError(`players: ${String(count)} players of ${String(slots)} slots`);
+    }
+    for (const column of this.columns()) r.columnInto(column);
   }
 }
 

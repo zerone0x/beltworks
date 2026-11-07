@@ -141,13 +141,22 @@ export class Sim {
   readonly state: SimState;
   private readonly queue = new CommandQueue();
 
-  constructor(options: SimOptions) {
-    this.state = createSimState(options);
+  /**
+   * A new game from `options`, or, given `state`, a simulation of that state
+   * (a loaded save, src/sim/save/save.ts; `options` are then ignored).
+   */
+  constructor(options: SimOptions, state?: SimState) {
+    this.state = state ?? createSimState(options);
   }
 
   /** Number of ticks completed; also the tick the next `step()` will run. */
   get tick(): number {
     return this.state.tick;
+  }
+
+  /** The commands waiting for a future tick, in the order they will run. */
+  pendingCommandList(): Command[] {
+    return this.queue.pending();
   }
 
   /** Number of commands waiting for a future tick. */

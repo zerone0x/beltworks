@@ -39,6 +39,9 @@ const COAL_J = 4_000_000;
 
 /** A fake electric consumer on the wooden chest's 1×1 footprint: demands what the test sets. */
 class FakeConsumers implements EntityTypeTable {
+  // Test-only tables are never saved.
+  save(): void {}
+  load(): void {}
   readonly type = EntityTypeId.WoodenChest;
   readonly demand = new Map<number, number>();
   add(): void {}

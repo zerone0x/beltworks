@@ -35,7 +35,7 @@ export const CONTROLS: readonly ControlHelp[] = [
   { keys: 'Right click', action: 'Pick up the entity under the cursor' },
   { keys: 'Mouse wheel', action: 'Zoom' },
   { keys: 'Middle drag / arrows', action: 'Pan the camera; F follows the player again' },
-  { keys: 'Esc', action: 'Close windows' },
+  { keys: 'Esc', action: 'Close windows; with none open, the game menu (save, load, new game)' },
 ];
 
 const PANEL_STYLE: Partial<CSSStyleDeclaration> = {

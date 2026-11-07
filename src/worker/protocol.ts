@@ -1,9 +1,9 @@
 /**
  * Messages between the main thread and the simulation worker.
  *
- * Main → worker: `init`, `commands`, `setViewport`, `inspect`, and in dev and
- * test builds `setTimeScale`.
- * Worker → main: `snapshot`, `stats`, `error`.
+ * Main → worker: `init`, `commands`, `setViewport`, `inspect`, `save`, and in
+ * dev and test builds `setTimeScale`.
+ * Worker → main: `snapshot`, `stats`, `saved`, `loaded`, `error`.
  *
  * Commands include the build commands `Place`, `Remove` and `Rotate` and the
  * entity GUI's `Insert`, `Take` and `SetRecipe`, the crafting commands `Craft` and
@@ -14,6 +14,7 @@
  */
 
 import type { CommandInput } from '../sim/commands';
+import type { SaveMeta } from '../sim/save/container';
 
 /** The player controlled by this client: its commands carry this id, and its inventory is in snapshots. */
 export const LOCAL_PLAYER_ID = 0;
@@ -78,6 +79,12 @@ export interface InitMessage {
    * it (a `?research=` URL parameter, see src/testHook.ts).
    */
   researched?: number[];
+  /**
+   * A save to continue from (src/sim/save/save.ts; gzipped or not) instead
+   * of a new game; the worker answers with `loaded`. If it can't be read,
+   * the worker starts a new game from `seed` (and the kit) and says why.
+   */
+  save?: ArrayBuffer;
 }
 
 export interface CommandsMessage {
@@ -113,8 +120,23 @@ export interface SetTimeScaleMessage {
   scale: number;
 }
 
+/**
+ * Asks for a save of the current state (after the latest tick, with the
+ * commands queued for the next one). The worker serializes and gzips it and
+ * answers with `saved` and the same `id`.
+ */
+export interface SaveRequestMessage {
+  type: 'save';
+  id: number;
+}
+
 export type MainToWorker =
-  InitMessage | CommandsMessage | SetViewportMessage | InspectMessage | SetTimeScaleMessage;
+  | InitMessage
+  | CommandsMessage
+  | SetViewportMessage
+  | InspectMessage
+  | SetTimeScaleMessage
+  | SaveRequestMessage;
 
 /**
  * Render state after the latest tick. Sent once per worker wake-up that ran at
@@ -210,4 +232,21 @@ export interface ErrorMessage {
   message: string;
 }
 
-export type WorkerToMain = SnapshotMessage | StatsMessage | ErrorMessage;
+/** The answer to `save`: the gzipped save (transferred), or why it failed. */
+export interface SavedMessage {
+  type: 'saved';
+  id: number;
+  data: ArrayBuffer | null;
+  meta: SaveMeta | null;
+  error: string | null;
+}
+
+/** The answer to an `init` with a save: what was loaded, or why it couldn't be (a new game runs instead). */
+export interface LoadedMessage {
+  type: 'loaded';
+  meta: SaveMeta | null;
+  error: string | null;
+}
+
+export type WorkerToMain =
+  SnapshotMessage | StatsMessage | ErrorMessage | SavedMessage | LoadedMessage;

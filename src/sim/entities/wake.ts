@@ -11,6 +11,7 @@
  */
 
 import { FNV1A32_OFFSET_BASIS, fnv1a32 } from '../hash';
+import type { SaveReader, SaveWriter } from '../save/codec';
 
 export class WakeSubscriptions {
   /** Watchers per target, in subscription order. */
@@ -92,6 +93,33 @@ export class WakeSubscriptions {
       h = fnv1a32(Uint32Array.from(watchers), h);
     }
     return h;
+  }
+
+  /** Saves every subscription: the watchers of each target, in subscription order. */
+  save(w: SaveWriter): void {
+    w.u32(this.byTarget.size);
+    for (const [target, watchers] of this.byTarget) {
+      w.u32(target);
+      w.ids(watchers);
+    }
+  }
+
+  /**
+   * Restores what `save` wrote into these empty subscriptions, without
+   * calling `onWatch` (the tables load their own lists of watched entities).
+   */
+  load(r: SaveReader): void {
+    for (let i = r.u32(); i > 0; i--) {
+      const target = r.u32();
+      const watchers = r.ids();
+      if (watchers.length === 0) continue;
+      this.byTarget.set(target, watchers);
+      for (const watcher of watchers) {
+        const targets = this.byWatcher.get(watcher);
+        if (targets) targets.push(target);
+        else this.byWatcher.set(watcher, [target]);
+      }
+    }
   }
 }
 
