@@ -7,6 +7,13 @@
 
 import { isBeltType } from './data/entities';
 import { ITEM_IDS, ITEMS, MAX_STACK_SIZE, type ItemStack } from './data/items';
+import type { Ticker } from 'pixi.js';
+import {
+  formatReport,
+  runRenderProfile,
+  type ProfileOptions,
+  type ProfileReport,
+} from './profile/renderProfile';
 import type { BuildInput } from './render/buildInput';
 import { ghostDrillDropTile, ghostInserterTiles } from './render/entityLayer';
 import { TILE_PX } from './render/camera';
@@ -31,6 +38,7 @@ import {
 } from './sim/snapshot';
 import { World } from './sim/world/world';
 import { chunkWindow } from './worker/chunkStream';
+import { isRenderScene } from './worker/renderScene';
 import type { SimClient } from './worker/client';
 import { LOCAL_PLAYER_ID, type ChunkRect } from './worker/protocol';
 
@@ -224,6 +232,14 @@ export interface BeltworksTestHook {
   setTimeScale(scale: number): void;
   /** Autosaves now (into the next slot of the rotation); resolves with the slot's id, or null. */
   autosave(): Promise<string | null>;
+  /**
+   * Runs the scripted render profile (src/profile/renderProfile.ts,
+   * docs/TOOLING.md "Render profile") and resolves with its report; the
+   * camera stays wherever the last stage left it.
+   */
+  renderProfile(options?: ProfileOptions): Promise<ProfileReport>;
+  /** The report of the latest `renderProfile` (or `?profile=1` run), or `null`. */
+  lastRenderProfile(): ProfileReport | null;
 }
 
 declare global {
@@ -290,6 +306,37 @@ export function startingKitFromUrl(search: string): ItemStack[] | undefined {
     });
 }
 
+/**
+ * The scripted render scene asked for by a `scene` URL parameter (dev and
+ * test builds only; `RENDER_SCENES` in src/worker/renderScene.ts), e.g.
+ * `?scene=10k`: its factory replaces the simulation's entities in every
+ * snapshot, for the render profile. `undefined` without one; throws on an
+ * unknown scene.
+ */
+export function renderSceneFromUrl(search: string): string | undefined {
+  const param = new URLSearchParams(search).get('scene');
+  if (param === null) return undefined;
+  if (!isRenderScene(param)) throw new Error(`unknown render scene "${param}"`);
+  return param;
+}
+
+/**
+ * Render profile options from the URL (dev and test builds only): `?profile=1`
+ * runs the profile once the art has loaded, `profileMs=` sets the recorded
+ * time per stage and `profileStages=` (comma-separated stage names) picks
+ * stages. `null` without `?profile=1`.
+ */
+export function profileFromUrl(search: string): ProfileOptions | null {
+  const params = new URLSearchParams(search);
+  if (params.get('profile') !== '1') return null;
+  const ms = params.get('profileMs');
+  const stages = params.get('profileStages');
+  return {
+    ...(ms !== null && { durationMs: Number(ms) }),
+    ...(stages !== null && { stages: stages.split(',').filter((s) => s !== '') }),
+  };
+}
+
 const TECH_BY_NAME = new Map(TECH_IDS.map((id) => [TECHNOLOGIES[id].name, id]));
 
 /**
@@ -327,6 +374,10 @@ export interface TestHookContext {
   inventory: () => SlotData[];
   /** The local player's force's research as last shown by the UI. */
   research: () => ResearchData;
+  /** The ticker that drives the game's frames (for the render profile). */
+  ticker: Ticker;
+  /** The renderer's size in CSS pixels and its resolution. */
+  screen: () => { width: number; height: number; resolution: number };
 }
 
 export function installTestHook({
@@ -340,8 +391,21 @@ export function installTestHook({
   seed,
   inventory,
   research,
+  ticker,
+  screen,
 }: TestHookContext): void {
   let world: World | null = null;
+  let lastProfile: ProfileReport | null = null;
+  const renderProfile = async (options?: ProfileOptions): Promise<ProfileReport> => {
+    const name = view.rendererName();
+    lastProfile = await runRenderProfile(
+      view,
+      ticker,
+      { name, software: view.softwareRendering(), ...screen() },
+      options,
+    );
+    return lastProfile;
+  };
   window.__beltworks = {
     runDeterminism: (ticks) => runDeterminismScenario(ticks),
     latestTick: () => client.latestSnapshot?.tick ?? -1,
@@ -484,5 +548,37 @@ export function installTestHook({
       client.setTimeScale(scale);
     },
     autosave: async () => (await saves.autosave())?.id ?? null,
+    renderProfile,
+    lastRenderProfile: () => lastProfile,
   };
+
+  const profile = profileFromUrl(window.location.search);
+  if (profile) void autoProfile(view, renderProfile, profile);
+}
+
+/**
+ * `?profile=1`: runs the render profile once the art has settled and shows
+ * the report in a panel (and the console), for runs in a desktop browser on
+ * a real GPU (docs/TOOLING.md, "Render profile").
+ */
+async function autoProfile(
+  view: GameView,
+  run: (options?: ProfileOptions) => Promise<ProfileReport>,
+  options: ProfileOptions,
+): Promise<void> {
+  const panel = document.createElement('pre');
+  panel.id = 'render-profile';
+  panel.style.cssText =
+    'position:fixed;left:8px;bottom:8px;max-width:96vw;overflow:auto;margin:0;padding:8px;' +
+    'background:rgba(0,0,0,0.8);color:#e8e8e8;font:12px monospace;z-index:100;white-space:pre';
+  panel.textContent = 'Render profile: waiting for the art to load...';
+  document.body.appendChild(panel);
+  while (!view.artSettled) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  panel.textContent = 'Render profile: running...';
+  const report = await run(options);
+  const text = formatReport(report);
+  panel.textContent = text;
+  console.log(`Render profile\n${text}\n${JSON.stringify(report)}`);
 }

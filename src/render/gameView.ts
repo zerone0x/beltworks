@@ -136,14 +136,19 @@ export class GameView {
   }
 
   /** Whether WebGL runs on a software renderer (as in headless browsers and CI). */
-  private softwareRendering(): boolean {
+  softwareRendering(): boolean {
+    return isSoftwareRenderer(this.rendererName());
+  }
+
+  /** The WebGL renderer's name (the GPU, or e.g. SwiftShader), `''` if unknown. */
+  rendererName(): string {
     const gl = (this.app.renderer as { gl?: WebGL2RenderingContext }).gl;
-    if (!gl) return false;
+    if (!gl) return '';
     const info = gl.getExtension('WEBGL_debug_renderer_info');
     const name: unknown = info
       ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL)
       : gl.getParameter(gl.RENDERER);
-    return typeof name === 'string' && isSoftwareRenderer(name);
+    return typeof name === 'string' ? name : '';
   }
 
   /** Names of the sprite models in use (empty without an atlas). */

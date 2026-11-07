@@ -23,6 +23,7 @@ import {
 } from '../sim/snapshot';
 import { Sim } from '../sim/tick';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
+import { RenderScene, isRenderScene } from './renderScene';
 import { FixedStepClock } from './loop';
 import {
   LOCAL_PLAYER_ID,
@@ -53,6 +54,8 @@ let viewport: Viewport | null = null;
 /** The entity whose GUI is open on the main thread, or 0. */
 let inspected = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
+/** Dev and test builds only: the scripted render scene sent instead of the simulation's entities. */
+let scene: RenderScene | null = null;
 
 // Stats accumulated since the last `stats` message.
 let statTicks = 0;
@@ -116,10 +119,15 @@ function sendSnapshot(ticksRun: number): void {
   const research = encodeResearch(sim.state, LOCAL_PLAYER_ID);
   const batch = streamer.collect();
   const chunks = batch && batch.chunks.length > 0 ? encodeChunks(batch.chunks) : null;
-  const entities = encodeEntities(sim.state, batch?.window ?? null);
-  const belts = encodeBelts(sim.state, batch?.window ?? null);
-  const inserters = encodeInserters(sim.state, batch?.window ?? null);
-  const power = encodePower(sim.state, batch?.window ?? null);
+  const window = batch?.window ?? null;
+  const entities = scene
+    ? scene.encodeEntities(window, sim.tick)
+    : encodeEntities(sim.state, window);
+  const belts = scene ? scene.encodeBelts(window, sim.tick) : encodeBelts(sim.state, window);
+  const inserters = scene
+    ? scene.encodeInserters(window, sim.tick)
+    : encodeInserters(sim.state, window);
+  const power = scene ? scene.encodePower(window) : encodePower(sim.state, window);
   const detail = inspected !== 0 ? encodeEntityDetail(sim.state, LOCAL_PLAYER_ID, inspected) : null;
   const network = inspected !== 0 ? encodeNetworkDetail(sim.state, inspected) : null;
   const transfer: Transferable[] = [
@@ -162,6 +170,17 @@ function sendSnapshot(ticksRun: number): void {
 async function handle(msg: MainToWorker): Promise<void> {
   switch (msg.type) {
     case 'init': {
+      scene = null;
+      if (msg.renderScene !== undefined) {
+        // Production builds never send it, and reject it (a compile-time check).
+        if (!(import.meta.env.DEV || import.meta.env.MODE === 'test')) {
+          throw new Error('render scenes are only available in dev and test builds');
+        }
+        if (!isRenderScene(msg.renderScene)) {
+          throw new Error(`unknown render scene: ${String(msg.renderScene)}`);
+        }
+        scene = new RenderScene(msg.renderScene);
+      }
       const startingKit = validateKit(msg.startingKit);
       const researched = validateResearched(msg.researched);
       // Continue from a save; if it can't be read, start a new game and say why.

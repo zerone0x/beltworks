@@ -132,6 +132,8 @@ export class TerrainLayer {
   private detail = 0;
   /** Most texels per tile the rendered look bakes at: 64 allows detail textures; lower on software renderers. */
   maxTexels = 32;
+  /** Chunk textures (base and detail) baked so far, for the render profile. */
+  bakeCount = 0;
 
   constructor() {
     this.container.addChild(this.base, this.details);
@@ -353,6 +355,7 @@ export class TerrainLayer {
       label: `chunk detail ${String(next.data.cx)},${String(next.data.cy)}`,
     });
     this.bakeInto(next, DETAIL_TEXELS, target);
+    this.bakeCount++;
     const sprite = new Sprite(target);
     sprite.position.set(next.data.cx * CHUNK_PX, next.data.cy * CHUNK_PX);
     sprite.setSize(CHUNK_PX, CHUNK_PX);
@@ -448,6 +451,7 @@ export class TerrainLayer {
       });
     }
     this.bakeInto(cached, texels, target!);
+    this.bakeCount++;
     if (cached.sprite && cached.sprite.texture !== target) {
       // A new resolution: swap the texture, free the old one.
       const old = cached.sprite.texture;
@@ -463,6 +467,7 @@ export class TerrainLayer {
 
   private bakePlaceholder(cached: CachedChunk): void {
     cached.pixels = bakeChunkPixels(cached.data, cached.pixels ?? undefined);
+    this.bakeCount++;
     cached.stale = false;
     if (cached.sprite) {
       // Same buffer, new contents: re-upload it.

@@ -46,14 +46,17 @@ export class SimClient {
 
   /**
    * `startingKit` replaces the default kit and `researched` technologies are
-   * researched from the start (dev and test builds only, see `InitMessage`).
-   * With `save`, the game continues from that save instead (see `onLoaded`).
+   * researched from the start; `renderScene` replaces the simulation's
+   * entities in snapshots with a scripted scene (dev and test builds only,
+   * see `InitMessage`). With `save`, the game continues from that save
+   * instead (see `onLoaded`).
    */
   constructor(
     seed: number,
     startingKit?: { item: number; count: number }[],
     researched?: number[],
     save?: Uint8Array,
+    renderScene?: string,
   ) {
     this.worker = new Worker(new URL('./sim.worker.ts', import.meta.url), {
       type: 'module',
@@ -73,6 +76,7 @@ export class SimClient {
         ...(startingKit && { startingKit }),
         ...(researched && { researched }),
         ...(buffer && { save: buffer }),
+        ...(renderScene && { renderScene }),
       } satisfies MainToWorker,
       buffer ? [buffer] : [],
     );
