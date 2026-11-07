@@ -207,6 +207,11 @@ export class Entities {
     return this.tableOf(id)?.accepts?.(id, item) ?? false;
   }
 
+  /** Whether entity `id` has room for some item it accepts (see `EntityTypeTable.hasRoom`). */
+  hasRoom(id: number): boolean {
+    return this.tableOf(id)?.hasRoom?.(id) ?? true;
+  }
+
   /** Inserts up to `count` units of `item` into entity `id`; returns how many went in. */
   insert(id: number, item: number, count: number): number {
     const table = this.tableOf(id);

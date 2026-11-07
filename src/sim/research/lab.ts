@@ -216,6 +216,12 @@ export class LabTable implements EntityTypeTable {
     return labSlotOf(item) >= 0;
   }
 
+  /** Whether some pack slot is below a stack. */
+  hasRoom(id: number): boolean {
+    const row = this.row(id);
+    return SCIENCE_PACKS.some((_, i) => this.room(row, i) > 0);
+  }
+
   /** Packs go into their slot, up to a stack. */
   insert(id: number, item: number, count: number, entities: Entities): number {
     const i = labSlotOf(item);

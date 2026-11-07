@@ -232,13 +232,42 @@ describe('burner inserter', () => {
     expect(s.count(target, PLATE)).toBe(1);
   });
 
-  it('holds its item at a full target and drops it once the target has room', () => {
+  it('does not pick up for a target with no room, and picks up once the target has room', () => {
     const d = chestToChest();
     d.entities.insert(d.inserter, COAL, 1);
-    // Fill every slot of the target with stone; one plate goes in the source.
+    // Fill every slot of the target with stone; plates go in the source.
     for (let i = 0; i < 16; i++) d.entities.insert(d.target, ItemId.Stone, 50);
+    d.entities.insert(d.source, PLATE, 2);
+    d.step(5);
+    expect(d.entities.status(d.inserter)).toBe(InserterState.WaitingForTarget);
+    expect(d.hand(d.inserter)).toEqual({ held: 0, arm: 0 });
+    expect(d.count(d.source, PLATE)).toBe(2);
+    // Asleep on both: the target making room, or the source offering something else.
+    expect(d.entities.wake.watchersOf(d.source)).toEqual([d.inserter]);
+    expect(d.entities.wake.watchersOf(d.target)).toEqual([d.inserter]);
+    expect(d.table.activeCount).toBe(0);
+    // More plates in the source change nothing.
     d.entities.insert(d.source, PLATE, 1);
-    d.step(INSERTER_SWING_TICKS + 5);
+    d.step(3);
+    expect(d.entities.status(d.inserter)).toBe(InserterState.WaitingForTarget);
+    expect(d.table.activeCount).toBe(0);
+    // Room in the target wakes it and it picks up right away.
+    expect(d.entities.take(d.target, 3, 50)).toBe(50);
+    d.step();
+    expect(d.hand(d.inserter)).toEqual({ held: PLATE, arm: 1 });
+    expect(d.entities.wake.watchersOf(d.source)).toEqual([]);
+    expect(d.entities.wake.watchersOf(d.target)).toEqual([]);
+  });
+
+  it('holds its item at a target filled while it swings, and drops it once the target has room', () => {
+    const d = chestToChest();
+    d.entities.insert(d.inserter, COAL, 1);
+    d.entities.insert(d.source, PLATE, 1);
+    d.step();
+    expect(d.hand(d.inserter).held).toBe(PLATE);
+    // The target fills up on the way: every slot gets stone.
+    for (let i = 0; i < 16; i++) d.entities.insert(d.target, ItemId.Stone, 50);
+    d.step(INSERTER_SWING_TICKS + 4);
     expect(d.entities.status(d.inserter)).toBe(InserterState.WaitingForTarget);
     expect(d.hand(d.inserter)).toEqual({ held: PLATE, arm: INSERTER_SWING_TICKS });
     expect(d.entities.wake.watchersOf(d.target)).toEqual([d.inserter]);
@@ -254,12 +283,14 @@ describe('burner inserter', () => {
   it('stops waiting on a full target once its hand is emptied through the GUI', () => {
     const d = chestToChest();
     d.entities.insert(d.inserter, COAL, 1);
-    for (let i = 0; i < 16; i++) d.entities.insert(d.target, ItemId.Stone, 50);
     d.entities.insert(d.source, PLATE, 2);
-    d.step(INSERTER_SWING_TICKS + 1);
+    d.step();
+    for (let i = 0; i < 16; i++) d.entities.insert(d.target, ItemId.Stone, 50);
+    d.step(INSERTER_SWING_TICKS);
     expect(d.entities.wake.watchersOf(d.target)).toEqual([d.inserter]);
     expect(d.entities.take(d.inserter, InserterSlot.Hand, 1)).toBe(1);
     expect(d.entities.wake.watchersOf(d.target)).toEqual([]);
+    expect(d.entities.take(d.target, 3, 50)).toBe(50);
     d.step(INSERTER_SWING_TICKS + 1);
     expect(d.hand(d.inserter)).toEqual({ held: PLATE, arm: 1 });
   });
@@ -317,6 +348,56 @@ describe('burner inserter', () => {
     expect(s.count(source, COAL)).toBe(1);
   });
 
+  it('feeds a furnace with a full fuel slot the ore behind the coal, and coal once it has room', () => {
+    const s = setup();
+    const source = s.place(ItemId.WoodenChest, 2, 0);
+    const inserter = s.place(ItemId.BurnerInserter, 3, 0, East);
+    const furnace = s.place(ItemId.StoneFurnace, 4, 0);
+    s.entities.insert(inserter, COAL, 5);
+    s.entities.insert(furnace, COAL, 50);
+    // Coal in the first slot, ore in the second: the fuel slot has no room for coal.
+    s.entities.insert(source, COAL, 10);
+    s.entities.insert(source, ORE, 2);
+    s.step();
+    expect(s.hand(inserter)).toEqual({ held: ORE, arm: 1 });
+    expect(s.count(source, COAL)).toBe(10);
+    // Smelting it burns a coal out of the slot, so the next pickup tops the slot
+    // up, the one after takes the second ore.
+    s.step(4 * INSERTER_CYCLE_TICKS);
+    expect(s.count(source, ORE)).toBe(0);
+    expect(s.count(source, COAL)).toBe(9);
+    expect(s.entities.slots(furnace)[FurnaceSlot.Fuel]).toEqual({ item: COAL, count: 50 });
+    // No ore left and no room for coal: it waits on the furnace and its source.
+    expect(s.entities.status(inserter)).toBe(InserterState.WaitingForTarget);
+    expect(s.hand(inserter).held).toBe(0);
+    expect(s.entities.wake.watchersOf(furnace)).toEqual([inserter]);
+    expect(s.entities.wake.watchersOf(source)).toEqual([inserter]);
+  });
+
+  it('keeps feeding a furnace from a backed-up belt with coal on one lane and ore on the other', () => {
+    const s = setup();
+    // A belt from (-5, 2) east to (2, 2), where it ends; the inserter on
+    // (2, 3) faces south into a furnace on (2..3, 4..5) whose fuel slot is
+    // full. Coal goes onto the left lane, ore onto the right lane.
+    const belts: number[] = [];
+    for (let x = -5; x <= 2; x++) belts.push(s.place(ItemId.TransportBelt, x, 2, East));
+    const inserter = s.place(ItemId.BurnerInserter, 2, 3, South);
+    const furnace = s.place(ItemId.StoneFurnace, 2, 4);
+    s.entities.insert(inserter, COAL, 5);
+    s.entities.insert(furnace, COAL, 50);
+    const table = beltTable(s.entities)!;
+    const first = belts[0]!;
+    const pos = table.beltOffset(first) + BELT_LENGTH / 2;
+    for (let t = 0; t < 30 * PLATE_TICKS; t++) {
+      const line = table.beltLine(first);
+      table.insertAt(line, BeltLane.Left, pos, COAL);
+      table.insertAt(line, BeltLane.Right, pos, ORE);
+      s.step();
+    }
+    // The furnace smelts all the time: it never waits for ore behind the coal.
+    expect(s.count(furnace, PLATE)).toBeGreaterThanOrEqual(28);
+  });
+
   it('picks up from either belt lane on its tile, and feeds a furnace that smelts it', () => {
     const s = setup();
     // A belt on (2, 2) running east; the inserter on (2, 3) south of it,
@@ -340,6 +421,23 @@ describe('burner inserter', () => {
     expect(s.entities.slots(furnace)[FurnaceSlot.Output]).toEqual({ item: PLATE, count: 2 });
     expect(s.entities.status(inserter)).toBe(InserterState.WaitingForSource);
     expect(s.entities.wake.watchersOf(belt)).toEqual([inserter]);
+  });
+
+  it('reaches past an item on its tile its target does not take for one it does', () => {
+    const s = setup();
+    // A belt on (2, 2) running east, an inserter on (2, 3) facing south into
+    // a burner drill on (2..3, 4..5): ore at the front of the left lane, coal behind it.
+    const belt = s.place(ItemId.TransportBelt, 2, 2, East);
+    const inserter = s.place(ItemId.BurnerInserter, 2, 3, South);
+    s.place(ItemId.BurnerMiningDrill, 2, 4, South);
+    s.entities.insert(inserter, COAL, 1);
+    const belts = beltTable(s.entities)!;
+    const line = belts.beltLine(belt);
+    expect(belts.insertAt(line, BeltLane.Left, 0, ORE)).toBe(true);
+    expect(belts.insertAt(line, BeltLane.Left, 150, COAL)).toBe(true);
+    s.step();
+    expect(s.hand(inserter)).toEqual({ held: COAL, arm: 1 });
+    expect(belts.itemsOn(belt)).toMatchObject([{ lane: BeltLane.Left, offset: 0, item: ORE }]);
   });
 
   it('picks up an item at the very start of a line (pos == line.length)', () => {

@@ -523,16 +523,35 @@ describe('electric inserter', () => {
     ]);
   });
 
-  it('holds its item at a full target, sleeping on it, and drops once it has room', () => {
+  it('holds its item at a target filled while it swings, sleeping on it, and drops once it has room', () => {
     const d = inserterRig();
+    let t = 0;
+    while (d.table.hand(d.inserter).held === 0 && t++ < 10) d.step();
+    expect(d.table.hand(d.inserter).held).toBe(PLATE);
     // Fill the target: 16 stacks of coal.
     for (let i = 0; i < 16; i++) d.entities.insert(d.target, ItemId.Coal, 50);
     d.step(INSERTER_CYCLE);
     expect(d.entities.status(d.inserter)).toBe(InserterState.WaitingForTarget);
+    expect(d.table.hand(d.inserter).held).toBe(PLATE);
     expect(d.entities.wake.watchersOf(d.target)).toEqual([d.inserter]);
     expect(d.grid.member(d.inserter)!.demand).toBe(INSERTER_DRAIN);
     d.entities.take(d.target, 0, 50);
     d.step();
+    expect(d.count(d.target, PLATE)).toBe(1);
+  });
+
+  it('does not pick up for a full target, sleeping on it and its source', () => {
+    const d = inserterRig();
+    for (let i = 0; i < 16; i++) d.entities.insert(d.target, ItemId.Coal, 50);
+    d.step(INSERTER_CYCLE);
+    expect(d.entities.status(d.inserter)).toBe(InserterState.WaitingForTarget);
+    expect(d.table.hand(d.inserter)).toEqual({ held: 0, arm: 0 });
+    expect(d.count(d.source, PLATE)).toBe(50);
+    expect(d.entities.wake.watchersOf(d.target)).toEqual([d.inserter]);
+    expect(d.entities.wake.watchersOf(d.source)).toEqual([d.inserter]);
+    expect(d.grid.member(d.inserter)!.demand).toBe(INSERTER_DRAIN);
+    d.entities.take(d.target, 0, 50);
+    d.step(INSERTER_CYCLE);
     expect(d.count(d.target, PLATE)).toBe(1);
   });
 

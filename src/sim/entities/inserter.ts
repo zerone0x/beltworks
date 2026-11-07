@@ -19,19 +19,24 @@
  * covers those tiles, looked
  * up again on every pickup and drop, so no link can go stale when
  * neighbours are placed, rotated or removed:
- * - picking up: a chest's first slot holding something the target accepts,
+ * - picking up: a chest's first slot holding something the target can take,
  *   a furnace's output, a drill's held unit (the `outputSlot` hook), or the
- *   item closest to the end of the belt's left lane, else its right lane,
- *   within the belt's own tile (`BeltTable.takeAt` from `beltOffset` to
- *   `beltEnd`, which for the belt at a line's start includes items at or
- *   past its start edge; on a splitter, the half on that tile);
+ *   item the target can take closest to the end of the belt's left lane,
+ *   else its right lane, within the belt's own tile (`BeltTable.takeAt` from
+ *   `beltOffset` to `beltEnd`, which for the belt at a line's start
+ *   includes items at or past its start edge; on a splitter, the half on
+ *   that tile);
  * - dropping: the target's `insert` hook (a chest stores it, a furnace puts
  *   ores into its input and fuel into its fuel slot when the input doesn't
  *   take it, a drill or inserter only takes fuel), or the middle of the
  *   belt's far lane (`BeltTable.insertAt`, see `farLane`; on a splitter, of
  *   the half on that tile).
- * Only items the target accepts at all (`accepts` hook) are picked up, so an
- * inserter never holds something its target will never take.
+ * Only items the target can take right now are picked up (`insertable` > 0:
+ * an assembling machine below its input limit for that ingredient, a
+ * furnace's fuel slot with room for coal, ...; a belt target takes anything
+ * it carries, `accepts`, since it frees up as it moves), so an inserter
+ * never holds something its target will never take, nor an ingredient its
+ * target is full of while the target waits for another one (#82).
  *
  * Timing: the arm swings `INSERTER_SWING_TICKS` (36) ticks from the pickup
  * tile to the drop tile and as many back, so with a source and a target that
@@ -40,8 +45,9 @@
  * 0), drops 36 ticks later, and picks up again on tick 72. Each tick:
  * 1. At the pickup end with an empty hand: refuel (below), then without
  *    energy for a swing `NoFuel`; with no entity on the drop tile
- *    `WaitingForTarget`; with nothing to pick up `WaitingForSource`;
- *    otherwise it takes one unit into its hand.
+ *    `WaitingForTarget`; with nothing the target can take now but something
+ *    it uses `WaitingForTarget` too; with nothing to pick up
+ *    `WaitingForSource`; otherwise it takes one unit into its hand.
  * 2. At the drop end holding an item: drops it, or `WaitingForTarget`.
  * 3. It burns `INSERTER_ENERGY_PER_TICK` joules (`NoFuel` if the burner has
  *    none left) and moves the arm one tick towards the drop end while it
@@ -56,10 +62,14 @@
  * stops where it is until it gets fuel.
  *
  * Machine sleep: only inserters on the active list are stepped. One that
- * ends a tick in any state but `Swinging` leaves the list, subscribed to the
- * one entity it waits on (wake.ts): its source while `WaitingForSource` (and
+ * ends a tick in any state but `Swinging` leaves the list, subscribed to
+ * what it waits on (wake.ts): its source while `WaitingForSource` (and
  * while `NoFuel` at the pickup end, to refuel from it), its target while it
- * holds an item the target won't take yet. It goes back on the list when
+ * holds an item the target won't take yet, and both its source and its
+ * target while its source only has items the target uses but has no room
+ * for (the target consuming one, or the source offering another item, can
+ * let it go on), or the target alone if it has no room for anything
+ * (`hasRoom`). It goes back on the list when
  * - its own slots change (fuel inserted, the hand emptied),
  * - the entity it waits on changes or goes away (for a belt: when items
  *   change near its tile, see "Notifications" in src/sim/belts/belts.ts),
@@ -455,9 +465,27 @@ export abstract class InserterTableBase implements EntityTypeTable {
       this.waitOn(id, 0, entities);
       return InserterState.WaitingForTarget;
     }
-    const item =
-      source !== 0 ? takeFrom(source, from, (it) => entities.accepts(target, it), entities) : 0;
+    // Only what the target can take now: a belt anything it carries (it frees
+    // up as it moves), any other entity what its `insert` would accept now.
+    const belts = beltTable(entities);
+    const toBelt = belts !== undefined && isBeltType(store.type(target));
+    let blocked = false;
+    const usable = (it: number): boolean => {
+      if (toBelt ? entities.accepts(target, it) : entities.insertable(target, it) > 0) return true;
+      // The target uses this item but has no room for it right now.
+      if (!blocked && entities.accepts(target, it)) blocked = true;
+      return false;
+    };
+    const item = source !== 0 ? takeFrom(source, from, usable, entities) : 0;
     if (item === 0) {
+      if (blocked) {
+        // Wait for the target to make room (consume), or for the source to
+        // offer something else the target can take (another ingredient);
+        // with no room for anything, only the target can change that.
+        if (entities.hasRoom(target)) this.waitOnBoth(id, source, target, entities);
+        else this.waitOn(id, target, entities);
+        return InserterState.WaitingForTarget;
+      }
       this.waitOn(id, source, entities);
       return InserterState.WaitingForSource;
     }
@@ -504,6 +532,15 @@ export abstract class InserterTableBase implements EntityTypeTable {
     if (target !== 0) wake.watch(id, target);
   }
 
+  /** Subscribes inserter `id` to `source` and `target` (both non-zero), unless it already is. */
+  private waitOnBoth(id: number, source: number, target: number, entities: Entities): void {
+    const { wake } = entities;
+    if (wake.watchesExactly(id, source, target)) return;
+    wake.unwatchAll(id);
+    wake.watch(id, source);
+    wake.watch(id, target);
+  }
+
   /** Wakes the inserters whose pickup or drop tile entity `id` covers. */
   private wakeAround(id: number, entities: Entities): void {
     if (this.set.size === 0) return;
@@ -533,8 +570,8 @@ export abstract class InserterTableBase implements EntityTypeTable {
 
 /**
  * Takes one unit `accept` accepts out of entity `source`; returns its item
- * id, or 0 if there is none. Belts: the item closest to the end of the left
- * lane, else of the right lane, on the belt's own tile (see
+ * id, or 0 if there is none. Belts: the accepted item closest to the end of
+ * the left lane, else of the right lane, on the belt's own tile (see
  * `BeltTable.beltEnd`).
  */
 function takeFrom(
@@ -550,8 +587,8 @@ function takeFrom(
     const from = belts.beltOffset(source);
     const to = belts.beltEnd(source);
     for (let lane = 0; lane < 2; lane++) {
-      const item = belts.peekAt(line, lane, from, to);
-      if (item !== 0 && accept(item)) return belts.takeAt(line, lane, from, to);
+      const item = belts.takeAt(line, lane, from, to, accept);
+      if (item !== 0) return item;
     }
     return 0;
   }
