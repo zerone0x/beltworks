@@ -7,6 +7,9 @@ import {
   decodeEntityDetail,
   decodeInventory,
   decodeNetworkDetail,
+  decodeResearch,
+  NO_RESEARCH,
+  type ResearchData,
   type SlotData,
 } from './sim/snapshot';
 import { BuildInput, isPlaceableSlot } from './render/buildInput';
@@ -20,6 +23,7 @@ import { HelpPanel } from './ui/help';
 import { Hotbar, InventoryPanel } from './ui/inventory';
 import { PowerHistory } from './ui/powerHistory';
 import { PowerPanel } from './ui/powerPanel';
+import { TechTreePanel } from './ui/techTree';
 import { SimClient } from './worker/client';
 import { LOCAL_PLAYER_ID } from './worker/protocol';
 
@@ -30,13 +34,20 @@ const WORLD_SEED = 1;
 async function main(): Promise<void> {
   const root = document.getElementById('app') ?? document.body;
 
-  // Dev and test builds only: the test hook (installed below) and its `?kit=` starting kit.
+  // Dev and test builds only: the test hook (installed below), its `?kit=` starting kit and
+  // `?research=` researched technologies.
   const testHook =
     import.meta.env.DEV || import.meta.env.MODE === 'test' ? await import('./testHook') : null;
-  const client = new SimClient(WORLD_SEED, testHook?.startingKitFromUrl(window.location.search));
+  const client = new SimClient(
+    WORLD_SEED,
+    testHook?.startingKitFromUrl(window.location.search),
+    testHook?.researchedFromUrl(window.location.search),
+  );
   const overlay = new DebugOverlay(document.body);
   /** The local player's inventory as of the latest snapshot. */
   let inventory: SlotData[] = [];
+  /** The local player's force's research as of the latest snapshot. */
+  let research: ResearchData = NO_RESEARCH;
   // Hotbar clicks select like the number keys, and inventory clicks select any
   // slot with a placeable item (the build input exists once the canvas does).
   let selectSlot: (slot: number | null) => void = () => undefined;
@@ -87,6 +98,7 @@ async function main(): Promise<void> {
   const powerPanel = new PowerPanel(document.body, powerHistory, (pole) => {
     client.inspect(pole);
   });
+  const techTree = new TechTreePanel(document.body, crafting);
   new HelpPanel(document.body);
   client.onStats = (stats) => {
     overlay.update(stats);
@@ -131,7 +143,7 @@ async function main(): Promise<void> {
       }
       inventoryPanel.toggle();
       const queue = client.latestSnapshot && decodeCraftQueue(client.latestSnapshot.craftQueue);
-      craftingPanel.update(inventory, queue?.entries.length ?? 0);
+      craftingPanel.update(inventory, queue?.entries.length ?? 0, research);
     },
     onFollow: () => {
       view.follow();
@@ -179,6 +191,8 @@ async function main(): Promise<void> {
   client.onSnapshot = (snapshot) => {
     view.applySnapshot(snapshot);
     inventory = decodeInventory(snapshot.inventory);
+    research = decodeResearch(snapshot.research);
+    techTree.update(research);
     hotbar.update(inventory);
     inventoryPanel.update(inventory);
     const detail = snapshot.entityDetail ? decodeEntityDetail(snapshot.entityDetail) : null;
@@ -193,7 +207,7 @@ async function main(): Promise<void> {
     const queue = decodeCraftQueue(snapshot.craftQueue);
     craftQueue.update(queue);
     if (inventoryPanel.isOpen) {
-      craftingPanel.update(inventory, queue.entries.length);
+      craftingPanel.update(inventory, queue.entries.length, research);
     }
   };
   app.ticker.add((ticker) => {
@@ -211,8 +225,10 @@ async function main(): Promise<void> {
       build,
       entityPanel,
       powerPanel,
+      techTree,
       seed: WORLD_SEED,
       inventory: () => inventory,
+      research: () => research,
     });
   }
 }

@@ -29,6 +29,7 @@ import { TransferResult, insertIntoEntity, setEntityRecipe } from '../../src/sim
 import { tileCenter } from '../../src/sim/fixed';
 import { powerGrid } from '../../src/sim/power/grid';
 import { forceOf, isRecipeUnlocked } from '../../src/sim/research/unlocks';
+import { TECH_IDS, TechId, unlockingTechnology } from '../../src/data/technologies';
 import {
   ENTITY_STRIDE,
   EntityField,
@@ -303,7 +304,8 @@ describe('assembling machine crafting', () => {
     // The hand's Insert command goes through the same hook: nothing more fits.
     expect(insertIntoEntity(r.state, 0, r.id, PLATE, 50)).toBe(TransferResult.NoRoom);
     expect(r.inventory.count(PLATE)).toBe(200);
-    // A four-ingredient recipe: 2 × 20 plates, 2 × 1 machine.
+    // A four-ingredient recipe: 2 × 20 plates, 2 × 1 machine (behind research).
+    r.state.research.markResearched(0, TechId.Automation2);
     expect(setEntityRecipe(r.state, 0, r.id, RecipeId.AssemblingMachine2)).toBe(TransferResult.Ok);
     expect(r.inventory.count(PLATE)).toBe(204);
     expect(insertIntoEntity(r.state, 0, r.id, PLATE, 100)).toBe(TransferResult.Ok);
@@ -435,17 +437,32 @@ describe('SetRecipe', () => {
     expect(r.entities.selectedRecipe(r.id)).toBe(RecipeId.IronGearWheel);
   });
 
-  it('only offers recipes that are unlocked (all of them until research)', () => {
+  it('only offers recipes that are unlocked', () => {
     const r = rig();
+    const locked = ASSEMBLER_RECIPES.filter((x) => unlockingTechnology(x.id) !== TechId.None);
+    expect(locked.map((x) => x.id)).toContain(RecipeId.AssemblingMachine1);
     for (const recipe of ASSEMBLER_RECIPES) {
-      expect(isRecipeUnlocked(r.state, 0, recipe.id)).toBe(true);
+      expect(isRecipeUnlocked(r.state, 0, recipe.id)).toBe(!locked.includes(recipe));
     }
     expect(isRecipeUnlocked(r.state, 0, 999)).toBe(false);
     expect(isRecipeUnlocked(r.state, forceOf(r.state, 7), RecipeId.IronGearWheel)).toBe(false);
+    // A locked recipe is refused, and works once researched.
+    expect(setEntityRecipe(r.state, 0, r.id, RecipeId.AssemblingMachine1)).toBe(
+      TransferResult.BadRecipe,
+    );
+    expect(r.entities.selectedRecipe(r.id)).toBe(RecipeId.IronGearWheel);
+    const options = () =>
+      decodeEntityDetail(encodeEntityDetail(r.state, 0, r.id)!.buffer).recipeOptions;
+    expect(options()).toEqual(
+      ASSEMBLER_RECIPES.filter((x) => !locked.includes(x)).map((x) => x.id),
+    );
+    for (const tech of TECH_IDS) r.state.research.markResearched(0, tech);
+    expect(options()).toEqual(ASSEMBLER_RECIPES.map((x) => x.id));
+    expect(setEntityRecipe(r.state, 0, r.id, RecipeId.AssemblingMachine1)).toBe(TransferResult.Ok);
+    expect(setEntityRecipe(r.state, 0, r.id, RecipeId.IronGearWheel)).toBe(TransferResult.Ok);
     r.entities.insert(r.id, PLATE, 3);
     const detail = decodeEntityDetail(encodeEntityDetail(r.state, 0, r.id)!.buffer);
     expect(detail.recipe).toBe(RecipeId.IronGearWheel);
-    expect(detail.recipeOptions).toEqual(ASSEMBLER_RECIPES.map((x) => x.id));
     expect(detail.slots).toEqual([
       { item: PLATE, count: 3 },
       { item: 0, count: 0 },

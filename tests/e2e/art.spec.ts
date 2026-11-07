@@ -63,6 +63,7 @@ const MODELS = [
   'assembling-machine-2',
   'burner-mining-drill',
   'iron-chest',
+  'lab',
   'stone-furnace',
   'wooden-chest',
 ];

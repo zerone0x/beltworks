@@ -28,6 +28,7 @@ const detail = (fields: Partial<EntityDetailData>): EntityDetailData => ({
   power: 0,
   network: 0,
   satisfaction: 0,
+  technology: 0,
   slots: [],
   recipeOptions: [],
   ...fields,

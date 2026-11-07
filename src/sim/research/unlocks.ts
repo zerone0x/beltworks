@@ -1,16 +1,17 @@
 /**
- * Which recipes a force (a team of players) may use. The hook for research
- * (M3): until technologies exist every recipe is unlocked; the research
- * system will keep a researched set per force in `SimState` and answer from
- * it here, so every caller (the `SetRecipe` command, the assembling
- * machine's recipe picker through the entity detail, and later hand
- * crafting) follows it without changes.
+ * Which recipes a force (a team of players) may use: those no technology
+ * unlocks (available from the start), and those of the technologies it has
+ * researched (src/data/technologies.ts, research state in research.ts).
+ * Every caller follows it: the `SetRecipe` command and the assembling
+ * machine's recipe picker (through the entity detail), and hand crafting,
+ * intermediates included (src/sim/crafting/queue.ts).
  *
  * Forces: there is a single one for now, so every player belongs to
  * {@link DEFAULT_FORCE}.
  */
 
 import { recipePrototype } from '../../data/recipes';
+import { recipeUnlockedBy } from '../../data/technologies';
 import type { SimState } from '../state';
 
 /** The force every player belongs to while there is only one. */
@@ -25,8 +26,12 @@ export function forceOf(state: SimState, playerId: number): number {
 
 /**
  * Whether force `force` has unlocked recipe `recipe` (false for unknown
- * recipe ids and forces). Every recipe, until research lands.
+ * recipe ids and forces).
  */
-export function isRecipeUnlocked(_state: SimState, force: number, recipe: number): boolean {
-  return force === DEFAULT_FORCE && recipePrototype(recipe) !== undefined;
+export function isRecipeUnlocked(state: SimState, force: number, recipe: number): boolean {
+  return (
+    force === DEFAULT_FORCE &&
+    recipePrototype(recipe) !== undefined &&
+    recipeUnlockedBy((tech) => state.research.isResearched(force, tech), recipe)
+  );
 }

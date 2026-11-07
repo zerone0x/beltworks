@@ -41,6 +41,12 @@
  *    plus recipe commands that must be ignored.
  *    Then it lays a belt line through an underground belt pair onto fast
  *    belts and drops coal on it, and reverses the pair and back.
+ *    Player 1 also puts two labs on its steam network, researches
+ *    logistics, feeds the labs automation packs (and the boiler more
+ *    coal), and switches to automation while the labs are mid-unit (those
+ *    units still count for logistics); the labs finish automation in the
+ *    random phase, unlocking its recipes. Research and crafts of locked
+ *    recipes that must be ignored come with it.
  *    Meanwhile the players hand-craft from the plates, wood and stone of
  *    `DETERMINISM_KIT`: crafts with auto-queued intermediates, crafts cut
  *    short by missing items, and cancels (of a craft, of an intermediate in
@@ -51,6 +57,7 @@
 
 import { ItemId, type ItemStack } from '../../data/items';
 import { RecipeId } from '../../data/recipes';
+import { TechId } from '../../data/technologies';
 import { STARTING_KIT } from '../../data/start';
 import { TREE_MINING_TICKS } from '../../data/trees';
 import type { Axis, Command } from '../commands';
@@ -72,11 +79,13 @@ export const DETERMINISM_SCRIPTED_TICKS = 1_000;
 
 const AXES: readonly Axis[] = [-1, 0, 1];
 /** Random `Place` and `Insert` commands use item ids in `[0, ITEM_ID_SPAN)` (the last two unknown). */
-const ITEM_ID_SPAN = 34;
+const ITEM_ID_SPAN = 37;
 /** Random `Insert` and `Take` commands target entity ids in `[0, ENTITY_ID_SPAN)`. */
 const ENTITY_ID_SPAN = 16;
 /** Random `Craft` and `SetRecipe` commands use recipe ids in `[0, RECIPE_ID_SPAN)` (the last one unknown). */
-const RECIPE_ID_SPAN = 28;
+const RECIPE_ID_SPAN = 31;
+/** Random `SetResearch` commands use technology ids in `[0, TECH_ID_SPAN)` (the last one unknown). */
+const TECH_ID_SPAN = 10;
 /** Random `SetRecipe` commands target entity ids in `[0, RECIPE_ENTITY_SPAN)` (the assembler included). */
 const RECIPE_ENTITY_SPAN = 48;
 
@@ -96,6 +105,8 @@ export const DETERMINISM_KIT: readonly ItemStack[] = [
   { item: ItemId.LongHandedInserter, count: 1 },
   { item: ItemId.UndergroundBelt, count: 2 },
   { item: ItemId.FastTransportBelt, count: 2 },
+  { item: ItemId.Lab, count: 2 },
+  { item: ItemId.AutomationSciencePack, count: 40 },
 ];
 
 interface Walker {
@@ -604,6 +615,66 @@ function beltTierPhase(): Command[] {
   ];
 }
 
+/** Tick player 1 builds its labs (after player 2's belt line, so those ids stay put). */
+export const DETERMINISM_RESEARCH_TICK = 945;
+/** Entity ids of player 1's labs. */
+export const DETERMINISM_LAB_A = 50;
+export const DETERMINISM_LAB_B = 51;
+
+/**
+ * Player 1's research, while it stands on tile `(x, y)` among its poles:
+ * two labs west of it, on `(x - 9..x - 7, y - 3..y - 1)` and `(x - 9..x - 7,
+ * y - 6..y - 4)`, both under the west pole (the steam network). It picks
+ * logistics, gives the labs 7 and 5 automation packs and the boiler 4 more
+ * coal, and switches to automation 20 ticks later: the logistics unit each
+ * lab started still counts for logistics (2 units), then they research
+ * automation (10 units of 10 s: lab B runs out of packs after 4, lab A does
+ * the other 6), which completes in the random phase. Before that, research
+ * with a missing prerequisite or an unknown id, and a hand craft of a
+ * recipe automation unlocks, are ignored.
+ */
+function researchPhase(x: number, y: number): Command[] {
+  const p = { playerId: 1 };
+  const t = DETERMINISM_RESEARCH_TICK;
+  const research = (tick: number, tech: number): Command => ({
+    ...p,
+    tick,
+    type: 'SetResearch',
+    tech,
+  });
+  const feed = (tick: number, entity: number, item: number, count: number): Command => ({
+    ...p,
+    tick,
+    type: 'Insert',
+    entity,
+    item,
+    count,
+  });
+  const lab = (dy: number): Command => ({
+    ...p,
+    tick: t,
+    type: 'Place',
+    item: ItemId.Lab,
+    x: x - 9,
+    y: y + dy,
+    dir: Direction.North,
+  });
+  return [
+    // Ignored: electronics needs automation first, and there is no technology 999.
+    research(t, TechId.Electronics),
+    research(t, 999),
+    lab(-3),
+    lab(-6),
+    research(t + 1, TechId.Logistics),
+    feed(t + 2, DETERMINISM_LAB_A, ItemId.AutomationSciencePack, 20),
+    feed(t + 2, DETERMINISM_LAB_B, ItemId.AutomationSciencePack, 20),
+    feed(t + 3, DETERMINISM_BOILER, ItemId.Coal, 4),
+    // Ignored: automation isn't researched yet.
+    { ...p, tick: t + 4, type: 'Craft', recipe: RecipeId.AssemblingMachine1, count: 1 },
+    research(t + 20, TechId.Automation),
+  ];
+}
+
 /**
  * Hand-crafting while the players walk and mine (it only uses
  * `DETERMINISM_KIT` items, so the mined ore stays untouched).
@@ -736,6 +807,7 @@ function scriptedPhase(): Command[] {
       commands.push(...steamPhase(fixedToTile(w.x), fixedToTile(w.y)));
       commands.push(...assemblerPhase(fixedToTile(w.x), fixedToTile(w.y)));
       commands.push(...logisticsPhase(fixedToTile(w.x), fixedToTile(w.y)));
+      commands.push(...researchPhase(fixedToTile(w.x), fixedToTile(w.y)));
     }
   }
   return commands;
@@ -764,8 +836,13 @@ export function buildDeterminismScript(
     for (let i = 0; i < burst; i++) {
       // Player id DETERMINISM_PLAYERS is out of range on purpose: it must be ignored.
       const playerId = rng.nextInt(DETERMINISM_PLAYERS + 1);
-      const kind = rng.nextInt(19);
-      if (kind === 18) {
+      const kind = rng.nextInt(20);
+      if (kind === 19) {
+        // Research, rarely (so the labs get somewhere): any technology id,
+        // most not available (yet).
+        const tech = rng.nextInt(TECH_ID_SPAN);
+        if (rng.nextInt(8) === 0) commands.push({ tick, playerId, type: 'SetResearch', tech });
+      } else if (kind === 18) {
         // Recipe changes: any entity (the assembler among them) and recipe id.
         const entity = rng.nextInt(RECIPE_ENTITY_SPAN);
         const recipe = rng.nextInt(RECIPE_ID_SPAN);

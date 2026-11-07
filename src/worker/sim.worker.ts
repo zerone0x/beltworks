@@ -4,6 +4,7 @@
  */
 
 import { MAX_STACK_SIZE, itemPrototype, type ItemStack, type RealItemId } from '../data/items';
+import { technologyPrototype } from '../data/technologies';
 import { validateCommandInput } from '../sim/commands';
 import {
   encodeBelts,
@@ -16,6 +17,7 @@ import {
   encodeNetworkDetail,
   encodePlayers,
   encodePower,
+  encodeResearch,
 } from '../sim/snapshot';
 import { Sim } from '../sim/tick';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
@@ -93,6 +95,7 @@ function sendSnapshot(ticksRun: number): void {
   const players = encodePlayers(sim.state);
   const inventory = encodeInventory(sim.state, LOCAL_PLAYER_ID);
   const craftQueue = encodeCraftQueue(sim.state, LOCAL_PLAYER_ID);
+  const research = encodeResearch(sim.state, LOCAL_PLAYER_ID);
   const batch = streamer.collect();
   const chunks = batch && batch.chunks.length > 0 ? encodeChunks(batch.chunks) : null;
   const entities = encodeEntities(sim.state, batch?.window ?? null);
@@ -105,6 +108,7 @@ function sendSnapshot(ticksRun: number): void {
     players.buffer,
     inventory.buffer,
     craftQueue.buffer,
+    research.buffer,
     entities.buffer,
     belts.buffer,
     inserters.buffer,
@@ -122,6 +126,7 @@ function sendSnapshot(ticksRun: number): void {
       players: players.buffer,
       inventory: inventory.buffer,
       craftQueue: craftQueue.buffer,
+      research: research.buffer,
       entities: entities.buffer,
       belts: belts.buffer,
       inserters: inserters.buffer,
@@ -140,7 +145,12 @@ function handle(msg: MainToWorker): void {
   switch (msg.type) {
     case 'init': {
       const startingKit = validateKit(msg.startingKit);
-      sim = new Sim(startingKit ? { seed: msg.seed, startingKit } : { seed: msg.seed });
+      const researched = validateResearched(msg.researched);
+      sim = new Sim({
+        seed: msg.seed,
+        ...(startingKit && { startingKit }),
+        ...(researched && { researched }),
+      });
       // A fresh streamer resends every chunk in the window, replacing the main
       // thread's copies from the previous world.
       streamer = new ChunkStreamer(sim.state.world);
@@ -197,6 +207,18 @@ function validateKit(kit: unknown): ItemStack[] | undefined {
       throw new Error(`invalid starting kit entry: ${JSON.stringify(s)}`);
     }
     return { item: item as RealItemId, count };
+  });
+}
+
+/** Checks an `init` message's researched technologies: known technology ids. */
+function validateResearched(techs: unknown): number[] | undefined {
+  if (techs === undefined) return undefined;
+  if (!Array.isArray(techs)) throw new Error('invalid researched technologies');
+  return techs.map((t: unknown) => {
+    if (typeof t !== 'number' || technologyPrototype(t) === undefined) {
+      throw new Error(`invalid researched technology: ${JSON.stringify(t)}`);
+    }
+    return t;
   });
 }
 

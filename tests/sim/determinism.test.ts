@@ -70,7 +70,13 @@ import {
   createDeterminismSim,
   runDeterminismScenario,
   nearestTree,
+  DETERMINISM_LAB_A,
+  DETERMINISM_LAB_B,
+  DETERMINISM_RESEARCH_TICK,
 } from '../../src/sim/scenarios/determinism';
+import { labTable } from '../../src/sim/research/lab';
+import { isRecipeUnlocked } from '../../src/sim/research/unlocks';
+import { TechId } from '../../src/data/technologies';
 import { Sim } from '../../src/sim/tick';
 import { BoilerSlot, boilerTable } from '../../src/sim/power/boiler';
 import { powerGrid } from '../../src/sim/power/grid';
@@ -650,8 +656,67 @@ describe('determinism', () => {
     while (sim.tick < DETERMINISM_SCRIPTED_TICKS) sim.step();
     expect(entities.status(id)).toBe(MachineState.Working);
     // With player 1's logistics rig on the same network: the long-handed
-    // inserter swinging (333 J) and the fast one asleep (its 15 J drain).
-    expect(grid.network(1)).toMatchObject({ demand: 1_250 + 7 + 333 + 15, load: 1_605 });
+    // inserter swinging (333 J) and the fast one asleep (its 15 J drain);
+    // and its two labs researching (1 000 J each).
+    const demand = 1_250 + 7 + 333 + 15 + 2 * 1_000;
+    expect(grid.network(1)).toMatchObject({ demand, load: demand });
+  });
+
+  it("researches with player 1's two labs: logistics, then automation, which completes", () => {
+    const sim = createDeterminismSim();
+    buildDeterminismScript().forEach((c) => sim.enqueue(c));
+    const { entities, research } = sim.state;
+    const grid = powerGrid(entities)!;
+    const labs = labTable(entities)!;
+    const [a, b] = [DETERMINISM_LAB_A, DETERMINISM_LAB_B];
+    const t = DETERMINISM_RESEARCH_TICK;
+    const until = (tick: number) => {
+      while (sim.tick <= tick) sim.step();
+    };
+    until(t);
+    // The research commands before the labs were ignored.
+    expect(research.currentOf(0)).toBe(0);
+    for (const id of [a, b]) {
+      expect(entities.store.type(id)).toBe(EntityTypeId.Lab);
+      expect(grid.networkOf(id)).toBe(1);
+      expect(entities.status(id)).toBe(MachineState.NoResearch);
+    }
+    until(t + 1);
+    expect(research.currentOf(0)).toBe(TechId.Logistics);
+    expect(entities.status(a)).toBe(MachineState.NoInput);
+    // Fed: each starts a unit of logistics at once.
+    until(t + 2);
+    for (const id of [a, b]) {
+      expect(entities.status(id)).toBe(MachineState.Working);
+      expect(labs.unitTech(id)).toBe(TechId.Logistics);
+      expect(entities.slots(id)[0]).toEqual({ item: ItemId.AutomationSciencePack, count: 19 });
+    }
+    // The craft of a locked recipe was ignored.
+    const queued = () => {
+      const q = sim.state.crafting;
+      return Array.from(q.recipe.subarray(CRAFT_QUEUE_LENGTH, CRAFT_QUEUE_LENGTH + q.size(1)));
+    };
+    until(t + 3);
+    const before = queued();
+    until(t + 4);
+    expect(queued()).toEqual(before);
+    expect(before).not.toContain(RecipeId.AssemblingMachine1);
+    // Switched to automation: the units under way still count for logistics.
+    until(t + 20);
+    expect(research.currentOf(0)).toBe(TechId.Automation);
+    expect(labs.unitTech(a)).toBe(TechId.Logistics);
+    while (research.unitsDone(0, TechId.Logistics) < 2) sim.step();
+    expect(sim.tick).toBe(t + 2 + 15 * 60);
+    expect(research.unitsDone(0, TechId.Automation)).toBe(0);
+    // (By then random commands switch the research now and then.)
+    sim.step();
+    expect(labs.unitTech(a)).toBe(research.currentOf(0));
+    // In the random phase automation completes, unlocking its recipes.
+    while (!research.isResearched(0, TechId.Automation) && sim.tick < DETERMINISM_TICKS) {
+      sim.step();
+    }
+    expect(sim.tick).toBeLessThan(DETERMINISM_TICKS);
+    expect(isRecipeUnlocked(sim.state, 0, RecipeId.AssemblingMachine1)).toBe(true);
   });
 
   it("moves coal through player 1's iron chests with a long-handed and a fast inserter", () => {

@@ -47,10 +47,10 @@ Power comes before production chains because assemblers and labs are electric ([
 
 ## M3 — Production chains and research
 
-- [ ] Assembler (with a recipe picker) and lab
+- [x] Assembler (with a recipe picker) and lab
 - [ ] Item and recipe tables (~30 items) with a craftability test
-- [ ] Tech tree UI and research progress
-- [ ] Red and green science
+- [x] Tech tree UI and research progress
+- [x] Red and green science (science packs, technologies, labs)
 - [x] Belt tiers (fast, express) and underground belts
 - [ ] Splitters
 - [ ] Iron chest and the other inserter types (fast, long-handed; the electric inserter comes with M2)

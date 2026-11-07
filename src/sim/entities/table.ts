@@ -47,6 +47,8 @@ export interface EntityDetail {
    * the grid when the table leaves it out).
    */
   power?: number;
+  /** Technology of a lab's unit in progress (src/data/technologies.ts), or 0 / absent. */
+  technology?: number;
 }
 
 export interface EntityTypeTable {

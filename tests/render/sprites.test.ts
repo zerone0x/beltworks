@@ -112,12 +112,13 @@ describe('the committed atlas (public/sprites, `npm run art`)', () => {
   const index = committed();
   const byName = new Map<string, EntityPrototype>(Object.values(ENTITIES).map((p) => [p.name, p]));
 
-  it('has a model for each of the first entities, matching their prototypes', () => {
+  it('has a model for each entity drawn with sprites, matching their prototypes', () => {
     expect(Object.keys(index.models).sort()).toEqual([
       'assembling-machine-1',
       'assembling-machine-2',
       'burner-mining-drill',
       'iron-chest',
+      'lab',
       'stone-furnace',
       'wooden-chest',
     ]);
@@ -134,6 +135,8 @@ describe('the committed atlas (public/sprites, `npm run art`)', () => {
     const layer = (model: string, name: string) =>
       index.models[model]!.layers.find((l) => l.name === name)!;
     expect(layer('stone-furnace', 'fire').show).toBe('working');
+    expect(layer('lab', 'glow').show).toBe('working');
+    expect(layer('lab', 'ring').frames[0]!.length).toBeGreaterThan(1);
     expect(layer('burner-mining-drill', 'head').frames.every((fs) => fs.length > 1)).toBe(true);
     for (const m of ['assembling-machine-1', 'assembling-machine-2']) {
       expect(layer(m, 'rotor').frames[0]!.length).toBeGreaterThan(1);

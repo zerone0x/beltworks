@@ -5,6 +5,7 @@
 
 import { SAT_ONE } from '../data/entities';
 import { RECIPE_IDS } from '../data/recipes';
+import { TECH_IDS, recipeUnlockedBy, technologyPrototype } from '../data/technologies';
 import { beltTable } from './belts/belts';
 import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
 import { reaches } from './entities/build';
@@ -13,6 +14,7 @@ import { MachineState } from './entities/machine';
 import type { ChunkRange } from './entities/occupancy';
 import { powerGrid } from './power/grid';
 import { poweredEnergy } from './power/solver';
+import { labTable } from './research/lab';
 import { forceOf, isRecipeUnlocked } from './research/unlocks';
 import type { SimState } from './state';
 import { CHUNK_AREA } from './world/chunk';
@@ -639,6 +641,73 @@ export function decodeNetworkDetail(buffer: ArrayBuffer): NetworkDetailData {
   };
 }
 
+/** Int32 fields per technology in {@link encodeResearch}, after the 2-field header. */
+export const RESEARCH_TECH_STRIDE = 4;
+
+/**
+ * Encodes the research of player `playerId`'s force as int32s: `[current,
+ * techCount]`, then per technology in `TECH_IDS` order `[id, unitsDone,
+ * unitsInProgress, ticksInProgress]` (units researched, units labs are
+ * researching now, and the whole working ticks done on those, summed over
+ * the labs). Sent in every snapshot: a few dozen bytes.
+ */
+export function encodeResearch(state: SimState, playerId: number): Int32Array<ArrayBuffer> {
+  const force = forceOf(state, playerId);
+  const labs = labTable(state.entities);
+  const out = new Int32Array(2 + TECH_IDS.length * RESEARCH_TECH_STRIDE);
+  out[0] = state.research.currentOf(force);
+  out[1] = TECH_IDS.length;
+  TECH_IDS.forEach((tech, i) => {
+    const o = 2 + i * RESEARCH_TECH_STRIDE;
+    out[o] = tech;
+    out[o + 1] = state.research.unitsDone(force, tech);
+    out[o + 2] = labs?.unitsInProgress(tech) ?? 0;
+    out[o + 3] = labs?.ticksInProgress(tech) ?? 0;
+  });
+  return out;
+}
+
+/** The research of the local player's force as decoded on the main thread. */
+export interface ResearchData {
+  /** The current research (0: none). */
+  current: number;
+  /** Per technology id: units researched, units in progress and their working ticks so far. */
+  techs: Map<number, { unitsDone: number; unitsInProgress: number; ticksInProgress: number }>;
+}
+
+/** Unpacks a buffer made by {@link encodeResearch}. */
+export function decodeResearch(buffer: ArrayBuffer): ResearchData {
+  const v = new Int32Array(buffer, 0, buffer.byteLength >> 2);
+  const n = Math.min(v[1] ?? 0, Math.floor((v.length - 2) / RESEARCH_TECH_STRIDE));
+  const techs: ResearchData['techs'] = new Map();
+  for (let i = 0; i < n; i++) {
+    const o = 2 + i * RESEARCH_TECH_STRIDE;
+    techs.set(v[o]!, {
+      unitsDone: v[o + 1]!,
+      unitsInProgress: v[o + 2]!,
+      ticksInProgress: v[o + 3]!,
+    });
+  }
+  return { current: v[0] ?? 0, techs };
+}
+
+/** An empty research (before the first snapshot): nothing researched, nothing current. */
+export const NO_RESEARCH: ResearchData = { current: 0, techs: new Map() };
+
+/**
+ * Whether recipe `recipe` is unlocked by `research` (the main thread's copy
+ * of the simulation's `isRecipeUnlocked`).
+ */
+export function researchUnlocks(research: ResearchData, recipe: number): boolean {
+  return recipeUnlockedBy((tech) => isResearchedIn(research, tech), recipe);
+}
+
+/** Whether `research` has technology `tech` researched. */
+export function isResearchedIn(research: ResearchData, tech: number): boolean {
+  const t = technologyPrototype(tech);
+  return t !== undefined && (research.techs.get(tech)?.unitsDone ?? 0) >= t.units;
+}
+
 /** Field offsets of the header of {@link encodeEntityDetail}; `[item, count]` slot pairs follow it. */
 export const DetailField = {
   id: 0,
@@ -658,9 +727,11 @@ export const DetailField = {
   /** The electric network the entity belongs to (0: none, or not electric) and its satisfaction. */
   network: 9,
   satisfaction: 10,
-  slotCount: 11,
+  /** A lab's unit in progress: its technology (0: none). */
+  technology: 11,
+  slotCount: 12,
 } as const;
-const DETAIL_HEADER = 12;
+const DETAIL_HEADER = 13;
 
 /**
  * The recipes player `playerId` can set entity `id` to, in id order: those
@@ -710,6 +781,7 @@ export function encodeEntityDetail(
   out[DetailField.power] = detail?.power ?? consumerDraw(state, id);
   out[DetailField.network] = grid?.networkOf(id) ?? 0;
   out[DetailField.satisfaction] = grid?.satisfaction(id) ?? 0;
+  out[DetailField.technology] = detail?.technology ?? 0;
   out[DetailField.slotCount] = slots.length;
   slots.forEach((slot, i) => {
     out[DETAIL_HEADER + 2 * i] = slot.item;
@@ -736,6 +808,8 @@ export interface EntityDetailData {
   /** Electric network (0: none) and its satisfaction in units of 1/`SAT_ONE`. */
   network: number;
   satisfaction: number;
+  /** A lab's unit in progress: its technology (0: none). */
+  technology: number;
   slots: SlotData[];
   /** The recipes the entity's recipe picker offers, in id order (empty without a picker). */
   recipeOptions: number[];
@@ -764,6 +838,7 @@ export function decodeEntityDetail(buffer: ArrayBuffer): EntityDetailData {
     power: v[DetailField.power]! >>> 0,
     network: v[DetailField.network]! >>> 0,
     satisfaction: v[DetailField.satisfaction]!,
+    technology: v[DetailField.technology]!,
     slots,
     recipeOptions,
   };

@@ -8,7 +8,8 @@
  *
  * Both only send `Craft` / `CancelCraft` commands; the simulation decides
  * what happens. Craftable counts come from the same planner the simulation
- * uses (src/sim/crafting/plan.ts), applied to the latest snapshot.
+ * uses (src/sim/crafting/plan.ts), applied to the latest snapshot. Recipes
+ * the force hasn't unlocked yet (the snapshot's research) are hidden.
  */
 
 import { itemPrototype } from '../data/items';
@@ -16,7 +17,13 @@ import { HAND_RECIPES, recipePrototype, type Recipe } from '../data/recipes';
 import type { CommandInput } from '../sim/commands';
 import { countItems, maxCraftable } from '../sim/crafting/plan';
 import { CRAFT_QUEUE_LENGTH, CraftFlag } from '../sim/crafting/queue';
-import type { CraftQueueData, SlotData } from '../sim/snapshot';
+import {
+  NO_RESEARCH,
+  researchUnlocks,
+  type CraftQueueData,
+  type ResearchData,
+  type SlotData,
+} from '../sim/snapshot';
 import {
   GAP_PX,
   HOTBAR_BOTTOM_PX,
@@ -52,14 +59,22 @@ export function recipeTitle(recipe: Recipe): string {
   return `${recipe.outputs.map(stack).join(', ')} ← ${recipe.inputs.map(stack).join(', ')} (${seconds} s)`;
 }
 
-/** How many crafts of each hand recipe the player can queue now, in `HAND_RECIPES` order. */
-export function craftableCounts(slots: readonly SlotData[], queueLength: number): number[] {
+/**
+ * How many crafts of each hand recipe the player can queue now, in
+ * `HAND_RECIPES` order (0 for recipes `research` hasn't unlocked).
+ */
+export function craftableCounts(
+  slots: readonly SlotData[],
+  queueLength: number,
+  research: ResearchData = NO_RESEARCH,
+): number[] {
   const available = countItems(
     slots.map((s) => s.item),
     slots.map((s) => s.count),
   );
   const free = CRAFT_QUEUE_LENGTH - queueLength;
-  return HAND_RECIPES.map((r) => maxCraftable(r, available, free));
+  const unlocked = (r: number): boolean => researchUnlocks(research, r);
+  return HAND_RECIPES.map((r) => maxCraftable(r, available, free, undefined, unlocked));
 }
 
 /** A slot-sized square with an item icon and a count, like the inventory slots. */
@@ -146,16 +161,26 @@ export class CraftingPanel {
     this.update([], 0);
   }
 
-  /** Shows the craftable counts for `slots` with a queue of `queueLength` entries. */
-  update(slots: readonly SlotData[], queueLength: number): void {
-    const counts = craftableCounts(slots, queueLength);
-    const key = counts.join(',');
+  /**
+   * Shows the craftable counts for `slots` with a queue of `queueLength`
+   * entries, and only the recipes `research` has unlocked.
+   */
+  update(
+    slots: readonly SlotData[],
+    queueLength: number,
+    research: ResearchData = NO_RESEARCH,
+  ): void {
+    const counts = craftableCounts(slots, queueLength, research);
+    const locked = HAND_RECIPES.map((r) => !researchUnlocks(research, r.id));
+    const key = `${counts.join(',')}|${locked.join(',')}`;
     if (key === this.shown) {
       return;
     }
     this.shown = key;
     counts.forEach((n, i) => {
       const cell = this.cells[i]!;
+      cell.root.dataset.locked = String(locked[i]);
+      cell.root.style.display = locked[i] ? 'none' : '';
       cell.root.dataset.craftable = String(n);
       cell.count.textContent = n > 0 ? String(n) : '';
       // Dim what can't be crafted, without hiding it.

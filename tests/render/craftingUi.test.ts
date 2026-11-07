@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ItemId } from '../../src/data/items';
 import { HAND_RECIPES, RECIPES, RecipeId } from '../../src/data/recipes';
+import { TechId } from '../../src/data/technologies';
 import { CRAFT_QUEUE_LENGTH } from '../../src/sim/crafting/queue';
 import { craftableCounts, recipeName, recipeTitle } from '../../src/ui/crafting';
 
@@ -30,6 +31,9 @@ describe('crafting panel helpers', () => {
       'underground-belt',
       'fast-underground-belt',
       'express-underground-belt',
+      'lab',
+      'automation-science-pack',
+      'logistic-science-pack',
     ]);
     expect(recipeTitle(RECIPES[RecipeId.TransportBelt])).toBe(
       '2 × Transport belt ← 1 × Iron gear wheel, 1 × Iron plate (0.5 s)',
@@ -53,5 +57,21 @@ describe('crafting panel helpers', () => {
     // A drill takes three entries (gears, furnace, drill), and only two are free.
     expect(at(craftableCounts(slots, CRAFT_QUEUE_LENGTH - 2), RecipeId.BurnerMiningDrill)).toBe(0);
     expect(at(craftableCounts(slots, CRAFT_QUEUE_LENGTH), RecipeId.StoneFurnace)).toBe(0);
+  });
+
+  it('count nothing for locked recipes until researched', () => {
+    const slots: { item: number; count: number }[] = [{ item: ItemId.IronPlate, count: 100 }];
+    const at = (counts: number[], id: number) => counts[HAND_RECIPES.findIndex((r) => r.id === id)];
+    expect(at(craftableCounts(slots, 0), RecipeId.IronChest)).toBe(12);
+    // Long-handed inserters need automation (and electric inserters, which need circuits).
+    slots.push({ item: ItemId.ElectricInserter, count: 3 });
+    expect(at(craftableCounts(slots, 0), RecipeId.LongHandedInserter)).toBe(0);
+    const research = {
+      current: 0,
+      techs: new Map([
+        [TechId.Automation, { unitsDone: 10, unitsInProgress: 0, ticksInProgress: 0 }],
+      ]),
+    };
+    expect(at(craftableCounts(slots, 0, research), RecipeId.LongHandedInserter)).toBe(3);
   });
 });
