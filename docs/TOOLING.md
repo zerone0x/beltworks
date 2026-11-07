@@ -121,31 +121,31 @@ Steady state: the loops keep their items (the only consumers, the assembling mac
 
 **Baseline:** `tools/bench/baseline.json` (quick scenes) and `tools/bench/baseline-nightly.json` (heavy scenes) are reports as `--json` writes them, recorded on GitHub's `ubuntu-latest` runners (local machines are not comparable). To refresh one after an intended change (a new scene, a scene change, a deliberate speed-up or slowdown), download `result.json` from the `bench-results` artifact of the PR's bench run (for the heavy scenes: dispatch the workflow on the PR's branch and use `bench-results-nightly`), copy it over the baseline, and commit it in the same PR. A tick of the 1k scene takes a few microseconds, so expect run-to-run noise on shared runners: a single warning is a reason to look, not proof of a regression. The `ubuntu-latest` pool also mixes CPU models (e.g. AMD EPYC 7763 and 9V74), which alone moved the 1k mean by about 40% on unchanged code; the comparison says so when the run's CPU differs from the baseline's.
 
-**Results** (the committed baselines: the CI `workflow_dispatch` run of PR #80, Node 22 on 2-CPU `ubuntu-latest` runners, AMD EPYC 7763 for the heavy scenes and 9V45 for the quick ones):
+**Results** (the committed baselines: the CI `workflow_dispatch` run of PR #80, Node 22 on 2-CPU `ubuntu-latest` runners, AMD EPYC 9V74 for the heavy scenes and 7763 for the quick ones):
 
 | Scene | Entities | Items on belts (end of run) | Mean | p99 | Max | Target |
 |---|---:|---:|---:|---:|---:|---|
-| `1k` | 1 000 | 432 | 0.006 ms | 0.015 ms | 0.21 ms | < 1 ms, met |
-| `power` | 959 | 0 | 0.021 ms | 0.050 ms | 0.19 ms | < 1 ms, met |
-| `10k` | 10 073 | 50 003 | 0.51 ms | 0.82 ms | 1.12 ms | < 8 ms, met |
-| `50k` | 50 060 | 259 191 | 2.94 ms | 3.73 ms | 6.99 ms | < 16 ms, met |
+| `1k` | 1 000 | 432 | 0.012 ms | 0.032 ms | 0.42 ms | < 1 ms, met |
+| `power` | 959 | 0 | 0.074 ms | 0.171 ms | 0.56 ms | < 1 ms, met |
+| `10k` | 10 037 | 50 076 | 0.47 ms | 0.71 ms | 0.89 ms | < 8 ms, met |
+| `50k` | 49 984 | 259 507 | 3.05 ms | 4.20 ms | 6.99 ms | < 16 ms, met |
 
-Per-system time per tick (`--profile`; ms, and share of the profiled tick):
+Per-system time per tick (`--profile`; ms, and share of the profiled tick, which includes the timer calls and runs a little slower than the measured ticks):
 
 | System | `1k` | `power` | `10k` | `50k` |
 |---|---:|---:|---:|---:|
-| power | 0.0003 (3%) | 0.0086 (39%) | 0.075 (15%) | 0.374 (13%) |
-| drills (burner + electric) | 0.0007 (9%) | 0.0009 (4%) | 0.002 (0.4%) | 0.003 (0.1%) |
-| belts | 0.0009 (12%) | 0.0001 (1%) | 0.231 (45%) | 1.349 (46%) |
-| inserters | 0.0049 (62%) | 0.0118 (54%) | 0.190 (37%) | 1.149 (39%) |
-| furnaces + assemblers + labs | 0.0008 (9%) | 0.0003 (1%) | 0.013 (3%) | 0.053 (2%) |
-| players, crafting, commands, events | 0.0004 (5%) | 0.0004 (1%) | 0.002 (0.4%) | 0.006 (0.2%) |
-| total | 0.0080 | 0.0218 | 0.514 | 2.934 |
+| power | 0.0005 (3%) | 0.0309 (43%) | 0.094 (13%) | 0.288 (9%) |
+| drills (burner + electric) | 0.0016 (10%) | 0.0023 (3%) | 0.004 (0.5%) | 0.004 (0.1%) |
+| belts | 0.0022 (14%) | 0.0004 (1%) | 0.388 (55%) | 1.797 (55%) |
+| inserters | 0.0093 (59%) | 0.0375 (52%) | 0.205 (29%) | 1.124 (35%) |
+| furnaces + assemblers + labs | 0.0015 (10%) | 0.0006 (1%) | 0.016 (2%) | 0.041 (1%) |
+| players, crafting, commands, events | 0.0007 (5%) | 0.0007 (1%) | 0.003 (0.4%) | 0.008 (0.3%) |
+| total | 0.0159 | 0.0723 | 0.710 | 3.262 |
 
-Both large scenes meet their targets by a wide margin on CI hardware, and a 50k tick costs about 5.8 times a 10k one for 5 times the entities. Belts and inserters take over 80% of the tick, and power most of the rest:
+Both large scenes meet their targets by a wide margin on CI hardware; a 50k tick costs about 6.5 times a 10k one for 5 times the entities. Belts and inserters take over 80% of the tick, and power most of the rest:
 
-- **Belts** (45%): every loop keeps moving, so all its lanes stay on the active list (about 560 lanes in 10k, 2 900 in 50k). Each moving lane also notifies the watched belts near the stretch that changed, and that wakes the inserters below.
-- **Inserters** (37–39%): most of the buffer blocks' inserters hold an item and wait for a hole on the far lane they drop onto. An inserter drops at one exact spot, and the single free spots its neighbours leave when picking up never line up with it. Every time items move past, the belt notification wakes them; they try, fail and go back to sleep. This is the busy-sparse-lane case from #17/#29, here on nearly full lanes. Idle machines are cheap: assemblers, labs, furnaces and drills stay between 0.1% and 3%.
-- **Power** (13–15%): the networks are solved every tick, even though nothing in them changes during the measured ticks.
+- **Belts** (55%): every loop keeps moving, so all its lanes stay on the active list (about 560 lanes in 10k, 2 900 in 50k). Each moving lane also notifies the watched belts near the stretch that changed, and that wakes the inserters below.
+- **Inserters** (29–35%): most of the buffer blocks' inserters hold an item and wait for a hole on the far lane they drop onto. An inserter drops at one exact spot, and the single free spots its neighbours leave when picking up never line up with it. Every time items move past, the belt notification wakes them; they try, fail and go back to sleep. This is the busy-sparse-lane case from #17/#29, here on nearly full lanes. Idle machines are cheap: assemblers, labs, furnaces and drills stay between 0.1% and 3%.
+- **Power** (9–13%, and 43% of the small power scene): the networks are solved every tick, even though nothing in them changes during the measured ticks.
 
 These are the starting points for #73 (sleep/wake, incremental power solve), #75 (snapshot cost on the 10k scene) and #76 (WASM looks unnecessary for these targets on the current numbers).
