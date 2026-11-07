@@ -8,20 +8,25 @@ export const player = async (page: Page) =>
   (await page.evaluate(() => window.__beltworks!.player()))!;
 export const camera = (page: Page) => page.evaluate(() => window.__beltworks!.camera());
 
-/** Animation frames per second over half a second, for failure diagnostics. */
-export const fps = (page: Page) =>
+/**
+ * Animation frames per second over `ms` milliseconds (half a second for
+ * failure diagnostics; longer where a test checks it, since a few frames in
+ * a short window round coarsely).
+ */
+export const fps = (page: Page, ms = 500) =>
   page.evaluate(
-    () =>
+    (duration) =>
       new Promise<number>((resolve) => {
         let frames = 0;
         const start = performance.now();
         const tick = (now: number): void => {
           frames++;
-          if (now - start < 500) requestAnimationFrame(tick);
-          else resolve(Math.round((frames * 1000) / (now - start)));
+          if (now - start < duration) requestAnimationFrame(tick);
+          else resolve(Math.round(((frames * 1000) / (now - start)) * 10) / 10);
         };
         requestAnimationFrame(tick);
       }),
+    ms,
   );
 
 /** Waits until the player stopped moving (two snapshots apart show the same position). */

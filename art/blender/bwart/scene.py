@@ -52,8 +52,12 @@ def clear():
             collection.remove(block)
 
 
-def setup_render(width, height, samples):
-    """Cycles on the CPU with fixed samples and seed, transparent film, plain sRGB output."""
+def setup_render(width, height, samples, denoise=True, transparent=True, stretch=True):
+    """
+    Cycles on the CPU with fixed samples and seed, transparent film, plain sRGB
+    output. `stretch`: the vertical stretch that makes the ground grid square
+    (off for item icons, which stand on no grid).
+    """
     scene = bpy.context.scene
     scene.render.engine = 'CYCLES'
     cycles = scene.cycles
@@ -62,7 +66,7 @@ def setup_render(width, height, samples):
     cycles.use_adaptive_sampling = False
     # OpenImageDenoise on the CPU: deterministic (no random input), and smooth
     # surfaces compress far better than sampling noise.
-    cycles.use_denoising = True
+    cycles.use_denoising = denoise
     cycles.denoiser = 'OPENIMAGEDENOISE'
     cycles.denoising_input_passes = 'RGB_ALBEDO_NORMAL'
     cycles.denoising_prefilter = 'ACCURATE'
@@ -82,12 +86,12 @@ def setup_render(width, height, samples):
     cycles.pixel_filter_type = 'BLACKMAN_HARRIS'
     cycles.filter_width = 1.5
     render = scene.render
-    render.film_transparent = True
+    render.film_transparent = transparent
     render.resolution_x = width
     render.resolution_y = height
     render.resolution_percentage = 100
     # Non-square pixels stretch the image vertically so ground tiles come out square.
-    render.pixel_aspect_x = 1.0 / math.sin(CAMERA_ELEVATION)
+    render.pixel_aspect_x = 1.0 / math.sin(CAMERA_ELEVATION) if stretch else 1.0
     render.pixel_aspect_y = 1.0
     render.dither_intensity = 0.0
     render.use_persistent_data = False
@@ -174,19 +178,21 @@ def add_ground(shadow_catcher):
     return ground
 
 
-def screen_bounds(footprint, height, margin=0.25, shadow=True, extent=0.0):
+def screen_bounds(footprint, height, margin=0.25, shadow=True, extent=0.0, reach=None):
     """
     The part of the screen a model of `footprint` (w, h tiles) up to `height`
     tiles tall can cover, with its shadow: (left, top, right, bottom) in
     screen tiles around the projected origin, snapped outwards to whole
     pairs of texels (so the origin lands on an even texel). `extent` widens
-    the ground area to at least that many tiles around the center.
+    the ground area to at least that many tiles around the center; `reach`
+    overrides how far the shadow can fall (tiles).
     """
     w, h = footprint
     w = max(w, 2 * extent)
     h = max(h, 2 * extent)
     up = height * HEIGHT_ON_SCREEN
-    reach = height * 1.6 if shadow else 0.0
+    if reach is None:
+        reach = height * 1.6 if shadow else 0.0
     left = -w / 2 - margin
     right = w / 2 + margin + reach
     top = -h / 2 - up - margin
@@ -195,3 +201,44 @@ def screen_bounds(footprint, height, margin=0.25, shadow=True, extent=0.0):
     snap_down = lambda v: math.floor(v / step) * step  # noqa: E731
     snap_up = lambda v: math.ceil(v / step) * step  # noqa: E731
     return (snap_down(left), snap_down(top), snap_up(right), snap_up(bottom))
+
+
+def frame_icon(margin=0.04, tilt=0.0):
+    """
+    An orthographic camera at the game's angle (`tilt` radians steeper, for
+    flat items that read better from above) that frames every visible object
+    in a square image, `margin` (a fraction of the image) clear on each side.
+    For item icons, which are rendered without the vertical stretch.
+    """
+    elevation = CAMERA_ELEVATION + tilt
+    right = Vector((1.0, 0.0, 0.0))
+    up = Vector((0.0, math.sin(elevation), math.cos(elevation)))
+    back = Vector((0.0, -math.cos(elevation), math.sin(elevation)))
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    xs, ys = [], []
+    for obj in bpy.data.objects:
+        if obj.type != 'MESH' or obj.hide_render or obj.get('bw_layer', '').startswith('__'):
+            continue
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        matrix = evaluated.matrix_world
+        for v in mesh.vertices:
+            p = matrix @ v.co
+            xs.append(p.dot(right))
+            ys.append(p.dot(up))
+        evaluated.to_mesh_clear()
+    cx = (min(xs) + max(xs)) / 2
+    cy = (min(ys) + max(ys)) / 2
+    extent = max(max(xs) - min(xs), max(ys) - min(ys)) / (1.0 - 2 * margin)
+    data = bpy.data.cameras.new('camera')
+    data.type = 'ORTHO'
+    data.sensor_fit = 'HORIZONTAL'
+    data.ortho_scale = extent
+    data.clip_start = 0.1
+    data.clip_end = 100.0
+    cam = bpy.data.objects.new('camera', data)
+    bpy.context.scene.collection.objects.link(cam)
+    cam.rotation_euler = (math.pi / 2 - elevation, 0.0, 0.0)
+    cam.location = back * 30.0 + right * cx + up * cy
+    bpy.context.scene.camera = cam
+    return cam

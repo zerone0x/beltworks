@@ -9,7 +9,8 @@
  *
  * Animations run on a clock per entity that advances while it works (at half
  * speed on low power), so a machine that stops freezes its rotor in place;
- * layers marked `advance: 'always'` (flickering fire) run on the frame clock.
+ * layers marked `advance: 'always'` (flickering fire) run on the frame clock. A
+ * steam engine's run at a speed proportional to its output (`speedOf`).
  *
  * Inserters stand in the same sorted layer as the buildings (so one behind a
  * tall machine is hidden by it): their base, then the arm, a sprite of one
@@ -184,6 +185,12 @@ export class EntitySpriteLayer {
   private seconds = 0;
   private drawn = -1;
   private animatedCount = 0;
+  /**
+   * The animation speed of an entity whose animations don't simply follow
+   * its state (a steam engine runs with its output), or `null` to use its
+   * state (`animationSpeed`).
+   */
+  speedOf: ((entity: EntityView) => number | null) | null = null;
 
   constructor() {
     this.shadowContainer.filters = [new AlphaFilter({ alpha: SHADOW_ALPHA })];
@@ -228,7 +235,7 @@ export class EntitySpriteLayer {
         placeArmShadow(model, p.arm.sprite, p.arm.shadow);
       }
       const working = isWorking(entity.status);
-      const speed = animationSpeed(entity.status);
+      const speed = this.speedOf?.(entity) ?? animationSpeed(entity.status);
       const clock = (this.clocks.get(entity.id) ?? 0) + (speed * dtMs) / 1000;
       if (speed > 0) {
         this.clocks.set(entity.id, clock);

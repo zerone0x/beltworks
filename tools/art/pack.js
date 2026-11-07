@@ -3,11 +3,18 @@
  * into texture atlases plus a JSON index the game loads
  * (src/render/sprites.ts). See docs/ART.md for the format.
  *
- * Frames are trimmed to their visible pixels (on even texel boundaries, so a
- * sprite drawn at half scale lands on whole world pixels), deduplicated, and
- * shelf-packed into sheets of at most MAX_SHEET² texels. Models that were not
- * re-rendered are carried over from the existing atlas, so one model can be
- * re-rendered on its own.
+ * Every model names the atlas it goes to (`entities`, `power`, `terrain`,
+ * `icons`, ...); each atlas is its own set of files, so groups of models can
+ * be re-rendered, reviewed and loaded separately.
+ *
+ * Sprite frames are trimmed to their visible pixels (on even texel
+ * boundaries, so a sprite drawn at half scale lands on whole world pixels),
+ * deduplicated, and shelf-packed into sheets of at most MAX_SHEET² texels.
+ * Ground textures are written as they are, one PNG each (they repeat, so
+ * they can't share a sheet). Item icons are box-filtered to half their
+ * render size and laid out on a grid. Models that were not re-rendered are
+ * carried over from the existing atlas, so one model can be re-rendered on
+ * its own.
  */
 
 import { createHash } from 'node:crypto';
@@ -21,14 +28,22 @@ export const MAX_SHEET = 4096;
 const PADDING = 4;
 /** Frame positions and sizes are multiples of this (whole world pixels at half scale; mip-friendly). */
 const ALIGN = 2;
+/** Item icons: grid cell and where the icon sits in it (texels); 8 cells per sheet row. */
+const ICON_CELL = 64;
+const ICON_INSET = 6;
+const ICON_COLUMNS = 8;
 
 /**
  * @typedef {{ key: string, image: import('./png.js').Image, ax: number, ay: number }} Frame
  *   A trimmed frame; `(ax, ay)` is where the footprint's center falls, relative to its top-left.
  * @typedef {{ name: string, fps: number, show: string, advance: string, frames: Frame[][] }} Layer
  *   One sprite layer, frames per direction.
- * @typedef {{ name: string, atlas: string, footprint: number[], directions: number, points: Record<string, number[][]>, shadow: Frame[], layers: Layer[] }} Model
- *   `atlas`: the atlas the model is packed into (`entities`, `logistics`, ...).
+ * @typedef {{ kind: 'sprite', name: string, atlas: string, footprint: number[], directions: number, points: Record<string, number[][]>, shadow: Frame[], layers: Layer[] }} Model
+ * @typedef {{ kind: 'ground', name: string, atlas: string, period: number, image: import('./png.js').Image }} Ground
+ *   A seamless ground texture of `period`² tiles.
+ * @typedef {{ kind: 'icon', name: string, atlas: string, image: import('./png.js').Image }} Icon
+ *   An item icon, keyed by item name.
+ * @typedef {Model | Ground | Icon} Entry
  */
 
 /**
@@ -74,12 +89,68 @@ function trimFrame(image, anchor, shadow, key) {
 }
 
 /**
+ * Halves an image with a 2×2 box filter on premultiplied alpha.
+ * @param {import('./png.js').Image} image
+ */
+export function halve(image) {
+  const out = createImage(image.width >> 1, image.height >> 1);
+  const src = image.data;
+  for (let y = 0; y < out.height; y++) {
+    for (let x = 0; x < out.width; x++) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      for (const [dx, dy] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ]) {
+        const i = ((2 * y + dy) * image.width + 2 * x + dx) * 4;
+        const alpha = src[i + 3];
+        r += src[i] * alpha;
+        g += src[i + 1] * alpha;
+        b += src[i + 2] * alpha;
+        a += alpha;
+      }
+      const o = (y * out.width + x) * 4;
+      if (a > 0) {
+        out.data[o] = Math.round(r / a);
+        out.data[o + 1] = Math.round(g / a);
+        out.data[o + 2] = Math.round(b / a);
+        out.data[o + 3] = Math.round(a / 4);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Reads the renders of one model from `dir` (manifest.json and its PNGs).
  * @param {string} dir
- * @returns {Model}
+ * @returns {Entry}
  */
 export function readRenders(dir) {
   const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+  const atlas = String(manifest.atlas ?? 'entities');
+  if (manifest.kind === 'ground') {
+    return {
+      kind: 'ground',
+      name: manifest.name,
+      atlas,
+      period: manifest.period,
+      image: decodePng(readFileSync(join(dir, 'ground.png'))),
+    };
+  }
+  if (manifest.kind === 'icon') {
+    return {
+      kind: 'icon',
+      name: manifest.item ?? manifest.name,
+      atlas,
+      image: halve(decodePng(readFileSync(join(dir, 'icon.png')))),
+    };
+  }
   const load = (/** @type {string} */ layer, /** @type {number} */ d, /** @type {number} */ f) =>
     trimFrame(
       read(layer, d, f),
@@ -93,19 +164,6 @@ export function readRenders(dir) {
   // A shared layer is rendered for the first direction only and used for all of them.
   const shared = (/** @type {{ shared?: boolean }} */ l, /** @type {number} */ d) =>
     l.shared ? 0 : d;
-  const shadow = (/** @type {number} */ d) => {
-    const key = `${String(manifest.name)}/shadow/${String(d)}/0`;
-    if (manifest.shadow === false) {
-      return trimFrame(createImage(ALIGN, ALIGN), manifest.anchor, true, key);
-    }
-    // Shadow under the opaque parts of the body never shows: drop it, it only costs bytes.
-    const image = read('shadow', d, 0);
-    const body = read(manifest.layers[0].name, shared(manifest.layers[0], d), 0);
-    for (let i = 3; i < image.data.length; i += 4) {
-      if (body.data[i] === 255) image.data[i] = 0;
-    }
-    return trimFrame(image, manifest.anchor, true, key);
-  };
   /** @type {Map<string, Frame>} */
   const loaded = new Map();
   const frameOf = (
@@ -121,9 +179,22 @@ export function readRenders(dir) {
     }
     return frame;
   };
+  const shadow = (/** @type {number} */ d) => {
+    const key = `${String(manifest.name)}/shadow/${String(d)}/0`;
+    // Models whose body catches its own shadow have no shadow frame: an empty one.
+    if (manifest.shadow === false) return trimFrame(createImage(2, 2), manifest.anchor, true, key);
+    // Shadow under the opaque parts of the body never shows: drop it, it only costs bytes.
+    const image = read('shadow', d, 0);
+    const body = read(manifest.layers[0].name, shared(manifest.layers[0], d), 0);
+    for (let i = 3; i < image.data.length; i += 4) {
+      if (body.data[i] === 255) image.data[i] = 0;
+    }
+    return trimFrame(image, manifest.anchor, true, key);
+  };
   return {
+    kind: 'sprite',
     name: manifest.name,
-    atlas: manifest.atlas ?? 'entities',
+    atlas,
     footprint: manifest.footprint,
     directions: manifest.directions,
     points: manifest.points ?? {},
@@ -145,10 +216,23 @@ export function readRenders(dir) {
 }
 
 /**
- * Reads the models of an existing atlas back into frames.
+ * The names of the atlases in `outDir` (every `<name>.json` atlas index).
+ * @param {string} outDir
+ * @returns {string[]}
+ */
+export function atlasNames(outDir) {
+  if (!existsSync(outDir)) return [];
+  return readdirSync(outDir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => f.slice(0, -5))
+    .sort();
+}
+
+/**
+ * Reads the models of an existing atlas back into frames, ground textures and icons.
  * @param {string} outDir
  * @param {string} name atlas name, e.g. `entities`
- * @returns {Model[]}
+ * @returns {Entry[]}
  */
 export function readAtlas(outDir, name) {
   const indexPath = join(outDir, `${name}.json`);
@@ -164,7 +248,9 @@ export function readAtlas(outDir, name) {
     blit(sheets[sheet], x, y, w, h, image, 0, 0);
     return { key, image, ax, ay };
   };
-  return Object.entries(index.models).map(([model, m]) => ({
+  /** @type {Entry[]} */
+  const entries = Object.entries(index.models).map(([model, m]) => ({
+    kind: /** @type {const} */ ('sprite'),
     name: model,
     atlas: name,
     footprint: m.footprint,
@@ -187,6 +273,25 @@ export function readAtlas(outDir, name) {
       }),
     ),
   }));
+  for (const [ground, g] of Object.entries(index.ground ?? {})) {
+    const { file, period } = /** @type {{ file: string, period: number }} */ (g);
+    entries.push({
+      kind: 'ground',
+      name: ground,
+      atlas: name,
+      period,
+      image: decodePng(readFileSync(join(outDir, file))),
+    });
+  }
+  if (index.icons) {
+    const size = index.icons.size;
+    for (const [item, [sheet, x, y]] of Object.entries(index.icons.items)) {
+      const image = createImage(size, size);
+      blit(sheets[sheet], x, y, size, size, image, 0, 0);
+      entries.push({ kind: 'icon', name: item, atlas: name, image });
+    }
+  }
+  return entries;
 }
 
 /**
@@ -228,30 +333,34 @@ function shelfPack(sizes, width) {
 }
 
 /**
- * Deletes the files of atlas `name` in `outDir`.
+ * Deletes the files of atlas `name` in `outDir`: its index and the files the
+ * index lists (sheets and ground textures).
  * @param {string} outDir
  * @param {string} name
  */
 function removeAtlas(outDir, name) {
-  for (const file of existsSync(outDir) ? readdirSync(outDir) : []) {
-    if (new RegExp(`^${name}(-\\d+\\.png|\\.json)$`).test(file)) rmSync(join(outDir, file));
+  const indexPath = join(outDir, `${name}.json`);
+  if (!existsSync(indexPath)) return;
+  const old = JSON.parse(readFileSync(indexPath, 'utf8'));
+  const files = [
+    ...(Array.isArray(old.sheets) ? old.sheets : []),
+    ...Object.values(old.ground ?? {}).map((g) => /** @type {{ file: string }} */ (g).file),
+  ];
+  for (const file of files) {
+    if (existsSync(join(outDir, file))) rmSync(join(outDir, file));
   }
+  rmSync(indexPath);
 }
 
+const byName = (/** @type {{ name: string }} */ a, /** @type {{ name: string }} */ b) =>
+  a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+
 /**
- * Packs `models` into `<outDir>/<name>-<n>.png` and `<outDir>/<name>.json`,
- * replacing the previous atlas files (with `remove`, only deletes them).
- * Returns the files written with their sizes.
+ * Packs the sprite models into sheets; returns the sheets and fills `index`.
  * @param {Model[]} models
- * @param {string} outDir
- * @param {string} name
+ * @param {{ frames: number[][], models: Record<string, unknown> }} index
  */
-export function writeAtlas(models, outDir, name, { remove = false } = {}) {
-  if (remove) {
-    removeAtlas(outDir, name);
-    return [];
-  }
-  models = [...models].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+function packSprites(models, index) {
   /** @type {Frame[]} */
   const unique = [];
   /** @type {Map<string, number>} */
@@ -271,16 +380,6 @@ export function writeAtlas(models, outDir, name, { remove = false } = {}) {
     }
     return i;
   };
-  const index = {
-    version: ATLAS_VERSION,
-    tilePx: 64,
-    /** @type {string[]} */
-    sheets: [],
-    /** @type {number[][]} */
-    frames: [],
-    /** @type {Record<string, unknown>} */
-    models: {},
-  };
   for (const m of models) {
     index.models[m.name] = {
       footprint: m.footprint,
@@ -296,6 +395,7 @@ export function writeAtlas(models, outDir, name, { remove = false } = {}) {
       })),
     };
   }
+  if (unique.length === 0) return [];
   // Tallest first (then widest, then by key) packs shelves tightly and keeps the order stable.
   const order = [...unique.keys()].sort((a, b) => {
     const fa = unique[a];
@@ -334,6 +434,70 @@ export function writeAtlas(models, outDir, name, { remove = false } = {}) {
       frame.ay,
     ];
   });
+  return sheets;
+}
+
+/**
+ * Lays the icons out on a grid in one sheet (sheet number `sheet`); returns it.
+ * @param {Icon[]} icons
+ * @param {number} sheet
+ * @param {{ icons?: { size: number, items: Record<string, number[]> } }} index
+ */
+function packIcons(icons, sheet, index) {
+  const size = icons[0].image.width;
+  if (size + ICON_INSET * 2 > ICON_CELL) throw new Error('icons are larger than their grid cell');
+  const columns = Math.min(ICON_COLUMNS, icons.length);
+  const rows = Math.ceil(icons.length / ICON_COLUMNS);
+  const image = createImage(columns * ICON_CELL, rows * ICON_CELL);
+  /** @type {Record<string, number[]>} */
+  const items = {};
+  icons.forEach((icon, i) => {
+    if (icon.image.width !== size || icon.image.height !== size)
+      throw new Error(`icon ${icon.name} is not ${String(size)}² like the others`);
+    const x = (i % ICON_COLUMNS) * ICON_CELL + ICON_INSET;
+    const y = Math.floor(i / ICON_COLUMNS) * ICON_CELL + ICON_INSET;
+    blit(icon.image, 0, 0, size, size, image, x, y);
+    items[icon.name] = [sheet, x, y];
+  });
+  index.icons = { size, items };
+  return image;
+}
+
+/**
+ * Packs `entries` into `<outDir>/<name>-<n>.png` (sprites, then icons),
+ * `<outDir>/<name>-<ground>.png` (ground textures) and `<outDir>/<name>.json`,
+ * replacing the previous files of that atlas (with `remove`, only deletes
+ * them). Returns the files written with their sizes.
+ * @param {Entry[]} entries
+ * @param {string} outDir
+ * @param {string} name
+ */
+export function writeAtlas(entries, outDir, name, { remove = false } = {}) {
+  if (remove) {
+    removeAtlas(outDir, name);
+    return [];
+  }
+  const models = /** @type {Model[]} */ (entries.filter((e) => e.kind === 'sprite')).sort(byName);
+  const grounds = /** @type {Ground[]} */ (entries.filter((e) => e.kind === 'ground')).sort(byName);
+  const icons = /** @type {Icon[]} */ (entries.filter((e) => e.kind === 'icon')).sort(byName);
+  const index = {
+    version: ATLAS_VERSION,
+    tilePx: 64,
+    /** @type {string[]} */
+    sheets: [],
+    /** @type {number[][]} */
+    frames: [],
+    /** @type {Record<string, unknown>} */
+    models: {},
+  };
+  const sheets = packSprites(models, index);
+  if (icons.length > 0) sheets.push(packIcons(icons, sheets.length, index));
+  if (grounds.length > 0) {
+    /** @type {Record<string, { file: string, period: number }>} */
+    const ground = {};
+    for (const g of grounds) ground[g.name] = { file: `${name}-${g.name}.png`, period: g.period };
+    Object.assign(index, { ground });
+  }
   removeAtlas(outDir, name);
   const written = [];
   sheets.forEach((sheet, i) => {
@@ -343,6 +507,12 @@ export function writeAtlas(models, outDir, name, { remove = false } = {}) {
     index.sheets.push(file);
     written.push({ file, width: sheet.width, height: sheet.height, bytes: bytes.length });
   });
+  for (const g of grounds) {
+    const file = `${name}-${g.name}.png`;
+    const bytes = encodePng(g.image);
+    writeFileSync(join(outDir, file), bytes);
+    written.push({ file, width: g.image.width, height: g.image.height, bytes: bytes.length });
+  }
   const json = `${JSON.stringify(index)}\n`;
   writeFileSync(join(outDir, `${name}.json`), json);
   written.push({ file: `${name}.json`, bytes: json.length });

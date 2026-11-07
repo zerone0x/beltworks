@@ -9,7 +9,7 @@
  */
 
 import { Container, type Application } from 'pixi.js';
-import type { EntityPrototype } from '../data/entities';
+import { EntityTypeId, type EntityPrototype } from '../data/entities';
 import { isBuildable } from '../data/tiles';
 import type { Direction } from '../sim/entities/direction';
 import { Placement, checkPlacement, type PlacementView } from '../sim/entities/placement';
@@ -29,7 +29,9 @@ import { PlayerLayer } from './playerLayer';
 import { PlayerTrack } from './playerTrack';
 import { PowerLayer, powerFocus } from './powerLayer';
 import type { SpriteAtlas } from './sprites';
+import type { TerrainArt } from './terrainArt';
 import { TerrainLayer, type TileInfo } from './terrainLayer';
+import { SOFTWARE_MAX_TEXELS, isSoftwareRenderer } from './terrainPlan';
 
 export interface HoveredTile extends Point {
   /** `null` while the chunk under the pointer hasn't arrived from the worker. */
@@ -60,6 +62,8 @@ export class GameView {
   /** Interpolated player positions from the snapshots. */
   readonly track = new PlayerTrack();
   readonly input: CameraInput;
+  /** Whether loading the art (sprites, terrain, icons) has finished, whether or not it worked. */
+  artSettled = false;
   /** Whether the camera stays centered on the local player. */
   following = true;
   /** Everything positioned in world pixels; transformed by the camera. */
@@ -99,6 +103,9 @@ export class GameView {
       this.following = false;
     };
     this.camera.resize(app.screen.width, app.screen.height);
+    // A steam engine's sprite runs with its output, like the placeholder flywheel.
+    this.entities.sprites.speedOf = (e) =>
+      e.type === EntityTypeId.SteamEngine ? (this.generators.speed(e.id) ?? 0) : null;
   }
 
   /**
@@ -113,6 +120,28 @@ export class GameView {
     this.belts.setAtlas(atlas);
     this.inserters.setAtlas(atlas);
     this.power.setAtlas(atlas);
+    this.generators.setAtlas(atlas);
+  }
+
+  /**
+   * Draws the terrain with the rendered look from `art` from now on (the
+   * placeholder look for `null`), at most `maxTexels` per tile: by default 32,
+   * or `SOFTWARE_MAX_TEXELS` on a software renderer, where bakes are slow.
+   */
+  setTerrainArt(art: TerrainArt | null, maxTexels?: number): void {
+    this.terrain.maxTexels = maxTexels ?? (this.softwareRendering() ? SOFTWARE_MAX_TEXELS : 32);
+    this.terrain.setArt(art, art ? this.app.renderer : null);
+  }
+
+  /** Whether WebGL runs on a software renderer (as in headless browsers and CI). */
+  private softwareRendering(): boolean {
+    const gl = (this.app.renderer as { gl?: WebGL2RenderingContext }).gl;
+    if (!gl) return false;
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const name: unknown = info
+      ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL)
+      : gl.getParameter(gl.RENDERER);
+    return typeof name === 'string' && isSoftwareRenderer(name);
   }
 
   /** Names of the sprite models in use (empty without an atlas). */
@@ -197,13 +226,14 @@ export class GameView {
       }
     }
     this.applyCamera();
-    this.terrain.update();
+    this.terrain.update(undefined, this.camera.visibleTiles(), this.camera.zoom);
     this.belts.draw(now);
-    // Arm poses first: inserters with sprites are drawn with the buildings.
+    // Arm poses first: inserters with sprites are drawn with the buildings;
+    // and generators: the engines' sprites take their speed from them.
     this.inserters.draw(now);
+    this.generators.draw(this.entityIndex, this.power.data, dtMs);
     this.entities.draw(this.entityIndex, dtMs, this.inserters.poses);
     this.assemblers.draw(this.entityIndex, dtMs);
-    this.generators.draw(this.entityIndex, this.power.data, dtMs);
     this.power.drawWires();
     this.players.draw(this.track, now);
   }

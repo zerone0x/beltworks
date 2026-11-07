@@ -29,6 +29,11 @@ PALETTE = {
     'machine_teal': 0x4f8a7a,
     'hazard': 0xe0b030,
     'glass': 0x9fd0e0,
+    # Steam power (boiler, steam engine): gunmetal blue-gray with brass, on brick.
+    'steam': 0x5f7684,
+    'brick': 0x8a4a36,
+    # Electric machines (electric mining drill): steel blue.
+    'electric': 0x48709e,
 }
 
 

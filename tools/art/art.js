@@ -1,13 +1,14 @@
 /**
  * `npm run art [-- [options] [model ...]]`: renders the Blender sprite models
- * (art/blender/) and packs them into public/sprites/. See docs/ART.md.
+ * (art/blender/) and packs them into the atlases in public/sprites/. See docs/ART.md.
  *
- *   npm run art                        # render every model, rebuild the atlas from scratch
- *   npm run art -- stone-furnace       # re-render one model, keep the others from the atlas
+ *   npm run art                        # render every model, rebuild the atlases from scratch
+ *   npm run art -- stone-furnace       # re-render one model (or all variants of it), keep the others
  *   npm run art -- --pack-only         # re-pack the last renders in art/build/
  *   npm run art -- --preview           # also write art/build/preview-2x.png and preview-1x.png
  *   npm run art -- --samples 32        # quicker, noisier renders while iterating
  *   npm run art -- belts               # every model a module (art/blender/models/belts.py) defines
+ *   npm run art -- terrain             # every model of an atlas
  *
  * Each model goes into the atlas its MODEL names (`atlas`, default
  * `entities`): public/sprites/<atlas>.json and <atlas>-<n>.png.
@@ -17,12 +18,20 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readAtlas, readRenders, writeAtlas } from './pack.js';
-import { contactSheet } from './preview.js';
+import { atlasNames, readAtlas, readRenders, writeAtlas } from './pack.js';
+import { contactSheet, iconSheet } from './preview.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const BUILD = join(ROOT, 'art', 'build');
@@ -100,15 +109,6 @@ function render(names, samples) {
   });
 }
 
-/** Names of the atlases in `dir` (their `<name>.json` indices). */
-function atlasNames(/** @type {string} */ dir) {
-  return existsSync(dir)
-    ? readdirSync(dir)
-        .filter((f) => f.endsWith('.json'))
-        .map((f) => f.slice(0, -'.json'.length))
-    : [];
-}
-
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const started = Date.now();
@@ -120,32 +120,38 @@ async function main() {
   const rendered = existsSync(BUILD)
     ? readdirSync(BUILD).filter((d) => existsSync(join(BUILD, d, 'manifest.json')))
     : [];
-  // The models rendered by this run (with --pack-only: every render in art/build/).
-  const fresh = rendered.filter(
-    (n) => options.packOnly || statSync(join(BUILD, n, 'manifest.json')).mtimeMs >= started - 1000,
-  );
-  const models = fresh.map((n) => readRenders(join(BUILD, n)));
-  // A full render rebuilds the atlases from scratch; a partial one keeps the other models.
-  if (options.names.length > 0 || options.packOnly) {
-    for (const atlas of atlasNames(OUT)) {
-      for (const old of readAtlas(OUT, atlas)) {
-        if (!fresh.includes(old.name)) models.push(old);
-      }
-    }
-  }
+  // The models rendered by this run; with --pack-only, every render in
+  // art/build/, or those the names pick (a model, every variant of it, or a
+  // whole atlas).
+  const picked = (/** @type {string} */ dir) => {
+    const path = join(BUILD, dir, 'manifest.json');
+    if (!options.packOnly) return statSync(path).mtimeMs >= started - 1000;
+    if (options.names.length === 0) return true;
+    const manifest = JSON.parse(readFileSync(path, 'utf8'));
+    return [manifest.name, manifest.base, manifest.atlas ?? 'entities'].some((n) =>
+      options.names.includes(n),
+    );
+  };
+  const fresh = rendered.filter(picked).map((n) => readRenders(join(BUILD, n)));
+  const freshNames = new Set(fresh.map((e) => e.name));
+  // Each atlas with fresh renders is rewritten: from scratch after a full render;
+  // a partial one (or --pack-only) keeps the atlas' other models.
+  const atlases = [...new Set(fresh.map((e) => e.atlas))].sort();
   mkdirSync(OUT, { recursive: true });
-  const atlases = [...new Set(models.map((m) => m.atlas))].sort();
   if (options.names.length === 0 && !options.packOnly) {
-    // Atlases no model goes into any more.
+    // After a full render: atlases no model goes into any more.
     for (const atlas of atlasNames(OUT)) {
       if (!atlases.includes(atlas)) writeAtlas([], OUT, atlas, { remove: true });
     }
   }
   for (const atlas of atlases) {
-    // A partial run leaves the atlases it rendered nothing for alone.
-    if (!models.some((m) => m.atlas === atlas && fresh.includes(m.name))) continue;
-    const packed = models.filter((m) => m.atlas === atlas);
-    for (const file of writeAtlas(packed, OUT, atlas)) {
+    const entries = fresh.filter((e) => e.atlas === atlas);
+    if (options.names.length > 0 || options.packOnly) {
+      for (const old of readAtlas(OUT, atlas)) {
+        if (!freshNames.has(old.name)) entries.push(old);
+      }
+    }
+    for (const file of writeAtlas(entries, OUT, atlas)) {
       const size = file.width ? ` ${String(file.width)}x${String(file.height)}` : '';
       console.log(
         `[art] public/sprites/${file.file}${size}, ${(file.bytes / 1024).toFixed(1)} KiB`,
@@ -153,15 +159,25 @@ async function main() {
     }
   }
   if (options.preview) {
-    // The models of this run (all of them after a full render).
-    const shown = atlases
-      .flatMap((atlas) => readAtlas(OUT, atlas))
-      .filter((m) => options.names.length === 0 || fresh.includes(m.name));
-    const sheet = contactSheet(shown);
+    const shown = options.names.length > 0 ? freshNames : null;
+    const all = atlases.flatMap((atlas) => readAtlas(OUT, atlas));
+    const models = /** @type {import('./pack.js').Model[]} */ (
+      all.filter((e) => e.kind === 'sprite' && (!shown || shown.has(e.name)))
+    );
+    const icons = /** @type {import('./pack.js').Icon[]} */ (
+      all.filter((e) => e.kind === 'icon' && (!shown || shown.has(e.name)))
+    );
     mkdirSync(BUILD, { recursive: true });
-    writeFileSync(join(BUILD, 'preview-2x.png'), sheet.full);
-    writeFileSync(join(BUILD, 'preview-1x.png'), sheet.half);
-    console.log('[art] art/build/preview-2x.png, art/build/preview-1x.png');
+    if (models.length > 0) {
+      const sheet = contactSheet(models);
+      writeFileSync(join(BUILD, 'preview-2x.png'), sheet.full);
+      writeFileSync(join(BUILD, 'preview-1x.png'), sheet.half);
+      console.log('[art] art/build/preview-2x.png, art/build/preview-1x.png');
+    }
+    if (icons.length > 0) {
+      writeFileSync(join(BUILD, 'preview-icons.png'), iconSheet(icons));
+      console.log('[art] art/build/preview-icons.png');
+    }
   }
   console.log(`[art] done in ${((Date.now() - started) / 1000).toFixed(1)} s`);
 }

@@ -2,8 +2,11 @@
  * In-game controls help (plain DOM): a small "H: controls" hint in the
  * bottom-left corner, and a panel listing every control, toggled with `H`
  * (or by clicking the hint) and closed with `Escape`. The list mirrors the
- * controls in the README.
+ * controls in the README. It also holds the one option there is so far:
+ * lettered item icons instead of the rendered ones.
  */
+
+import { letterIcons, setLetterIcons } from '../render/itemIcons';
 
 /** One line of the help panel: the keys or buttons, and what they do. */
 export interface ControlHelp {
@@ -105,7 +108,19 @@ export class HelpPanel {
       const a = row.insertCell();
       a.textContent = action;
     }
-    el.append(title, table);
+    // Options: lettered item icons instead of the rendered ones (src/render/itemIcons.ts).
+    const option = document.createElement('label');
+    option.id = 'letter-icons';
+    Object.assign(option.style, { display: 'block', marginTop: '6px', cursor: 'pointer' });
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = letterIcons();
+    box.addEventListener('change', () => {
+      setLetterIcons(box.checked);
+      box.blur();
+    });
+    option.append(box, ' Lettered item icons (FE, CU, ...) instead of pictures');
+    el.append(title, table, option);
 
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {

@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { Texture } from 'pixi.js';
 import { describe, expect, it } from 'vitest';
 import { ENTITIES, type EntityPrototype } from '../../src/data/entities';
+import { ITEMS, ITEM_IDS } from '../../src/data/items';
 import { TILE_PX } from '../../src/render/camera';
+import { ICON_PX, RENDERED_ICON_SCALE } from '../../src/render/itemIcons';
 import {
   ATLAS_VERSION,
   SpriteAtlas,
@@ -152,5 +154,54 @@ describe('the committed atlas (public/sprites, `npm run art`)', () => {
       expect(x + w).toBeLessThanOrEqual(4096);
       expect(y + h).toBeLessThanOrEqual(4096);
     }
+  });
+});
+
+describe('the committed power atlas (public/sprites/power.json)', () => {
+  const index = parseAtlasIndex(
+    JSON.parse(readFileSync(new URL('../../public/sprites/power.json', import.meta.url), 'utf8')),
+  );
+  const byName = new Map<string, EntityPrototype>(Object.values(ENTITIES).map((p) => [p.name, p]));
+  const layer = (model: string, name: string) =>
+    index.models[model]!.layers.find((l) => l.name === name)!;
+
+  it('has the power entities, matching their prototypes', () => {
+    expect(Object.keys(index.models).sort()).toEqual([
+      'boiler',
+      'electric-mining-drill',
+      'steam-engine',
+    ]);
+    for (const [name, model] of Object.entries(index.models)) {
+      const proto = byName.get(name)!;
+      expect(model.footprint, name).toEqual([proto.width, proto.height]);
+      expect(model.directions, name).toBe(4);
+    }
+  });
+
+  it('animates the fire, the engine and the drill', () => {
+    expect(layer('boiler', 'fire')).toMatchObject({ show: 'working', advance: 'always' });
+    // A full turn of the crank: the game runs it at the engine's output (generatorLayer.ts).
+    expect(layer('steam-engine', 'motion').frames.every((fs) => fs.length === 16)).toBe(true);
+    expect(layer('electric-mining-drill', 'head').frames.every((fs) => fs.length > 1)).toBe(true);
+    expect(layer('electric-mining-drill', 'lights').show).toBe('working');
+  });
+
+  it('fits the sheet limits', () => {
+    for (const [, x, y, w, h] of index.frames) {
+      expect(x + w).toBeLessThanOrEqual(4096);
+      expect(y + h).toBeLessThanOrEqual(4096);
+    }
+  });
+});
+
+describe('the committed icons atlas (public/sprites/icons.json)', () => {
+  const index = parseAtlasIndex(
+    JSON.parse(readFileSync(new URL('../../public/sprites/icons.json', import.meta.url), 'utf8')),
+  );
+
+  it('has an icon for every item, four texels per icon pixel', () => {
+    expect(index.icons!.size).toBe(ICON_PX * RENDERED_ICON_SCALE);
+    const names = ITEM_IDS.map((id) => ITEMS[id].name).sort();
+    expect(Object.keys(index.icons!.items).sort()).toEqual(names);
   });
 });

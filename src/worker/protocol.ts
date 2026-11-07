@@ -181,6 +181,12 @@ export interface StatsMessage {
   tickMs: number;
   /** Ticks dropped (not run) since the previous stats message because the worker fell behind. */
   droppedTicks: number;
+  /**
+   * When the worker sent it (its `performance.now()`, ms): UPS is measured on
+   * the worker's clock, so a busy main thread that reads two messages in a
+   * row doesn't make the simulation look faster than it is.
+   */
+  at: number;
 }
 
 export interface ErrorMessage {

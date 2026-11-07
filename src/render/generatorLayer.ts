@@ -3,7 +3,9 @@
  * buildings near its rear end, that turns at a speed proportional to the
  * energy the engine delivered on the latest tick (from the snapshot's power
  * records, `encodePower`): one turn per second at its maximum output, still
- * when it delivers nothing.
+ * when it delivers nothing. Engines with a sprite model (sprites.ts) turn
+ * the flywheel of their sprite instead: the entity sprite layer asks
+ * `speed` for its animation speed, so it runs at the same rate.
  *
  * Read-only: nothing here flows back into the simulation.
  */
@@ -13,6 +15,7 @@ import { ENTITIES, EntityTypeId } from '../data/entities';
 import type { PowerData } from '../sim/snapshot';
 import { TILE_PX } from './camera';
 import type { EntityIndex } from './entityIndex';
+import type { SpriteAtlas } from './sprites';
 
 /** Flywheel turns per second at full output. */
 export const FLYWHEEL_TURNS_PER_SECOND = 1;
@@ -33,6 +36,7 @@ export class GeneratorLayer {
   private readonly phase = new Map<number, number>();
   /** Speed per engine id as of the latest snapshot. */
   private readonly speeds = new Map<number, number>();
+  private atlas: SpriteAtlas | null = null;
 
   constructor() {
     this.container.addChild(this.graphics);
@@ -41,6 +45,16 @@ export class GeneratorLayer {
   /** Speed (0..1) and flywheel angle (turns) per steam engine around the view. */
   get engines(): { id: number; speed: number; phase: number }[] {
     return [...this.speeds].map(([id, speed]) => ({ id, speed, phase: this.phase.get(id) ?? 0 }));
+  }
+
+  /** Engines get a placeholder flywheel only without a model in `atlas`. */
+  setAtlas(atlas: SpriteAtlas | null): void {
+    this.atlas = atlas;
+  }
+
+  /** How fast steam engine `id` runs (0..1) as of the latest frame, or `null` if it isn't around. */
+  speed(id: number): number | null {
+    return this.speeds.get(id) ?? null;
   }
 
   /** Advances and redraws every flywheel by one frame of `dtMs` milliseconds. */
@@ -57,6 +71,7 @@ export class GeneratorLayer {
       const step = (speed * FLYWHEEL_TURNS_PER_SECOND * dtMs) / 1000;
       const turn = ((this.phase.get(e.id) ?? 0) + step) % 1;
       this.phase.set(e.id, turn);
+      if (this.atlas?.model(e.proto?.name)) continue;
       // 1.4 tiles behind the center, along the engine's long axis (it faces along it).
       const ux = [0, 1, 0, -1][e.dir]!;
       const uy = [-1, 0, 1, 0][e.dir]!;

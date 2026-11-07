@@ -85,7 +85,7 @@ export function dotCount(amount: number): number {
 }
 
 /** Small integer hash of a world tile, so dot jitter is stable for a given tile. */
-function tileHash(x: number, y: number): number {
+export function tileHash(x: number, y: number): number {
   let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1);
   h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
   return (h ^ (h >>> 13)) >>> 0;

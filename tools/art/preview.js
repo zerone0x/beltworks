@@ -6,6 +6,7 @@
  * For looking at models while working on them (`npm run art -- --preview`).
  */
 
+import { halve } from './pack.js';
 import { blit, createImage, encodePng } from './png.js';
 
 const GRASS = [0x4f, 0x7a, 0x3a];
@@ -46,7 +47,7 @@ export function contactSheet(models) {
       for (const working of [false, true]) cells.push({ model, d, working });
     }
   }
-  const cellTiles = 5;
+  const cellTiles = Math.max(5, ...models.map((m) => Math.max(...m.footprint) + 2));
   const columns = Math.min(8, cells.length);
   const rows = Math.ceil(cells.length / columns);
   const sheet = createImage(columns * cellTiles * TILE, rows * cellTiles * TILE);
@@ -94,4 +95,45 @@ export function contactSheet(models) {
     }
   }
   return { full: encodePng(sheet), half: encodePng(half) };
+}
+
+/** Backgrounds the icons are checked on: an inventory slot, a belt, grass. */
+const ICON_BACKGROUNDS = [[0x2a, 0x2d, 0x31], [0x55, 0x57, 0x5a], GRASS];
+
+/**
+ * A sheet of item icons at the sizes the game shows them: full size (a slot
+ * on a HiDPI screen), half (a slot at 1×) and a quarter (on a belt at 1×),
+ * on a slot, a belt and grass, all magnified 2× (nearest) for looking at.
+ * @param {import('./pack.js').Icon[]} icons
+ */
+export function iconSheet(icons) {
+  const cell = 64;
+  const columns = 5;
+  const sheet = createImage(columns * cell * 2, icons.length * cell * 2);
+  icons.forEach((icon, row) => {
+    const half = halve(icon.image);
+    const quarter = halve(half);
+    const cells = [
+      [icon.image, 0],
+      [half, 0],
+      [quarter, 0],
+      [quarter, 1],
+      [quarter, 2],
+    ];
+    cells.forEach(([image, bg], col) => {
+      const tile = createImage(cell, cell);
+      const color = ICON_BACKGROUNDS[/** @type {number} */ (bg)];
+      for (let i = 0; i < cell * cell; i++) tile.data.set([...color, 255], i * 4);
+      const img = /** @type {import('./png.js').Image} */ (image);
+      over(tile, img, (cell - img.width) >> 1, (cell - img.height) >> 1);
+      for (let y = 0; y < cell * 2; y++) {
+        for (let x = 0; x < cell * 2; x++) {
+          const s = ((y >> 1) * cell + (x >> 1)) * 4;
+          const d = ((row * cell * 2 + y) * sheet.width + col * cell * 2 + x) * 4;
+          sheet.data.set(tile.data.subarray(s, s + 4), d);
+        }
+      }
+    });
+  });
+  return encodePng(sheet);
 }

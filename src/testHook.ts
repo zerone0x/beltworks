@@ -10,6 +10,7 @@ import { ITEM_IDS, ITEMS, MAX_STACK_SIZE, type ItemStack } from './data/items';
 import type { BuildInput } from './render/buildInput';
 import { ghostDrillDropTile, ghostInserterTiles } from './render/entityLayer';
 import { TILE_PX } from './render/camera';
+import { hasRenderedIcon } from './render/itemIcons';
 import type { GameView } from './render/gameView';
 import type { TerrainStats, TileInfo } from './render/terrainLayer';
 import type { EntityPanel } from './ui/entityPanel';
@@ -211,6 +212,8 @@ export interface BeltworksTestHook {
   };
   /** Whether the tech tree panel is open. */
   techTreeOpen(): boolean;
+  /** Items shown with a rendered icon (the rest use the lettered one). */
+  renderedIcons(): number;
 }
 
 declare global {
@@ -228,6 +231,37 @@ const ITEM_BY_NAME = new Map(ITEM_IDS.map((id) => [ITEMS[id].name, id]));
  * tests that need more than the default kit has (docs/DECISIONS.md, D29).
  * `undefined` without the parameter; throws on an unknown item or a bad count.
  */
+/**
+ * Dev and test builds: whether the terrain uses its rendered look (docs/ART.md,
+ * "Terrain"), from an `?art=` URL parameter (`1` or `0`); without one, the
+ * rendered look in dev builds and the flat placeholder look in test builds
+ * (`mode` `test`): the end-to-end specs that aren't about the art run on the
+ * cheap placeholder, since CI's software renderer bakes the rendered terrain
+ * slowly. A `?texels=` parameter implies `?art=1`. Production builds always
+ * render it.
+ */
+export function renderedTerrainFromUrl(search: string, mode: string): boolean {
+  const params = new URLSearchParams(search);
+  const art = params.get('art');
+  if (art === '1') return true;
+  if (art === '0') return false;
+  if (art !== null) throw new Error(`bad art "${art}"`);
+  return params.has('texels') || mode !== 'test';
+}
+
+/**
+ * Dev and test builds: the most texels per tile the rendered terrain bakes
+ * at, from a `?texels=` URL parameter (8, 16 or 32), e.g. full density for
+ * screenshots on a software renderer; `undefined` without one.
+ */
+export function terrainTexelsFromUrl(search: string): number | undefined {
+  const param = new URLSearchParams(search).get('texels');
+  if (param === null) return undefined;
+  const texels = Number(param);
+  if (![8, 16, 32].includes(texels)) throw new Error(`bad texels "${param}"`);
+  return texels;
+}
+
 export function startingKitFromUrl(search: string): ItemStack[] | undefined {
   const param = new URLSearchParams(search).get('kit');
   if (param === null) return undefined;
@@ -329,10 +363,12 @@ export function installTestHook({
     tileAtScreen: (sx, sy) => view.camera.tileAt(sx, sy),
     terrainStats: () => view.terrain.stats(),
     terrainReady: () => {
-      // The worker must have caught up with the camera, and everything it sent must be baked.
+      // The art must have loaded (or failed to), the worker must have caught up
+      // with the camera, and everything it sent must be baked.
       const expected = chunkWindow(view.camera.visibleTiles());
       const actual = view.terrain.chunkWindow;
       return (
+        view.artSettled &&
         actual !== null &&
         (Object.keys(expected) as (keyof ChunkRect)[]).every((k) => expected[k] === actual[k]) &&
         view.terrain.isComplete()
@@ -430,5 +466,6 @@ export function installTestHook({
       return { current: technologyPrototype(r.current)?.name ?? '', techs };
     },
     techTreeOpen: () => techTree.isOpen,
+    renderedIcons: () => ITEM_IDS.filter(hasRenderedIcon).length,
   };
 }

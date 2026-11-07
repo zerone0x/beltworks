@@ -1,8 +1,12 @@
 # Art
 
-Beltworks' entities are pre-rendered 3D sprites, the way Factorio does it: every model is a procedural Blender script, rendered headless to PNG frames and packed into texture atlases that the game loads (docs/DECISIONS.md, D34). Anything without a model keeps its placeholder shape, so art lands one model at a time.
+Beltworks' entities, terrain and item icons are pre-rendered 3D, the way Factorio does it: every model is a procedural Blender script, rendered headless to PNG frames and packed into texture atlases that the game loads (docs/DECISIONS.md, D34, D40, D41). Anything without a model keeps its placeholder look, so art lands one model at a time.
 
-![The first sprites at 1× zoom](screenshots/art-first.png)
+![The starting area at 1× zoom](screenshots/art-world.png)
+
+![The starting area zoomed out](screenshots/art-world-zoomed-out.png)
+
+![The sprites at 1× zoom](screenshots/art-first.png)
 
 ![Belts, inserters and poles at 1× zoom](screenshots/art-logistics.png)
 
@@ -14,7 +18,7 @@ Beltworks' entities are pre-rendered 3D sprites, the way Factorio does it: every
 - **Resolution**: 64 texels per tile. The game draws a tile as 32 world pixels, so sprites show at half scale at 1× zoom and texel for texel at 2×. Frames are trimmed on even texels, so at 1× they land on whole pixels. Atlases have mipmaps for zoomed-out views.
 - **Silhouette first, detail second.** At 1× a 1×1 entity is 32 px wide: what reads is the outline, the big color areas and the light/shade split. Check every model at 1× in the game (or in the preview's 1× sheet) before adding detail. Details a few texels wide (rivets, slats) only show at 2×.
 - **Materials**: slightly worn industrial surfaces from `bwart/materials.py`, all procedural (noise patterns over object coordinates, no image textures): painted steel with worn patches showing darker metal, dark iron, rusted iron, brass, rough stone, planked wood. Keep the wear subtle: strong blotches turn into camouflage at 1×.
-- **Palette**: each entity family has one dominant color, so it is recognizable from its color alone. Burner tier: rust-red housing, brass gears, dark iron. Stone: warm gray-beige. Assembling machines: olive (tier 1), teal (tier 2). Logistics tiers will be yellow / red / blue (the colors of transport belts and fast/express ones). Fire and lamps are emissive; keep their strength near 1 so their color survives instead of clipping to flat white or yellow.
+- **Palette**: each entity family has one dominant color, so it is recognizable from its color alone. Burner tier: rust-red housing, brass gears, dark iron. Stone: warm gray-beige. Assembling machines: olive (tier 1), teal (tier 2). Steam power (boiler, steam engine): gunmetal blue-gray with brass fittings, on brick and stone. Electric machines (electric mining drill): steel blue with a hazard-yellow trim. Logistics tiers will be yellow / red / blue (the colors of transport belts and fast/express ones). Fire and lamps are emissive; keep their strength near 1 so their color survives instead of clipping to flat white or yellow.
 - **Original designs only**: nothing modeled after Factorio's (or anyone else's) art, no downloaded models or textures.
 
 ## Pipeline
@@ -27,16 +31,23 @@ art/blender/
   bwart/shapes.py         geometry helpers (box, cylinder, gear, pipe, ...), sprite layers
   bwart/assembler.py      shared builder of the assembling machine family
   bwart/belts.py          belt paths, the moving surface, side frames, underground hoods
-  models/<model>.py       one procedural model per entity
+  bwart/terrain.py        seamless ground materials, rocks, foliage, ground stains
+  models/<model>.py       one procedural model per entity (or several: MODELS)
   models/belts.py         every belt tier, shape and underground (MODELS: several per module)
   models/inserters.py     the four inserters, base and arm angles
+  models/ground.py        the terrain: ground textures (and ore.py, trees.py, decor.py)
+  models/icons.py         every item's icon
 tools/art/
   art.js                  `npm run art`: runs Blender, then packs
   pack.js                 trims, deduplicates and packs frames into atlases + JSON
   png.js                  dependency-free PNG reader/writer
-  preview.js              contact sheet for looking at models
-public/sprites/           the committed atlases: entities-0.png + entities.json (buildings),
-                          logistics-0.png + logistics.json (belts, inserters, poles)
+  preview.js              contact sheets for looking at models and icons
+public/sprites/           the committed atlases, one set of files per atlas:
+  entities.json, -0.png   the first entities (furnace, burner drill, chests, assemblers)
+  logistics.json, -0.png  belts, inserters, poles (D40)
+  power.json, -0.png      boiler, steam engine, electric mining drill
+  terrain.json, -0.png    ore decals, trees, decor; terrain-<ground>.png: the ground textures
+  icons.json, -0.png      item icons
 art/build/                renders and previews (scratch, not committed)
 ```
 
@@ -44,6 +55,8 @@ art/build/                renders and previews (scratch, not committed)
 npm run art                        # render every model, rebuild the atlas from scratch
 npm run art -- stone-furnace       # re-render one model, keep the others from the atlases
 npm run art -- belts               # every model a module defines (models/belts.py)
+npm run art -- tree                # every variant of a model (tree-0 .. tree-5)
+npm run art -- terrain             # every model of one atlas
 npm run art -- --preview           # also write art/build/preview-2x.png and preview-1x.png
 npm run art -- --samples 32 NAME   # quicker, noisier renders while iterating
 npm run art -- --pack-only         # re-pack the renders in art/build/
@@ -57,9 +70,11 @@ npm run art -- --pack-only         # re-pack the renders in art/build/
 
 **Sprite layers.** A model can be split into layers, drawn in order: `body` first (always shown), then overlays such as a furnace's fire or a machine's rotor. Each layer has its own frames, a frame rate, when it shows (`always`, or only while `working` / `idle`) and when it animates (`working`: on a clock per entity that runs while it works, at half speed on low power, so a machine that stops freezes in place; `always`: on the frame clock, e.g. flickering fire; `never`). The driver renders each layer on its own: the layers drawn before it are holdouts (they hide it where they stand in front, without showing themselves), the layers after it are left out. So only the moving part is rendered per frame, not the whole machine, which keeps the atlas small. Inserter arms (as angles) and the belt surface are layers too.
 
-**Atlases.** A model goes into the atlas its `MODEL` names (`'atlas': 'logistics'`; default `entities`), one `<atlas>.json` with its sheets each; the game loads them all (`SPRITE_ATLASES` in `src/render/sprites.ts`) and merges their models. Families that change together share an atlas, so re-rendering one doesn't touch the others' files. A partial run only rewrites the atlases it rendered models for.
+**Atlases.** A model goes into the atlas its `MODEL` names (`'atlas': 'logistics'`; default `entities`), one `<atlas>.json` with its sheets each; the game loads the entity atlases (`SPRITE_ATLASES` in `src/render/sprites.ts`: `entities`, `logistics`, `power`) and merges their models; `terrain` and `icons` have their own loaders (`terrainArt.ts`, `itemIcons.ts`). Families that change together share an atlas, so re-rendering one doesn't touch the others' files. A partial run only rewrites the atlases it rendered models for.
 
 **Several models per module.** A module may define `MODELS`, a list of model dicts each with its own `build` (the belts: 3 surfaces, 3 shapes × 3 tiers of side frames, 2 hoods × 3 tiers). Other optional keys: `'shadow': False` on a model (no shadow pass; the packer stores an empty frame), `'extent': r` (render at least `r` tiles around the center, for parts that reach out of the footprint like a long arm), and on a layer `'shared': True` (rendered for the first direction only and used for all of them: frames that are angles in the world, not relative to the entity) and `'shadow': False` (left out of the shadow pass, for parts that move on their own). Objects go on the model's first layer unless a `layer` block says otherwise.
+
+**Variants and kinds.** `'variants': N` renders a model N times as `<name>-0` .. `<name>-<N-1>`, with `ctx.variant` telling `build` which one (trees, ore decals, decor). `'shadow': 'catch'` makes the body pass catch the model's own shadow, with no shadow frame (flat ground decals). `'kind': 'ground'` renders a seamless ground texture and `'kind': 'icon'` an item icon (see "Terrain" and "Item icons" below). Names on the command line pick a model, every variant of it, every model of a module or of an atlas.
 
 **Directions**: models are built facing north; the driver turns the model's root for east, south and west (`directions: 4`), so the light stays put and each direction is lit correctly.
 
@@ -112,6 +127,8 @@ Curves come in at the west (`curve-left`) or east (`curve-right`) edge of a nort
 }
 ```
 
+Two optional keys carry what isn't a sprite: `ground` (`{ "grass": { "file": "terrain-grass.png", "period": 8 }, ... }`, seamless textures, one PNG each since they repeat) and `icons` (`{ "size": 52, "items": { "iron-plate": [sheet, x, y], ... } }`, on a grid of 64-texel cells).
+
 Models are keyed by entity prototype name (`src/data/entities.ts`), with a `:variant` suffix for the belt shapes and underground modes; `belt-surface` belongs to no entity. The runtime (`src/render/sprites.ts`, `entitySprites.ts`) loads the atlas at startup and falls back to the placeholder shapes until it has loaded, if it fails to load, and for every entity without a model. Identical frames are stored once. `tests/render/sprites.test.ts` checks the committed atlas against the prototypes (footprints, directions, layers).
 
 ## Adding a model
@@ -143,3 +160,29 @@ Models are keyed by entity prototype name (`src/data/entities.ts`), with a `:var
 2. `npm run art -- --samples 32 --preview small-thing` while iterating; look at `art/build/preview-1x.png` and `preview-2x.png` (idle and working, every direction, on grass). Then render it at full quality: `npm run art -- small-thing`.
 3. Run the game (`npm run dev`) and look at it at 1× and 2× next to the other entities. If the layer needs a game-side rule (e.g. a new point), add it to the renderer.
 4. Add the model to the list in `tests/render/sprites.test.ts` (or `logisticsSprites.test.ts` for the `logistics` atlas), and commit the model script with `public/sprites/`.
+
+## Power entities
+
+- **Boiler** (2×3): a riveted steam drum on a brick firebox, the chimney at the rear, the steam outlet on the edge it faces. Its `fire` layer (while it burns) glows through the firebox door, in the side vents and in the chimney's mouth, so it shows from every direction.
+- **Steam engine** (3×5): cylinder at the front, crosshead and connecting rod, the crankshaft with the flywheel on one side and the generator on the other, steam flanges at both ends where boilers and engines connect. Its `motion` layer is one full turn of the crank in 16 frames. The game runs it at a speed proportional to the engine's output, one turn per second at full power (`EntitySpriteLayer.speedOf`, fed by `GeneratorLayer.speed`), so an engine with no load stands still. The flywheel's rim carries painted marks, which show it turning even where it is seen edge-on (facing north or south); the piston and the governor read in every direction.
+- **Electric mining drill** (3×3): the gear turret turns while it works (`head`), a green lamp on the motor cabinet lights up (`lights`); the output chute sits over the middle of the front edge, where it drops what it mines.
+
+## Terrain
+
+The ground, ore, trees and decor are rendered too (atlas `terrain`) and baked per chunk on the GPU (`src/render/terrainPlan.ts` decides what goes where, `terrainArt.ts` draws it, `terrainLayer.ts` manages the textures). Until the atlas loads, or if it can't, the terrain keeps its flat placeholder colors (baked on the CPU, `chunkBake.ts`).
+
+- **Ground textures** (`models/ground.py`): grass, sand, water and rock, each a seamless texture of 8 × 8 tiles (512² texels) seen through the game camera and lit like the sprites. They repeat exactly because their noise is sampled on a flat torus in 4D (`bwart/terrain.py`); they are rendered without the denoiser (it can't see across the edges) and with no feature larger than about a tile, since anything bigger would show the 8-tile period as a plaid when zoomed out.
+- **Blending** (the ground shader in `terrainArt.ts`): a splat texture per chunk holds each tile's terrain type (34² texels: the chunk and a one-tile border from its neighbours), sampled bilinearly between tile centers. Value noise pushes the four weights around and the strongest wins, with a narrow soft band, so the edge between two terrain types wanders about a quarter of a tile around the tile edge instead of following the grid. Sand near water darkens (wet), shallow water lightens, a faint foam line marks the shore, and slow noise over several chunks shifts the grass between greener and yellower and everything between lighter and darker, so neither the 8-tile period nor chunk edges show. The noise comes from a small random lattice texture (one smoothstepped bilinear tap gives four fields), indexed by chunk so neighbours continue each other exactly.
+- **Variants**: besides the 64 different tiles in each texture's period and the slow variation, decor is sprinkled on a hash of the tile (6 kinds on grass: tufts, flowers, a bush, a mossy stone; pebbles, dry grass and a stone on sand; boulders and rubble on rock), only well inside an area of one terrain and never on ore or trees.
+- **Ore** (`models/ore.py`): per ore three richness levels (under 400 units, under 1 200, more) of three variants each: chunks of ore on a stain of soil a bit larger than the tile, so the stains of neighbouring tiles merge into one patch and the patch thins out towards its edge. Decals catch their own short shadows (they never overlap, so nothing doubles up).
+- **Trees** (`models/trees.py`): four broadleaf and two conifer variants, up to two tiles tall, with a hash-picked variant and a small offset per tile. Trees stay world data (D18) and are baked into the chunk texture from north to south, their shadows drawn first at the entities' shadow strength (straight onto the ground: a faded layer like the entities' would cost a full extra pass per bake, so under dense forest overlapping shadows darken a little more); a chunk also draws the trees and stains of the neighbouring chunks' tiles within 2 tiles of its edge, so canopies and shadows cross chunk edges without seams.
+
+**Texel density and memory.** A chunk (32 × 32 tiles) is baked at 32 texels per tile at 1× zoom (texel for pixel): a 1024² RGBA render texture, 4 MiB of GPU memory, and no pixel buffer on the main thread. Zoomed out the density halves with the zoom (16 below 0.75×, 8 below 0.375×; `texelsForZoom`), so a texture is never minified by more than 1.33× and needs no mipmaps, and the memory per screen stays about the same: four times the chunks at a quarter of the texels. Zoomed in past 1× the baked terrain is magnified (the entities on top stay sharp). Only chunks within 8 tiles of the view are baked (`BAKE_MARGIN`); textures of chunks more than 24 tiles away are freed (`FREE_MARGIN`): at 1280 × 720 that is 4 to 6 textures at rest (16 to 24 MiB) and at most 16 (64 MiB) while panning, at any zoom. The placeholder look takes 256 KiB of GPU memory plus the same in CPU pixels per chunk, for every chunk of the window.
+
+**Bake cost.** Planning a chunk takes about 0.4 ms of CPU (tested); the bake is one quad with the ground shader (about ten texture reads per texel) plus a few hundred sprites into the render texture, at most a million texels per frame (`RENDERED_BAKE_TEXELS`: one chunk at 1×, four at 0.5×). A chunk is baked once its neighbours inside the window have arrived, again when a neighbour arrives later or changes within 2 tiles of the shared edge, and not at all when its data changes without changing how it looks (a drill taking a few units of ore). On a GPU a bake is a fraction of a millisecond. On a software renderer (SwiftShader, llvmpipe: headless browsers, CI, machines without a GPU) a bake's cost is its texels on the CPU, a few hundred milliseconds at 1024², so there the terrain bakes at most 16 texels per tile (`SOFTWARE_MAX_TEXELS`, detected from the WebGL renderer's name) and a quarter of the texels per frame; panning still hitches briefly at each new chunk. Test builds take `?texels=32` to bake at full density anyway (the `art` screenshots); the render baselines are at 16.
+
+## Item icons
+
+Every item has a rendered icon (`models/icons.py`, atlas `icons`): items that place an entity with a model show that model's idle body; the rest (ores, plates, bricks, logs, gear, cable, circuit, and stand-ins for the belt, inserters and pole until they get models) are modeled there. Icons are framed to fit (`frame_icon`, the game's camera angle without the stretch, a little steeper for flat items), rendered at 104² and box-filtered to 52² by the packer: four texels per pixel of the 13-pixel icons on belts, so they stay sharp at 4× zoom and on HiDPI screens. The game loads their sheet at resolution 4, so the textures are the same 13 units wide as the lettered ones and every layer draws them unchanged; DOM slots get the 52² image scaled smoothly.
+
+The lettered icons stay: they show until the rendered ones load, for any item without one, and as an option for players who read labels more easily than pictures (the "Lettered item icons" checkbox in the controls panel, `H`; remembered in `localStorage`). `npm run art -- --preview icons` writes `art/build/preview-icons.png`, every icon at the sizes the game shows them on a slot, a belt and grass.
