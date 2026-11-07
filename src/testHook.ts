@@ -214,6 +214,13 @@ export interface BeltworksTestHook {
   techTreeOpen(): boolean;
   /** Items shown with a rendered icon (the rest use the lettered one). */
   renderedIcons(): number;
+  /**
+   * Runs the simulation `scale` times faster than real time (an integer in
+   * [1, 16]; 1 is normal speed), for waits on long processes such as
+   * research or measuring a production rate (docs/DECISIONS.md, D42). The
+   * player walks faster too, so tests walk and build at normal speed.
+   */
+  setTimeScale(scale: number): void;
 }
 
 declare global {
@@ -467,5 +474,8 @@ export function installTestHook({
     },
     techTreeOpen: () => techTree.isOpen,
     renderedIcons: () => ITEM_IDS.filter(hasRenderedIcon).length,
+    setTimeScale: (scale) => {
+      client.setTimeScale(scale);
+    },
   };
 }

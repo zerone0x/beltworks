@@ -45,6 +45,23 @@ Dev and test builds (`npm run dev`, `npm run build:test`) read a few URL paramet
 - A PR that changes visuals includes Playwright screenshots.
 - Commit messages and PR titles use conventional commits: `<type>(<scope>): <subject>`.
 
+## End-to-end tests
+
+The Playwright suite (`tests/e2e/`, `npm run test:e2e`) drives a test-mode build (`vite build --mode test`: the production build plus the `window.__beltworks` test hook) with real keyboard and mouse input. Locally, Playwright builds it and serves it with `vite preview`; `npx playwright test --shard 2/4` runs one shard the way CI does.
+
+**CI** (`.github/workflows/ci.yml`) splits the suite so it doesn't run in one long job:
+
+| Job | What it does |
+|---|---|
+| `check` | Lint, typecheck, unit tests (including the Node half of the determinism check), benchmark tooling tests, production build |
+| `e2e-build` | Builds the test bundle once (`npm run build:test`) and uploads `dist/` as the `e2e-dist` artifact |
+| `e2e-shard (i/4)` | Four shards in parallel, each `npx playwright test --shard i/4` against the downloaded bundle (`E2E_PREBUILT=1` makes the config only serve `dist/`, not build it), one worker each, 15 min timeout; each uploads a blob report and its `test-results/` (screenshots, failure context) |
+| `e2e` | Waits for the shards (`if: always()`), merges their blob reports into one HTML report (`npx playwright merge-reports`, the `playwright-report` artifact), and fails unless the build and every shard passed. This is the one status to require for the e2e suite |
+
+Playwright shards by test count, in file order (`fullyParallel` makes every test its own unit), so each test runs in exactly one shard; in particular the Chromium half of the determinism check (`determinism.spec.ts`, Node == Chromium) runs once per CI run, and the Node half once in `check`. Every spec asks for what it needs in its own URL (`?kit=`, `?research=`, and `?art=1` / `?texels=` for the rendered terrain in the art and render specs; see "Dev and test URL parameters"), so a spec runs the same whichever shard it lands in. Shards are balanced by count, not time: a long new spec makes its shard longer, so keep an eye on the per-shard times in the run summary and add a shard (a matrix entry and `total`) when the slowest one nears 10 minutes.
+
+**Keeping specs short.** CI's Chromium renders in software on 2 vCPUs, sometimes at 7 fps, so walking and clicking are slow and every second of simulated time is a second of wall time. When a spec waits on a long process while the player stands still (research, mining, measuring a production rate), run the simulation faster with `fastForward` / `setTimeScale` from `tests/e2e/timeScale.ts` (the test hook's `setTimeScale`, dev and test builds only; D42), and go back to normal speed before walking or building again: the player walks faster too. It changes only how many ticks run per second, so anything measured in ticks or game state stays exact; avoid it where a check polls for a short-lived state once per rendered frame. Build near the spawn with a `?kit=` (D29) or `?research=` (D38) start rather than walking or crafting there when the walk or the crafting isn't what the spec tests.
+
 ## Benchmarks
 
 `npm run bench` is a headless tick-time benchmark of the simulation in Node. It bundles `tools/bench/run.ts` with Vite (so the simulation is compiled the way the game ships it) into `node_modules/.cache/beltworks-bench/`, then runs it with `node --expose-gc`.

@@ -12,10 +12,17 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Jobs (docs/TOOLING.md, "End-to-end tests"):
+#   check       lint, typecheck, unit tests (incl. the Node side of the determinism check), production build
+#   e2e-build   builds the test-mode bundle once and hands `dist/` to the shards as an artifact
+#   e2e-shard   the Playwright suite in 4 shards (`--shard i/n`), each writing a blob report
+#   e2e         merges the shards' reports into one HTML report; the single status that sums up the e2e
+#               suite (it fails if the build or any shard failed or was cancelled)
+
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -42,16 +49,134 @@ jobs:
       - name: Build
         run: npm run build
 
+  e2e-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the test bundle
+        run: npm run build:test
+
+      - name: Upload the test bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-dist
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  e2e-shard:
+    needs: e2e-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+        total: [4]
+    name: e2e-shard (${{ matrix.shard }}/${{ matrix.total }})
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download the test bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: e2e-dist
+          path: dist/
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
 
-      - name: E2E smoke test
-        run: npm run test:e2e
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
-      - name: Upload Playwright report
+      - name: E2E tests
+        run: npx playwright test --shard ${{ matrix.shard }}/${{ matrix.total }}
+        env:
+          E2E_PREBUILT: '1'
+
+      - name: Upload the blob report
         if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 1
+
+      - name: Upload test results (screenshots, failure context)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.shard }}
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  e2e:
+    needs: [e2e-build, e2e-shard]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download the blob reports
+        uses: actions/download-artifact@v8
+        with:
+          path: all-blob-reports/
+          pattern: blob-report-*
+          merge-multiple: true
+
+      - name: Merge the reports
+        if: ${{ hashFiles('all-blob-reports/*.zip') != '' }}
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
+
+      - name: Upload the Playwright report
+        if: ${{ hashFiles('playwright-report/index.html') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
+
+      - name: Check the shards
+        env:
+          BUILD: ${{ needs.e2e-build.result }}
+          SHARDS_RESULT: ${{ needs.e2e-shard.result }}
+        run: |
+          echo "e2e-build: $BUILD, e2e-shard: $SHARDS_RESULT"
+          test "$BUILD" = success && test "$SHARDS_RESULT" = success

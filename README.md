@@ -104,7 +104,7 @@ npm run test:e2e   # Playwright tests against a fresh test-mode build (Chromium)
 npm run art        # re-render the Blender sprite models into public/sprites/ (needs Blender 4.2; see docs/ART.md)
 ```
 
-Run `npx playwright install chromium` once before the first `npm run test:e2e`. The screenshot baselines live in `tests/e2e/render.spec.ts-snapshots/`; after an intended visual change, regenerate them with `npx playwright test --update-snapshots` and check the new images.
+Run `npx playwright install chromium` once before the first `npm run test:e2e`. The screenshot baselines live in `tests/e2e/render.spec.ts-snapshots/`; after an intended visual change, regenerate them with `npx playwright test --update-snapshots` and check the new images. CI runs the suite in four shards (docs/TOOLING.md, "End-to-end tests").
 
 ## Deployment
 

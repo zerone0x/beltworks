@@ -25,6 +25,7 @@ import { FixedStepClock } from './loop';
 import {
   LOCAL_PLAYER_ID,
   MAX_CATCH_UP_TICKS,
+  MAX_TIME_SCALE,
   STATS_INTERVAL_TICKS,
   TICKS_PER_SECOND,
   type MainToWorker,
@@ -32,7 +33,18 @@ import {
   type WorkerToMain,
 } from './protocol';
 
-const clock = new FixedStepClock(1000 / TICKS_PER_SECOND, MAX_CATCH_UP_TICKS);
+const STEP_MS = 1000 / TICKS_PER_SECOND;
+let clock = new FixedStepClock(STEP_MS, MAX_CATCH_UP_TICKS);
+/**
+ * Dev and test builds only (`setTimeScale`, docs/DECISIONS.md, D42): the
+ * simulation runs this many ticks per 1/60 s of wall time. The loop keeps
+ * its clock on a scaled time line (`scaledNow`) that runs at the scale since
+ * the last change, so at 1 it is `performance.now()`.
+ */
+let timeScale = 1;
+let scaledBase = 0;
+let realBase = 0;
+const scaledNow = (): number => scaledBase + (performance.now() - realBase) * timeScale;
 let sim: Sim | null = null;
 let streamer: ChunkStreamer | null = null;
 let viewport: Viewport | null = null;
@@ -56,7 +68,7 @@ function wake(): void {
   if (!sim) {
     return;
   }
-  const { ticks, dropped } = clock.advance(performance.now());
+  const { ticks, dropped } = clock.advance(scaledNow());
   statDropped += dropped;
   if (ticks > 0) {
     const start = performance.now();
@@ -85,7 +97,10 @@ function wake(): void {
 
 function schedule(): void {
   if (timer === null) {
-    timer = setTimeout(wake, clock.msUntilNextTick());
+    // Sped up, wake at most once per normal step and run the ticks due in one
+    // batch, so the main thread still gets one snapshot per 1/60 s.
+    const ms = clock.msUntilNextTick() / timeScale;
+    timer = setTimeout(wake, timeScale > 1 ? Math.max(ms, STEP_MS) : ms);
   }
 }
 
@@ -159,7 +174,7 @@ function handle(msg: MainToWorker): void {
         streamer.setViewport(viewport);
       }
       clock.reset();
-      clock.advance(performance.now());
+      clock.advance(scaledNow());
       statTicks = statStepMs = statDropped = 0;
       inspected = 0;
       schedule();
@@ -184,6 +199,27 @@ function handle(msg: MainToWorker): void {
       }
       inspected = msg.entity;
       break;
+    case 'setTimeScale': {
+      // Production builds never send it, and reject it (a compile-time check).
+      if (!(import.meta.env.DEV || import.meta.env.MODE === 'test')) {
+        throw new Error('setTimeScale is only available in dev and test builds');
+      }
+      if (!Number.isInteger(msg.scale) || msg.scale < 1 || msg.scale > MAX_TIME_SCALE) {
+        throw new Error(`invalid time scale: ${String(msg.scale)}`);
+      }
+      scaledBase = scaledNow();
+      realBase = performance.now();
+      timeScale = msg.scale;
+      // The catch-up cap scales too, so a sped-up batch isn't dropped as backlog.
+      clock = new FixedStepClock(STEP_MS, MAX_CATCH_UP_TICKS * timeScale);
+      clock.advance(scaledNow());
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (sim) schedule();
+      break;
+    }
     case 'setViewport':
       viewport = sanitizeViewport(msg.viewport);
       streamer?.setViewport(viewport);

@@ -1,7 +1,8 @@
 /**
  * Messages between the main thread and the simulation worker.
  *
- * Main → worker: `init`, `commands`, `setViewport`, `inspect`.
+ * Main → worker: `init`, `commands`, `setViewport`, `inspect`, and in dev and
+ * test builds `setTimeScale`.
  * Worker → main: `snapshot`, `stats`, `error`.
  *
  * Commands include the build commands `Place`, `Remove` and `Rotate` and the
@@ -23,6 +24,8 @@ export const TICKS_PER_SECOND = 60;
 export const MAX_CATCH_UP_TICKS = 5;
 /** How often the worker reports `stats`, in ticks (twice a second at full speed). */
 export const STATS_INTERVAL_TICKS = 30;
+/** The largest `setTimeScale` scale (dev and test builds only). */
+export const MAX_TIME_SCALE = 16;
 
 /**
  * Viewports wider or taller than this many tiles are clamped by the worker, so
@@ -98,7 +101,20 @@ export interface InspectMessage {
   entity: number;
 }
 
-export type MainToWorker = InitMessage | CommandsMessage | SetViewportMessage | InspectMessage;
+/**
+ * Dev and test builds only (the test hook's `setTimeScale`; production
+ * builds reject it): run the simulation `scale` times faster than real time,
+ * for end-to-end tests that wait on long processes (docs/DECISIONS.md, D42).
+ * Ticks stay the same, there are just more of them per second.
+ */
+export interface SetTimeScaleMessage {
+  type: 'setTimeScale';
+  /** Ticks per 1/60 s of wall time: an integer in [1, MAX_TIME_SCALE]; 1 is normal speed. */
+  scale: number;
+}
+
+export type MainToWorker =
+  InitMessage | CommandsMessage | SetViewportMessage | InspectMessage | SetTimeScaleMessage;
 
 /**
  * Render state after the latest tick. Sent once per worker wake-up that ran at

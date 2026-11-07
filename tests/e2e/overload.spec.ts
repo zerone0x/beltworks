@@ -6,7 +6,10 @@
  *
  * Overloading one steam engine (900 kW) takes more than 10 electric drills
  * (90 kW each), and the default kit has 2, so the page starts with a test
- * kit (`?kit=`, dev and test builds only; docs/DECISIONS.md, D29).
+ * kit (`?kit=`, dev and test builds only; docs/DECISIONS.md, D29). The
+ * rate measurements run the simulation at 8× speed while the player stands
+ * still (`setTimeScale`, D42): they are measured in ticks, so only the wall
+ * time changes.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -14,6 +17,7 @@ import { ResourceId } from '../../src/data/resources';
 import { Direction } from '../../src/sim/entities/direction';
 import { MachineState } from '../../src/sim/entities/machine';
 import { World } from '../../src/sim/world/world';
+import { fastForward } from './timeScale';
 import { walkClose } from './walk';
 
 /** Seed used by src/main.ts. */
@@ -109,6 +113,15 @@ const NORTH_EAST = { x: 21, y: -29 };
 const SOUTH_WEST = { x: 14.5, y: -11 };
 const SOUTH_EAST = { x: 20.5, y: -11 };
 const STAND_TOLERANCE = 1.5;
+/**
+ * Simulation speed while measuring rates (D42), and the ticks each
+ * measurement spans: 40 s of game time at full speed, 5 s of wall time.
+ * (The chest's window can lag the latest tick by a rendered frame, which
+ * spans more ticks when sped up, so it measures over longer than it did at
+ * normal speed.)
+ */
+const TIME_SCALE = 8;
+const RATE_TICKS = 2_400;
 
 test('drills slow down on an overloaded network and recover with a second generator', async ({
   page,
@@ -222,9 +235,10 @@ test('drills slow down on an overloaded network and recover with a second genera
   /**
    * Units each drill of the measured pair mined per 120 ticks (one unit at
    * full power), measured on the ore arriving in its chest over at least
-   * `ticks` ticks.
+   * `ticks` ticks, with the simulation at `TIME_SCALE`× speed.
    */
-  const pairRate = async (ticks: number) => {
+  const pairRate = (ticks: number) => fastForward(page, TIME_SCALE, () => measurePairRate(ticks));
+  const measurePairRate = async (ticks: number) => {
     await clickTile(MEASURED.x, MEASURED.y);
     await expect(entityPanel).toHaveAttribute('data-type', 'wooden-chest');
     // The chest's slots and the tick, from the same snapshot.
@@ -246,7 +260,7 @@ test('drills slow down on an overloaded network and recover with a second genera
           end = await sample();
           return end.tick - start.tick;
         },
-        { timeout: 120_000 },
+        { timeout: 60_000 },
       )
       .toBeGreaterThanOrEqual(ticks);
     await page.keyboard.press('Escape');
@@ -292,7 +306,7 @@ test('drills slow down on an overloaded network and recover with a second genera
   );
   await expect(drillGroup).toHaveAttribute('data-count', '8');
   await expect(drillGroup.locator('[data-role="power"]')).toHaveText('720 kW / 720 kW');
-  const full = await pairRate(1_200);
+  const full = await pairRate(RATE_TICKS);
   expect(full).toBeGreaterThan(0.85);
   expect(full).toBeLessThan(1.15);
 
@@ -312,7 +326,7 @@ test('drills slow down on an overloaded network and recover with a second genera
   await expect(drillGroup).toHaveAttribute('data-count', '16');
   await screenshot('m2-overloaded.png', 'sixteen drills on one steam engine, and their network');
   await walkTo(NORTH_WEST);
-  const slow = await pairRate(1_200);
+  const slow = await pairRate(RATE_TICKS);
   expect(slow).toBeGreaterThan(0.5);
   expect(slow).toBeLessThan(0.75);
   expect(slow).toBeLessThan(full * 0.8);
@@ -324,7 +338,7 @@ test('drills slow down on an overloaded network and recover with a second genera
   await expect.poll(() => drillStates(16)).toEqual(Array(16).fill(MachineState.Working));
   await expect.poll(() => powerIcons(page)).toBe(0);
   await walkTo(NORTH_WEST);
-  const recovered = await pairRate(1_200);
+  const recovered = await pairRate(RATE_TICKS);
   expect(recovered).toBeGreaterThan(0.85);
   expect(recovered).toBeLessThan(1.15);
 

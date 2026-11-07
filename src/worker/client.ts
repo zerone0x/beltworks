@@ -67,6 +67,11 @@ export class SimClient {
     this.send({ type: 'inspect', entity });
   }
 
+  /** Dev and test builds only: runs the simulation `scale` times faster (see `SetTimeScaleMessage`). */
+  setTimeScale(scale: number): void {
+    this.send({ type: 'setTimeScale', scale });
+  }
+
   setViewport(viewport: Viewport): void {
     this.send({ type: 'setViewport', viewport });
   }
