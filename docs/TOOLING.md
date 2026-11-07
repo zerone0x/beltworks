@@ -25,7 +25,7 @@ Dev and test builds (`npm run dev`, `npm run build:test`) read a few URL paramet
 |---|---|
 | `?kit=name:count,...` | The starting kit (D29) |
 | `?art=1` / `?art=0` | The terrain's rendered look (D41) or the flat placeholder colors. Default: rendered in dev builds, placeholder in test builds, so the end-to-end specs that aren't about the art stay fast on CI's software renderer, where baking the rendered terrain is slow. The art, render and screenshot specs (`art.spec.ts`, `artLogistics.spec.ts`, `render.spec.ts`) pass `?art=1` |
-| `?texels=8\|16\|32` | The most texels per tile the rendered terrain bakes at (implies `?art=1`); software renderers default to 16 (docs/ART.md, "Terrain") |
+| `?texels=8\|16\|32\|64` | The most texels per tile the rendered terrain bakes at (implies `?art=1`; 64 allows the detail textures zoomed in, as on a GPU); software renderers default to 16 (docs/ART.md, "Terrain") |
 
 ## Agent workflow
 

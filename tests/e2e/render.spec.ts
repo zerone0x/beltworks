@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { TILE_PX } from '../../src/render/camera';
-import { FREE_MARGIN } from '../../src/render/terrainLayer';
+import { DETAIL_FREE_MARGIN, FREE_MARGIN } from '../../src/render/terrainLayer';
 import { startingPatches } from '../../src/sim/world/generate';
 import { formatTile } from '../../src/ui/debugOverlay';
 
@@ -146,6 +146,52 @@ test('panning across many chunks keeps only the window around the view', async (
     expect(stats.sprites).toBeLessThanOrEqual(maxTextures);
     expect(stats.textureBytes).toBeLessThanOrEqual(maxTextures * 4 * 1024 * 1024);
   }
+  expect(errors).toEqual([]);
+});
+
+test('zoomed in, detail textures follow the view and stay within their bounds', async ({
+  page,
+}) => {
+  // Detail textures (64 texels per tile, 16 MiB each) only exist on GPUs;
+  // `?texels=64` allows them on CI's software renderer too, slowly.
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await page.goto('./?texels=64');
+  await page.waitForFunction(() => window.__beltworks !== undefined);
+  await waitForTerrain(page);
+  const size = page.viewportSize()!;
+  const chunkPx = 32 * TILE_PX;
+  const zoom = 2;
+  // At most the chunks within DETAIL_FREE_MARGIN tiles of the view keep one.
+  const reach = 2 * DETAIL_FREE_MARGIN * TILE_PX;
+  const maxDetails =
+    (Math.ceil((size.width / zoom + reach) / chunkPx) + 1) *
+    (Math.ceil((size.height / zoom + reach) / chunkPx) + 1);
+  // The base textures stay within the bounds of the 1× panning test.
+  const baseReach = 2 * FREE_MARGIN * TILE_PX;
+  const maxTextures =
+    (Math.ceil((size.width / zoom + baseReach) / chunkPx) + 1) *
+    (Math.ceil((size.height / zoom + baseReach) / chunkPx) + 1);
+  for (let i = 0; i < 4; i++) {
+    await page.evaluate(
+      ([x, z]) => window.__beltworks!.setCamera(x!, x! / 3, z),
+      [i * 1.5 * chunkPx, zoom],
+    );
+    await waitForTerrain(page);
+    const stats = await page.evaluate(() => window.__beltworks!.terrainStats());
+    expect(stats.texelsPerTile).toBe(32);
+    expect(stats.detailTexelsPerTile).toBe(64);
+    expect(stats.detailSprites).toBeGreaterThan(0);
+    expect(stats.detailSprites).toBeLessThanOrEqual(maxDetails);
+    expect(stats.sprites).toBeLessThanOrEqual(maxTextures);
+    expect(stats.textureBytes).toBeLessThanOrEqual(
+      maxTextures * 4 * 1024 * 1024 + stats.detailSprites * 16 * 1024 * 1024,
+    );
+  }
+  // Zooming out frees them all.
+  await page.evaluate(() => window.__beltworks!.setCamera(0, 0, 1));
+  await waitForTerrain(page);
+  expect((await page.evaluate(() => window.__beltworks!.terrainStats())).detailSprites).toBe(0);
   expect(errors).toEqual([]);
 });
 

@@ -20,7 +20,7 @@ import { TILE_PX } from '../../src/render/camera';
 import { UndergroundMode } from '../../src/sim/belts/underground';
 import { Direction } from '../../src/sim/entities/direction';
 import { MachineState } from '../../src/sim/entities/machine';
-import { fps } from './walk';
+import { sceneFps } from './walk';
 
 interface Rect {
   x: number;
@@ -264,10 +264,15 @@ test('belts, inserters and poles are drawn with their pre-rendered sprites', asy
     'belts, inserters and poles at 2× zoom',
     [-2.5, -4.5, 2],
   );
-  // Sprites don't slow the frame rate down to a crawl. CI renders in software,
-  // so the bar is low; the scene also draws the animated steam power sprites
-  // and the rendered terrain (linearly filtered).
-  expect(await fps(page, 2000)).toBeGreaterThanOrEqual(4);
+  // Sprites don't slow the frame rate down to a crawl: the scene (which also
+  // draws the animated steam power sprites) keeps a good part of the frame
+  // rate of bare terrain on the same page. CI renders in software on runners
+  // of varying speed, so this is a ratio, not an absolute floor.
+  const rate = await sceneFps(page, [-2.5 * TILE_PX, -4.5 * TILE_PX, 1]);
+  expect(
+    rate.scene,
+    `${String(rate.scene)} fps, bare terrain ${String(rate.bare)}`,
+  ).toBeGreaterThanOrEqual(rate.bare * 0.35);
   expect(errors).toEqual([]);
 });
 

@@ -6,12 +6,16 @@ import { parseAtlasIndex } from '../../src/render/sprites';
 import { GROUND_NAMES } from '../../src/render/terrainArt';
 import {
   DECOR_VARIANTS,
+  DETAIL_TEXELS,
+  ORE_JITTER,
   ORE_VARIANTS,
   PLAN_REACH,
+  SPLAT_BORDER,
   SPLAT_SIZE,
   TREE_JITTER,
   SOFTWARE_MAX_TEXELS,
   TREE_VARIANTS,
+  detailTexels,
   isSoftwareRenderer,
   oreDecal,
   planChunk,
@@ -38,9 +42,9 @@ function blankChunk(cx = 0, cy = 0, terrain: number = TileId.Grass): ChunkData {
 
 const none: ChunkLookup = () => undefined;
 
-/** The splat weights (grass, sand, water) of the tile at local `(lx, ly)` (-1..CHUNK_SIZE). */
+/** The splat texel of the tile at local `(lx, ly)` (-SPLAT_BORDER..CHUNK_SIZE + SPLAT_BORDER - 1). */
 function splatAt(splat: Uint8Array, lx: number, ly: number): number[] {
-  const o = ((ly + 1) * SPLAT_SIZE + lx + 1) * 4;
+  const o = ((ly + SPLAT_BORDER) * SPLAT_SIZE + lx + SPLAT_BORDER) * 4;
   return [splat[o]!, splat[o + 1]!, splat[o + 2]!, splat[o + 3]!];
 }
 
@@ -60,8 +64,41 @@ describe('terrain plan', () => {
     expect(splatAt(plan.splat, 5, 4)).toEqual([0, 0, 0, 0]);
     // The border column east of the chunk is the sand of the neighbour...
     expect(splatAt(plan.splat, CHUNK_SIZE, 10)).toEqual([0, 255, 0, 0]);
+    // ...two tiles deep, for the shader's smooth interpolation...
+    expect(splatAt(plan.splat, CHUNK_SIZE + 1, 10)).toEqual([0, 255, 0, 0]);
     // ...and a missing neighbour continues the chunk's own edge.
     expect(splatAt(plan.splat, -1, 10)).toEqual([255, 0, 0, 0]);
+    expect(splatAt(plan.splat, -2, 10)).toEqual([255, 0, 0, 0]);
+  });
+
+  it("marks each tile's ore and the tiles along the edges of ore patches", () => {
+    const chunk = blankChunk();
+    // A 3x3 patch of iron with copper in its middle, and coal on the chunk's west edge.
+    for (let y = 10; y < 13; y++) {
+      for (let x = 10; x < 13; x++) chunk.resource[tileIndex(x, y)] = ResourceId.IronOre;
+    }
+    chunk.resource[tileIndex(11, 11)] = ResourceId.CopperOre;
+    chunk.resource[tileIndex(0, 20)] = ResourceId.Coal;
+    const west = blankChunk(-1, 0);
+    west.resource[tileIndex(CHUNK_SIZE - 1, 5)] = ResourceId.Stone;
+    const plan = planChunk(chunk, (cx, cy) => (cx === -1 && cy === 0 ? west : undefined));
+    expect(plan.ore).toHaveLength(SPLAT_SIZE * SPLAT_SIZE * 4);
+    expect(splatAt(plan.ore, 10, 10)).toEqual([255, 0, 0, 0]);
+    expect(splatAt(plan.ore, 11, 11)).toEqual([0, 255, 0, 0]);
+    expect(splatAt(plan.ore, 0, 20)).toEqual([0, 0, 255, 0]);
+    expect(splatAt(plan.ore, -1, 5)).toEqual([0, 0, 0, 255]);
+    expect(splatAt(plan.ore, 13, 13)).toEqual([0, 0, 0, 0]);
+    const edges = new Set(plan.oreEdges);
+    // The ring of the patch and the tiles around it, not its middle (ore all around).
+    expect(edges.has(tileIndex(10, 10))).toBe(true);
+    expect(edges.has(tileIndex(9, 9))).toBe(true);
+    expect(edges.has(tileIndex(13, 12))).toBe(true);
+    expect(edges.has(tileIndex(11, 11))).toBe(false);
+    expect(edges.has(tileIndex(14, 11))).toBe(false);
+    // Next to ore in the neighbouring chunk.
+    expect(edges.has(tileIndex(0, 4))).toBe(true);
+    // 8 + 16 around the patch, 6 around the coal, 3 next to the stone.
+    expect(plan.oreEdges.length).toBe(8 + 16 + 6 + 3);
   });
 
   it('puts an ore decal on every resource tile, richer for more units', () => {
@@ -74,8 +111,17 @@ describe('terrain plan', () => {
     chunk.resource[tileIndex(2, 2)] = ResourceId.Coal;
     chunk.amount[tileIndex(2, 2)] = 1500;
     const plan = planChunk(chunk, none);
-    const decal = plan.decals.find((d) => d.x === 2.5 && d.y === 2.5);
+    // Near the tile's center, off it by a little to break up the grid.
+    const decal = plan.decals.find((d) => d.name.startsWith('coal-'));
     expect(decal?.name).toMatch(/^coal-2-[0-2]$/);
+    expect(Math.abs(decal!.x - 2.5)).toBeLessThanOrEqual(ORE_JITTER + 1e-9);
+    expect(Math.abs(decal!.y - 2.5)).toBeLessThanOrEqual(ORE_JITTER + 1e-9);
+    // No decor right next to ore, where the shader draws the patch's outline.
+    expect(
+      plan.decals.some(
+        (d) => d.name.startsWith('decor-') && Math.abs(d.x - 2.5) <= 1 && Math.abs(d.y - 2.5) <= 1,
+      ),
+    ).toBe(false);
     // Every ore at every level and variant has a name the atlas uses.
     const names = new Set<string>();
     for (const ore of ORE_IDS) {
@@ -160,6 +206,14 @@ describe('terrain plan', () => {
     // Capped on software renderers.
     expect(texelsForZoom(1, SOFTWARE_MAX_TEXELS)).toBe(16);
     expect(texelsForZoom(0.25, SOFTWARE_MAX_TEXELS)).toBe(8);
+    // The base textures stay at 32 even where detail textures are allowed...
+    expect(texelsForZoom(2, DETAIL_TEXELS)).toBe(32);
+    // ...which come in zoomed in from 1.5x, only where the cap allows them.
+    expect(detailTexels(2, DETAIL_TEXELS)).toBe(64);
+    expect(detailTexels(1.5, DETAIL_TEXELS)).toBe(64);
+    expect(detailTexels(1.25, DETAIL_TEXELS)).toBe(0);
+    expect(detailTexels(4, 32)).toBe(0);
+    expect(detailTexels(4, SOFTWARE_MAX_TEXELS)).toBe(0);
     expect(
       isSoftwareRenderer('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device), SwiftShader driver)'),
     ).toBe(true);

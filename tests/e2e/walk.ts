@@ -29,6 +29,35 @@ export const fps = (page: Page, ms = 500) =>
     ms,
   );
 
+/**
+ * The frame rate looking at a scene (camera at world `(x, y)`, `zoom`) and,
+ * for comparison, at bare terrain `away` tiles north-west of it at the same
+ * zoom, each over `ms` once the terrain there is baked. CI renders in
+ * software on runners of varying speed, so a spec checking that sprites
+ * don't slow the game to a crawl compares the two (the same page, the same
+ * minute, the same machine) instead of holding the scene to an absolute
+ * floor. Leaves the camera on the scene.
+ */
+export async function sceneFps(
+  page: Page,
+  [x, y, zoom]: [number, number, number],
+  { away = 48, ms = 2000 } = {},
+): Promise<{ scene: number; bare: number }> {
+  const at = async (cx: number, cy: number) => {
+    await page.evaluate(
+      ([px, py, z]) => window.__beltworks!.setCamera(px!, py!, z),
+      [cx, cy, zoom],
+    );
+    await page.waitForFunction(() => window.__beltworks!.terrainReady(), undefined, {
+      timeout: 30_000,
+    });
+    return fps(page, ms);
+  };
+  const bare = await at(x - away * 32, y - away * 32);
+  const scene = await at(x, y);
+  return { scene, bare };
+}
+
 /** Waits until the player stopped moving (two snapshots apart show the same position). */
 export async function waitUntilStill(page: Page): Promise<{ x: number; y: number }> {
   let last = await player(page);

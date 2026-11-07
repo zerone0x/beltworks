@@ -31,7 +31,7 @@ import { PowerLayer, powerFocus } from './powerLayer';
 import type { SpriteAtlas } from './sprites';
 import type { TerrainArt } from './terrainArt';
 import { TerrainLayer, type TileInfo } from './terrainLayer';
-import { SOFTWARE_MAX_TEXELS, isSoftwareRenderer } from './terrainPlan';
+import { GPU_MAX_TEXELS, SOFTWARE_MAX_TEXELS, isSoftwareRenderer } from './terrainPlan';
 
 export interface HoveredTile extends Point {
   /** `null` while the chunk under the pointer hasn't arrived from the worker. */
@@ -125,11 +125,13 @@ export class GameView {
 
   /**
    * Draws the terrain with the rendered look from `art` from now on (the
-   * placeholder look for `null`), at most `maxTexels` per tile: by default 32,
+   * placeholder look for `null`), at most `maxTexels` per tile: by default 64
+   * (32 for the base textures, 64 for the detail ones zoomed in),
    * or `SOFTWARE_MAX_TEXELS` on a software renderer, where bakes are slow.
    */
   setTerrainArt(art: TerrainArt | null, maxTexels?: number): void {
-    this.terrain.maxTexels = maxTexels ?? (this.softwareRendering() ? SOFTWARE_MAX_TEXELS : 32);
+    this.terrain.maxTexels =
+      maxTexels ?? (this.softwareRendering() ? SOFTWARE_MAX_TEXELS : GPU_MAX_TEXELS);
     this.terrain.setArt(art, art ? this.app.renderer : null);
   }
 
