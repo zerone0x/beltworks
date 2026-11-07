@@ -259,6 +259,13 @@ export class AssemblerTable implements EntityTypeTable {
     return this.inputIndex(this.row(id), item) >= 0;
   }
 
+  /** Whether some input slot is below its limit. */
+  hasRoom(id: number): boolean {
+    const row = this.row(id);
+    const r = recipePrototype(this.recipeId[row]!);
+    return r !== undefined && r.inputs.some((_, i) => this.inputRoom(row, i) > 0);
+  }
+
   /** Ingredients go into their input slot, up to its limit. */
   insert(id: number, item: number, count: number, entities: Entities): number {
     const row = this.row(id);

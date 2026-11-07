@@ -148,6 +148,19 @@ export class FurnaceTable implements EntityTypeTable {
     return smeltingRecipeFor(item) !== undefined || fuelValue(item) > 0;
   }
 
+  /** Whether the input slot (empty, or below a stack) or the fuel slot has room. */
+  hasRoom(id: number): boolean {
+    const row = this.row(id);
+    const input = this.inputItem[row]!;
+    const fuel = this.burner.fuelItem[row]!;
+    return (
+      input === 0 ||
+      this.inputCount[row]! < itemPrototype(input)!.stackSize ||
+      fuel === 0 ||
+      this.burner.fuelCount[row]! < itemPrototype(fuel)!.stackSize
+    );
+  }
+
   /** Ingredients go into the input slot; fuel into the fuel slot (also when the input has no room). */
   insert(id: number, item: number, count: number, entities: Entities): number {
     const row = this.row(id);

@@ -18,10 +18,12 @@ import {
 } from '../../src/data/recipes';
 import { ResourceId } from '../../src/data/resources';
 import { assemblerTable } from '../../src/sim/entities/assembler';
+import { beltTable } from '../../src/sim/belts/belts';
+import { BELT_LENGTH, BeltLane } from '../../src/sim/belts/line';
 import { BuildResult, placeEntity, removeEntity } from '../../src/sim/entities/build';
 import { Direction } from '../../src/sim/entities/direction';
 import { electricInserterTable } from '../../src/sim/entities/electricInserter';
-import { InserterState } from '../../src/sim/entities/inserter';
+import { InserterState, inserterTable } from '../../src/sim/entities/inserter';
 import { MachineState } from '../../src/sim/entities/machine';
 import { createEntityTables } from '../../src/sim/entities/registry';
 import type { EntityTypeTable } from '../../src/sim/entities/table';
@@ -41,9 +43,10 @@ import {
 import { Sim } from '../../src/sim/tick';
 import { CHUNK_MASK, CHUNK_SHIFT, tileIndex } from '../../src/sim/world/chunk';
 
-const { North, East } = Direction;
+const { North, East, South, West } = Direction;
 const PLATE = ItemId.IronPlate;
 const GEAR = ItemId.IronGearWheel;
+const COPPER = ItemId.CopperPlate;
 const AM1 = EntityTypeId.AssemblingMachine1;
 const AM2 = EntityTypeId.AssemblingMachine2;
 
@@ -569,6 +572,144 @@ describe('assembling machines with inserters', () => {
     c.step();
     expect(c.table.rawProgress(c.id)).toBe(SAT_ONE);
     expect(c.grid.member(c.id)!.demand).toBe(1_250);
+  });
+
+  it('waits on the machine alone while it has no room for any ingredient', () => {
+    const c = chain(40);
+    // Keep the machine's input slot full by hand: the feed finds no room for plates.
+    let t = 0;
+    do {
+      c.entities.insert(c.id, PLATE, 4);
+      c.step();
+    } while (
+      (c.entities.status(c.feed) !== InserterState.WaitingForTarget ||
+        c.inserters.hand(c.feed).held !== 0) &&
+      t++ < 500
+    );
+    expect(t).toBeLessThan(500);
+    expect(c.inserters.hand(c.feed)).toEqual({ held: 0, arm: 0 });
+    // More plates in the chest can't help: only the machine is watched.
+    expect(c.entities.wake.watchersOf(c.id)).toContain(c.feed);
+    expect(c.entities.wake.watchersOf(c.source)).toEqual([]);
+    // The machine starting its next craft makes room and wakes the feed.
+    t = 0;
+    while (c.inserters.hand(c.feed).held === 0 && t++ < 200) c.step();
+    expect(c.inserters.hand(c.feed).held).toBe(PLATE);
+  });
+
+  it('takes from a chest of gears then copper only what it can use: no deadlock (#82)', () => {
+    // The verifier's repro: 30 gears in the chest's first slot, 30 copper
+    // plates in its second, a burner inserter into a machine making
+    // automation science packs (a gear and a plate each, at most 2 of each).
+    const s = setup([{ item: ItemId.BurnerInserter, count: 1 }]);
+    const source = s.place(ItemId.WoodenChest, 0, 1);
+    const feed = s.place(ItemId.BurnerInserter, 1, 1, East);
+    const id = s.place(ItemId.AssemblingMachine1, 2, 0);
+    s.place(ItemId.SmallElectricPole, 1, 3);
+    s.addProducer(-3, 3, 100_000);
+    expect(setEntityRecipe(s.state, 0, id, RecipeId.AutomationSciencePack)).toBe(TransferResult.Ok);
+    s.entities.insert(feed, ItemId.Coal, 5);
+    s.entities.insert(source, GEAR, 30);
+    s.entities.insert(source, COPPER, 30);
+    const craft = craftingTicks(300, ENTITIES[AM1].craftingSpeed);
+    const hands = inserterTable(s.entities)!;
+    for (let t = 0; t < 31 * craft; t++) {
+      s.step();
+      // Never more of an ingredient in the machine and the hand than it can use.
+      const held = hands.hand(feed).held;
+      for (const item of [GEAR, COPPER]) {
+        const inMachine = s.entities.slots(id).find((slot) => slot.item === item)?.count ?? 0;
+        expect(inMachine + (held === item ? 1 : 0)).toBeLessThanOrEqual(2);
+      }
+    }
+    expect(s.count(id, ItemId.AutomationSciencePack)).toBe(30);
+    expect(s.count(source, GEAR) + s.count(source, COPPER)).toBe(0);
+    expect(s.entities.status(feed)).toBe(InserterState.WaitingForSource);
+  });
+
+  /**
+   * Assembling machine 1 on (2..4, 0..2) making automation science packs
+   * (a gear and a copper plate each, at most 2 of each in its slots), fed by
+   * an electric inserter on (1, 1) from a belt on (0, 1), and emptied by an
+   * electric inserter on (5, 1) into a chest on (6, 1). `belts` lists the
+   * belts to place (tile and direction), the one on (0, 1) among them.
+   */
+  function beltFed(belts: [x: number, y: number, dir: Direction][]) {
+    const s = setup([{ item: ItemId.TransportBelt, count: belts.length }]);
+    const ids = belts.map(([x, y, dir]) => s.place(ItemId.TransportBelt, x, y, dir));
+    const feed = s.place(ItemId.ElectricInserter, 1, 1, East);
+    const id = s.place(ItemId.AssemblingMachine1, 2, 0);
+    s.place(ItemId.ElectricInserter, 5, 1, East);
+    const target = s.place(ItemId.WoodenChest, 6, 1);
+    s.place(ItemId.SmallElectricPole, 1, 3);
+    s.place(ItemId.SmallElectricPole, 5, 3);
+    s.addProducer(6, 3, 100_000);
+    expect(setEntityRecipe(s.state, 0, id, RecipeId.AutomationSciencePack)).toBe(TransferResult.Ok);
+    const craft = craftingTicks(300, ENTITIES[AM1].craftingSpeed);
+    const packs = () => s.count(target, ItemId.AutomationSciencePack);
+    /**
+     * Runs `ticks` ticks, calling `supply` before each; returns the longest
+     * stretch of ticks without a new pack in the chest after the first one.
+     */
+    const run = (ticks: number, supply: () => void): number => {
+      let last = -1;
+      let longest = 0;
+      for (let t = 0; t < ticks; t++) {
+        supply();
+        const before = packs();
+        s.step();
+        if (packs() !== before) {
+          if (last >= 0) longest = Math.max(longest, t - last);
+          last = t;
+        }
+      }
+      return last < 0 ? ticks : Math.max(longest, ticks - 1 - last);
+    };
+    return { ...s, belts: ids, feed, id, target, craft, packs, run };
+  }
+
+  it('keeps a mixed gear and copper belt loop feeding a machine running over a long run (#82)', () => {
+    // A loop of 20 belts around x -6..0, y 1..5 (clockwise), both lanes
+    // carrying gears and copper plates in turn, topped up on (-6, 1) to at
+    // most half full.
+    const loop: [number, number, Direction][] = [];
+    for (let x = -6; x < 0; x++) loop.push([x, 1, East]);
+    for (let y = 1; y < 5; y++) loop.push([0, y, South]);
+    for (let x = 0; x > -6; x--) loop.push([x, 5, West]);
+    for (let y = 5; y > 1; y--) loop.push([-6, y, North]);
+    const b = beltFed(loop);
+    const belts = beltTable(b.entities)!;
+    const onLoop = () => b.belts.reduce((n, belt) => n + belts.itemsOn(belt).length, 0);
+    let next = 0;
+    const ticks = 60 * b.craft;
+    const longest = b.run(ticks, () => {
+      if (onLoop() < 80 && b.entities.insert(b.belts[0]!, next % 2 ? COPPER : GEAR, 1) === 1) {
+        next++;
+      }
+    });
+    // The machine sets the pace: a pack every craft, never held up for long.
+    expect(b.packs()).toBeGreaterThanOrEqual(58);
+    expect(longest).toBeLessThan(b.craft + 100);
+  });
+
+  it('keeps a backed-up belt with gears on one lane and copper on the other feeding a machine (#82)', () => {
+    // A belt from (-7, 1) east to (0, 1), where it ends; gears go onto its
+    // left lane and plates onto its right lane at its start whenever there is
+    // room, so both lanes back up to the inserter.
+    const line: [number, number, Direction][] = [];
+    for (let x = -7; x <= 0; x++) line.push([x, 1, East]);
+    const b = beltFed(line);
+    const belts = beltTable(b.entities)!;
+    const first = b.belts[0]!;
+    const pos = belts.beltOffset(first) + BELT_LENGTH / 2;
+    const ticks = 30 * b.craft;
+    const longest = b.run(ticks, () => {
+      const lineId = belts.beltLineAt(first, -7, 1);
+      belts.insertAt(lineId, BeltLane.Left, pos, GEAR);
+      belts.insertAt(lineId, BeltLane.Right, pos, COPPER);
+    });
+    expect(b.packs()).toBeGreaterThanOrEqual(28);
+    expect(longest).toBeLessThan(b.craft + 100);
   });
 
   it('wakes the inserters around it when its recipe changes', () => {

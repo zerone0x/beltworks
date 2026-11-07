@@ -251,14 +251,15 @@ export class Lane {
 
   /**
    * Index of the first item (closest to the end) at a distance in
-   * `[from, to]` from the end, or -1.
+   * `[from, to]` from the end, or -1. With `accept`, the first such item
+   * it accepts.
    */
-  find(from: number, to: number): number {
+  find(from: number, to: number, accept?: (item: number) => boolean): number {
     let d = 0;
     for (let i = 0; i < this.count; i++) {
       d += this.gap(i);
       if (d > to) return -1;
-      if (d >= from) return i;
+      if (d >= from && (!accept || accept(this.item(i)))) return i;
     }
     return -1;
   }

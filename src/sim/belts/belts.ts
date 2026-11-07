@@ -682,14 +682,20 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
 
   /**
    * Takes the item closest to the end among those on lane `lane` of line
-   * `lineId` at a distance in `[from, to]` from the end. Returns its item
-   * id, or 0 if there is none.
+   * `lineId` at a distance in `[from, to]` from the end (with `accept`,
+   * among those it accepts). Returns its item id, or 0 if there is none.
    */
-  takeAt(lineId: number, lane: number, from: number, to: number): number {
+  takeAt(
+    lineId: number,
+    lane: number,
+    from: number,
+    to: number,
+    accept?: (item: number) => boolean,
+  ): number {
     const line = this.lineMap.get(lineId);
     if (!line || (lane !== 0 && lane !== 1)) return 0;
     const l = line.lanes[lane];
-    const i = l.find(from, to);
+    const i = l.find(from, to, accept);
     if (i < 0) return 0;
     const item = l.removeAt(i);
     this.wakeLane(l);
