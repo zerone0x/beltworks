@@ -11,15 +11,17 @@
  *
  * - **Assembly** (`A`): two closed belt loops, one along the top and one
  *   along the bottom edge, between two rows of four assembling machines.
- *   The top loop carries copper plates and gears into assembling machines 1
- *   making automation science packs, the bottom one electric inserters and
- *   transport belts into assembling machines 2 making logistic science
- *   packs; each machine is fed by a fast and a long-handed inserter and
- *   emptied by an electric inserter into a chest (wooden on top, iron below).
- * - **Buffer** (`B`): five stacked belt loops carrying copper cable, four of
- *   them through an underground pair, with rows of electric and fast
- *   inserters passing cable between neighbouring loops both ways. This is
- *   where most of the belt items are.
+ *   The top loop carries gears into assembling machines 1 making automation
+ *   science packs (fed by a fast and a long-handed inserter each; copper
+ *   plates come from a chest, the packs go into another), the bottom one
+ *   transport belts into assembling machines 2 making logistic science packs
+ *   (electric inserters from a chest; a long-handed inserter puts the packs
+ *   onto the loop). Burner inserters serve the chests.
+ * - **Buffer** (`B`, 4 of every 5 other blocks): six stacked belt loops
+ *   carrying copper cable, the outer two through an underground pair and two
+ *   joined by a splitter, with rows of electric and fast inserters passing
+ *   cable between neighbouring loops both ways. This is where most of the
+ *   belt items are.
  * - **Labs** (`L`): two pack loops (automation and logistic science packs)
  *   feeding two rows of four labs through fast and long-handed inserters.
  *   The labs research logistics-2 (200 units × 30 s), which takes longer
@@ -29,15 +31,15 @@
  *   burner inserters empty into chests; burner mining drills drop into
  *   chests.
  *
- * Belt tiers rotate from block to block (yellow, red, blue, matching
- * undergrounds). Blocks are left out where they would cover water or a tree
- * or can't be walked to; the rest are taken nearest the spawn first until
- * the scene has its entity count.
+ * Belt tiers rotate from block to block (yellow, red, blue, with matching
+ * undergrounds and splitters). Blocks are left out where they would cover
+ * water or a tree or can't be walked to; the rest are taken nearest the
+ * spawn first until the scene has its entity count.
  *
  * Building: every player walks from the spawn to its block, places it from
- * a few spots inside it, sets the assemblers' recipes and fills the loops by
- * hand (`Insert` on every belt with room, tick after tick, until they are
- * full). Once every block stands, all players fuel their boilers (and the
+ * a few spots inside it, stocks its chests, sets the assemblers' recipes and
+ * fills the loops by hand (timed rounds of `Insert`, see `FILL`). Once every
+ * block stands, all players fuel their boilers (and the
  * smelting blocks' burner entities) in the same few ticks, so the factory
  * starts at once and none of it burns fuel or uses up its loops during the
  * build. Player 0 starts the research on the first tick (the labs only work
@@ -52,6 +54,7 @@ import { isBuildable } from '../../../src/data/tiles';
 import { beltTable } from '../../../src/sim/belts/belts';
 import { Direction } from '../../../src/sim/entities/direction';
 import { inBuildReach } from '../../../src/sim/entities/placement';
+import { footprintSize } from '../../../src/sim/entities/store';
 import { tileCenter } from '../../../src/sim/fixed';
 import { PLAYER_SPEED } from '../../../src/sim/player';
 import { DEFAULT_FORCE } from '../../../src/sim/research/unlocks';
@@ -84,8 +87,8 @@ const UNDER_B = 10;
  * every `interval` ticks, `rounds` times, per tier. Yellow and red belts
  * move one item spacing (64) in that time, so 4 rounds pack the stretch to
  * the next belt; blue ones move 72, so 3 rounds fit. A full loop would jam
- * (nothing could move or be dropped onto it), so every `FILL_SKIP`th belt
- * and the underground belts get nothing: each leaves a hole of 3–4 item
+ * (nothing could move or be dropped onto it), so one in every `FILL_SKIP` belts
+ * (and the splitters and undergrounds) get nothing: each leaves a hole of 3–4 item
  * spots that circulates with the loop, where inserters can drop items
  * (they drop at one exact spot, so a hole of a single item spot rarely
  * lines up with it).
@@ -97,12 +100,12 @@ const FILL = [
 ] as const;
 const FILL_SKIP = 24;
 
-const BOILER_COAL = 50;
-const BURNER_DRILL_COAL = 5;
-const FURNACE_COAL = 5;
-const BURNER_INSERTER_COAL = 2;
-/** Copper plates and transport belts in each supply chest of an assembly block. */
-const SUPPLY = 20;
+const BOILER_COAL = 40;
+const BURNER_DRILL_COAL = 4;
+const FURNACE_COAL = 3;
+const BURNER_INSERTER_COAL = 1;
+/** Copper plates and electric inserters in each supply chest of an assembly block (a run uses about 10). */
+const SUPPLY = 12;
 /** The research the labs work on (and what it needs researched first). */
 export const LARGE_RESEARCH = TechId.Logistics2;
 const RESEARCHED = [TechId.Automation, TechId.Logistics, TechId.LogisticSciencePack];
@@ -111,10 +114,20 @@ export type BlockKind = 'A' | 'B' | 'L' | 'M';
 
 /** Belt tiers: plain belt and underground item of each. */
 const TIERS = [
-  { belt: ItemId.TransportBelt, under: ItemId.UndergroundBelt },
-  { belt: ItemId.FastTransportBelt, under: ItemId.FastUndergroundBelt },
-  { belt: ItemId.ExpressTransportBelt, under: ItemId.ExpressUndergroundBelt },
+  { belt: ItemId.TransportBelt, under: ItemId.UndergroundBelt, splitter: ItemId.Splitter },
+  {
+    belt: ItemId.FastTransportBelt,
+    under: ItemId.FastUndergroundBelt,
+    splitter: ItemId.FastSplitter,
+  },
+  {
+    belt: ItemId.ExpressTransportBelt,
+    under: ItemId.ExpressUndergroundBelt,
+    splitter: ItemId.ExpressSplitter,
+  },
 ] as const;
+/** Column of the splitter joining two buffer loops. */
+const SPLITTER_X = 9;
 
 /** A closed loop of belts and what to fill it with. */
 interface Loop {
@@ -191,8 +204,41 @@ class PlanBuilder {
       belts.push(this.add(item, x, y + 1, West));
     }
     belts.push(this.add(belt, x0, y + 1, North));
+    this.addLoop(belts, belt, items);
+  }
+
+  /**
+   * Two loops joined by a splitter: a clockwise loop on rows y, y + 1 and a
+   * counter-clockwise one on rows y + 2, y + 3, so both middle rows run
+   * west; a splitter facing west at column `SPLITTER_X` takes the place of
+   * their belts there and shares items from both rows out to both.
+   */
+  splitLoops(y: number, tier: number, items: number[]): void {
+    const { belt, splitter } = TIERS[tier]!;
+    const x0 = LOOP_X;
+    const x1 = LOOP_X + LOOP_LENGTH - 1;
+    const belts: number[] = [];
+    // Clockwise: east along row y, west along row y + 1.
+    for (let x = x0; x < x1; x++) belts.push(this.add(belt, x, y, East));
+    belts.push(this.add(belt, x1, y, South));
+    for (let x = x1; x > x0; x--) {
+      if (x !== SPLITTER_X) belts.push(this.add(belt, x, y + 1, West));
+    }
+    belts.push(this.add(belt, x0, y + 1, North));
+    // Counter-clockwise: west along row y + 2, east along row y + 3.
+    for (let x = x1; x > x0; x--) {
+      if (x !== SPLITTER_X) belts.push(this.add(belt, x, y + 2, West));
+    }
+    belts.push(this.add(belt, x0, y + 2, South));
+    for (let x = x0; x < x1; x++) belts.push(this.add(belt, x, y + 3, East));
+    belts.push(this.add(belt, x1, y + 3, North));
+    belts.push(this.add(splitter, SPLITTER_X, y + 1, West));
+    this.addLoop(belts, belt, items);
+  }
+
+  private addLoop(belts: number[], belt: number, items: number[]): void {
     const plain = belts.filter((i) => this.placements[i]!.item === belt);
-    const fill = plain.filter((_, k) => k % FILL_SKIP !== FILL_SKIP - 1);
+    const fill = plain.filter((_, k) => k % FILL_SKIP !== FILL_SKIP / 2);
     this.loops.push({ belts, fill, items });
   }
 
@@ -275,12 +321,12 @@ function bufferBlock(tier: number): BlockPlan {
   const b = new PlanBuilder();
   b.plant(1);
   const cable = [ItemId.CopperCable];
-  // Six loops; the outer two go through an underground pair.
+  // Six loops: the outer two go through an underground pair, the two above
+  // the bottom one share a splitter.
   b.loop(0, tier, cable, 'top');
   b.loop(3, tier, cable);
   b.loop(5, tier, cable);
-  b.loop(8, tier, cable);
-  b.loop(10, tier, cable);
+  b.splitLoops(8, tier, cable);
   b.loop(12, tier, cable, 'bottom');
   // Inserter rows between loops (rows 2 and 7), passing cable both ways.
   for (const y of [2, 7]) {
@@ -411,7 +457,8 @@ function toWorld(block: Block): WorldBlock {
   const footprint = (i: number): [number, number, number, number] => {
     const p = placements[i]!;
     const proto = entityForItem(p.item)!;
-    return [p.x, p.y, proto.width, proto.height];
+    const { w, h } = footprintSize(proto, proto.rotatable ? p.dir : North);
+    return [p.x, p.y, w, h];
   };
   const standFor = (indices: number[], what: string): number => {
     const k = stands.findIndex((s) => indices.every((i) => reachesSafely(s, ...footprint(i))));
@@ -567,13 +614,13 @@ export function largeLayout(config: LargeSceneConfig): LargeLayout {
     if (orePerMille(world, c.x, c.y) >= MIN_ORE) {
       kind = 'M';
     } else {
-      // Lab blocks spread out among the first ones; the rest 3 buffers to 1 assembly block.
+      // Lab blocks spread out among the first ones; the rest 4 buffers to 1 assembly block.
       const k = general++;
       if (labs < config.labBlocks && k % 12 === 6) {
         kind = 'L';
         labs++;
       } else {
-        kind = k % 4 === 1 ? 'A' : 'B';
+        kind = k % 5 === 1 ? 'A' : 'B';
       }
     }
     const n = ENTITIES_PER_BLOCK[kind];
@@ -601,7 +648,10 @@ function kit(worldBlocks: readonly WorldBlock[]): ItemStack[] {
     (n, s) => n + Math.ceil(s.count / itemPrototype(s.item)!.stackSize),
     0,
   );
-  if (slots > 40) throw new Error(`the starting kit needs ${String(slots)} inventory slots`);
+  if (slots > 40)
+    throw new Error(
+      `the starting kit needs ${String(slots)} inventory slots: ${JSON.stringify(stacks.map((s) => [itemPrototype(s.item)!.name, s.count]))}`,
+    );
   return stacks;
 }
 
@@ -836,7 +886,7 @@ export const FACTORY_50K: LargeSceneConfig = {
 
 export const factory10k = largeScene(
   FACTORY_10K,
-  'About 10 000 entities and 50 000 belt items: a steam-powered factory of 16×15 blocks (assembly lines making red and green science, belt loops carrying cable between inserters, labs researching, smelting on the ore), all belt tiers and undergrounds, built by a crew of players',
+  'About 10 000 entities and 50 000 belt items: a steam-powered factory of 16×15 blocks (assembly lines making red and green science, belt loops carrying cable between inserters, labs researching, smelting on the ore), all belt tiers, undergrounds and splitters, built by a crew of players',
   8,
 );
 

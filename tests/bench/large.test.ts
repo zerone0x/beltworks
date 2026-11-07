@@ -115,7 +115,7 @@ describe('large scenes', () => {
     expect(largeKit(layout).length).toBeGreaterThan(10);
   });
 
-  it('builds the 10k scene through commands, with every belt tier and inserter type', () => {
+  it('builds the 10k scene through commands, with every belt tier, splitter and inserter type', () => {
     const built = factory10k.build();
     const { entityCounts, sim } = built;
     for (const name of [
@@ -123,6 +123,9 @@ describe('large scenes', () => {
       'fast-transport-belt',
       'express-transport-belt',
       'underground-belt',
+      'splitter',
+      'fast-splitter',
+      'express-splitter',
       'fast-underground-belt',
       'express-underground-belt',
       'burner-inserter',

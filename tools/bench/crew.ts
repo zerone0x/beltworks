@@ -17,8 +17,11 @@
  * cuts a corner into water.
  */
 
+import { beltTable } from '../../src/sim/belts/belts';
 import type { Axis, CommandInput } from '../../src/sim/commands';
+import { Direction } from '../../src/sim/entities/direction';
 import { playerOverlaps } from '../../src/sim/entities/placement';
+import { footprintSize } from '../../src/sim/entities/store';
 import { entityForItem } from '../../src/data/entities';
 import { tileCenter } from '../../src/sim/fixed';
 import { PLAYER_SPEED } from '../../src/sim/player';
@@ -122,9 +125,11 @@ export class CrewMember {
    */
   *place(placements: readonly Placement[]): Generator<void, number[], void> {
     for (let waited = 0; ; waited++) {
-      const blocked = placements.some(({ item, x, y }) => {
+      const blocked = placements.some(({ item, x, y, dir }) => {
         const proto = entityForItem(item);
-        return proto !== undefined && this.blockedByOther(x, y, proto.width, proto.height);
+        if (!proto) return false;
+        const { w, h } = footprintSize(proto, proto.rotatable ? dir : Direction.North);
+        return this.blockedByOther(x, y, w, h);
       });
       if (!blocked) break;
       if (waited >= MAX_WAIT_TICKS) {
@@ -194,9 +199,11 @@ export class CrewMember {
   /**
    * Puts two items (one per lane) on the middle of each of `belts` (all
    * within reach) every `interval` ticks, `rounds` times: `items[0]` on the
-   * right lane and the last of `items` on the left. On moving belts with
-   * `interval` ticks of travel ≥ the item spacing, every insert finds room,
-   * so the belts end up with exactly `2 * rounds` items each.
+   * right lane and the last of `items` on the left. On belts that move
+   * evenly by at least the item spacing in `interval` ticks every insert
+   * finds room, so they end up with `2 * rounds` items each; where items
+   * bunch up (behind a splitter), a belt without room at its middle gets
+   * fewer (the player looks first, so every `Insert` sent applies in full).
    */
   *fillRounds(
     belts: readonly number[],
@@ -204,19 +211,21 @@ export class CrewMember {
     rounds: number,
     interval: number,
   ): Task {
+    const table = beltTable(this.sim.state.entities)!;
     const right = items[0]!;
     const left = items[items.length - 1]!;
     for (let r = 0; r < rounds; r++) {
       const insertions: Insertion[] = [];
       for (const entity of belts) {
-        if (right === left) {
-          insertions.push({ entity, item: right, count: 2 });
-        } else {
+        const room = table.insertable(entity, right);
+        if (room === 2 && right !== left) {
           insertions.push({ entity, item: right, count: 1 }, { entity, item: left, count: 1 });
+        } else if (room > 0) {
+          insertions.push({ entity, item: r % 2 === 0 ? right : left, count: room });
         }
       }
       yield* this.insert(insertions);
-      this.beltItems += 2 * belts.length;
+      this.beltItems += insertions.reduce((n, i) => n + i.count, 0);
       if (r < rounds - 1) for (let t = 1; t < interval; t++) yield;
     }
   }
