@@ -82,7 +82,6 @@ export const DEFAULT_STAGES: readonly ProfileStage[] = [
   { name: 'jump terrain 1x', x: 400, y: TERRAIN_Y, zoom: 1, noWait: true },
 ];
 
-
 export interface StageResult {
   name: string;
   zoom: number;

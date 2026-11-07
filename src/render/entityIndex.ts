@@ -55,8 +55,13 @@ export class EntityIndex {
     return this.list;
   }
 
-  /** Replaces the contents with the records of a snapshot; returns whether anything changed. */
+  /**
+   * Replaces the contents with the records of a snapshot; returns whether
+   * anything changed. The same buffer as last time (an unchanged snapshot
+   * section, src/worker/snapshotDelta.ts) is skipped without reading it.
+   */
   apply(buffer: ArrayBuffer): boolean {
+    if (buffer === this.records.buffer) return false;
     const records = new Int32Array(buffer);
     if (sameRecords(records, this.records)) {
       return false;

@@ -197,6 +197,18 @@ describe('EntityIndex', () => {
     expect(index.version).toBe(version + 1);
   });
 
+  it('skips the same buffer as last time without reading it (an unchanged snapshot section)', () => {
+    const index = new EntityIndex();
+    const buffer = records([1, EntityTypeId.WoodenChest, 0, 0, 0]);
+    expect(index.apply(buffer)).toBe(true);
+    const version = index.version;
+    // Even if it were written to (delivered buffers never are), the same buffer is no change.
+    new Int32Array(buffer)[2] = 5;
+    expect(index.apply(buffer)).toBe(false);
+    expect(index.version).toBe(version);
+    expect(index.at(0, 0)?.id).toBe(1);
+  });
+
   it('keeps unknown entity types as 1×1 without a prototype', () => {
     const index = new EntityIndex();
     index.apply(records([3, 200, 7, 7, 0]));

@@ -1,11 +1,19 @@
 /**
- * Render snapshot encoding: copies the state the renderer needs into fresh
- * typed arrays whose buffers can be transferred to the main thread.
+ * Render snapshot encoding: copies the state the renderer needs into int32
+ * buffers for the main thread.
+ *
+ * The section encoders the worker calls every tick (`encodePlayers`,
+ * `encodeResearch`, `encodeEntities`, `encodeBelts`, `encodeInserters`,
+ * `encodePower`) take an optional `SnapshotWriter`: with one, they write
+ * into its reused memory and return a view of it (the worker diffs that
+ * against the previous tick, src/worker/snapshotDelta.ts); without, they
+ * return a fresh array of their own.
  */
 
 import { SAT_ONE } from '../data/entities';
 import { RECIPE_IDS } from '../data/recipes';
 import { TECH_IDS, recipeUnlockedBy, technologyPrototype } from '../data/technologies';
+import { BELT_LENGTH } from './belts/line';
 import { BeltShape, beltTable } from './belts/belts';
 import { SPLITTER_HALF_MODE, splitterHalfTile } from './belts/splitter';
 import { CRAFT_QUEUE_LENGTH } from './crafting/queue';
@@ -17,6 +25,7 @@ import { powerGrid } from './power/grid';
 import { poweredEnergy } from './power/solver';
 import { labTable } from './research/lab';
 import { forceOf, isRecipeUnlocked } from './research/unlocks';
+import { SnapshotWriter } from './snapshotWriter';
 import type { SimState } from './state';
 import { CHUNK_AREA } from './world/chunk';
 
@@ -37,18 +46,29 @@ export const PlayerField = {
  * `[x, y, mining, mineX, mineY, mineProgress]` (positions in subtiles, mine
  * target in tiles, progress in ticks out of `HAND_MINING_TICKS`).
  */
-export function encodePlayers(state: SimState): Int32Array<ArrayBuffer> {
+export function encodePlayers(state: SimState, writer?: SnapshotWriter): Int32Array<ArrayBuffer> {
   const p = state.players;
-  const out = new Int32Array(p.count * PLAYER_STRIDE);
-  for (let i = 0, o = 0; i < p.count; i++, o += PLAYER_STRIDE) {
-    out[o + PlayerField.x] = p.x[i]!;
-    out[o + PlayerField.y] = p.y[i]!;
-    out[o + PlayerField.mining] = p.mining[i]!;
-    out[o + PlayerField.mineX] = p.mineX[i]!;
-    out[o + PlayerField.mineY] = p.mineY[i]!;
-    out[o + PlayerField.mineProgress] = p.mineProgress[i]!;
+  const w = start(writer);
+  w.reserve(p.count * PLAYER_STRIDE);
+  for (let i = 0; i < p.count; i++) {
+    w.push(p.x[i]!);
+    w.push(p.y[i]!);
+    w.push(p.mining[i]!);
+    w.push(p.mineX[i]!);
+    w.push(p.mineY[i]!);
+    w.push(p.mineProgress[i]!);
   }
-  return out;
+  return finish(w, writer);
+}
+
+/** The writer to encode into: `writer` (reset), or a temporary one. */
+function start(writer: SnapshotWriter | undefined): SnapshotWriter {
+  return writer ? writer.reset() : new SnapshotWriter();
+}
+
+/** What an encoder returns: a view of `writer`'s memory, or a fresh copy of a temporary writer's. */
+function finish(w: SnapshotWriter, writer: SnapshotWriter | undefined): Int32Array<ArrayBuffer> {
+  return writer ? w.view() : w.take();
 }
 
 /**
@@ -161,116 +181,264 @@ export const EntityField = {
  * at most `MAX_ENTITY_SIZE` tiles wide, so a range with a one-chunk margin
  * around the viewport catches every entity that overlaps it.
  */
-export function encodeEntities(state: SimState, range: ChunkRange | null): Int32Array<ArrayBuffer> {
+export function encodeEntities(
+  state: SimState,
+  range: ChunkRange | null,
+  writer?: SnapshotWriter,
+): Int32Array<ArrayBuffer> {
+  const w = start(writer);
   if (range === null) {
-    return new Int32Array(0);
+    return finish(w, writer);
   }
   const { entities } = state;
   const { store, occupancy } = entities;
-  const ids = occupancy.originsIn(range);
-  const out = new Int32Array(ids.length * ENTITY_STRIDE);
-  ids.forEach((id, i) => {
-    const o = i * ENTITY_STRIDE;
-    out[o + EntityField.id] = id;
-    out[o + EntityField.type] = store.type(id);
-    out[o + EntityField.x] = store.x(id);
-    out[o + EntityField.y] = store.y(id);
-    out[o + EntityField.dir] = store.dir(id);
-    out[o + EntityField.status] = displayStatus(state, id);
-    out[o + EntityField.recipe] = entities.selectedRecipe(id);
-  });
-  return out;
+  const ids = occupancy.originsIn(range, scratchIds());
+  const grid = powerGrid(entities);
+  w.reserve(ids.length * ENTITY_STRIDE);
+  for (const id of ids) {
+    const type = store.type(id);
+    const table = entities.table(type);
+    let status = table?.status?.(id) ?? MachineState.Idle;
+    // `displayStatus`, with the grid looked up once.
+    if (
+      status === MachineState.Working &&
+      grid &&
+      table?.powerDemand !== undefined &&
+      grid.networkOf(id) !== 0 &&
+      grid.satisfaction(id) < SAT_ONE
+    ) {
+      status = MachineState.LowPower;
+    }
+    w.push(id);
+    w.push(type);
+    w.push(store.x(id));
+    w.push(store.y(id));
+    w.push(store.dir(id));
+    w.push(status);
+    w.push(table?.selectedRecipe?.(id) ?? 0);
+  }
+  return finish(w, writer);
 }
 
-/** Int32 fields per belt record in {@link encodeBelts}, before its items. */
-export const BELT_RECORD_HEADER = 7;
-/** Int32 fields per item in {@link encodeBelts}. */
-export const BELT_ITEM_STRIDE = 4;
+/** Scratch list of entity ids for the encoders (emptied on every call; one encoder at a time). */
+const idScratch: number[] = [];
+function scratchIds(): number[] {
+  idScratch.length = 0;
+  return idScratch;
+}
+
+/** Int32 fields per belt in the header block of {@link encodeBelts}. */
+export const BELT_STRIDE = 6;
+/** Field offsets within one belt record of {@link encodeBelts}. */
+export const BeltField = {
+  x: 0,
+  y: 1,
+  dir: 2,
+  /** A `BeltShape`. */
+  shape: 3,
+  /** Entity type (its prototype's `beltSpeed` is the tier). */
+  type: 4,
+  /** `UndergroundMode`, or for a splitter half `SPLITTER_HALF_MODE` plus the half. */
+  mode: 5,
+} as const;
+/** Int32 fields per item in {@link encodeBelts}: `[offset, packed]` (see {@link packBeltItem}). */
+export const BELT_ITEM_STRIDE = 2;
+
+/** Packs an item's lane, how far it moved on the last tick and its id into one int32. */
+export function packBeltItem(lane: number, moved: number, item: number): number {
+  return (item & 0x7fff) | ((lane & 1) << 15) | (moved << 16);
+}
+/** The item id of a packed belt item. */
+export const beltItemId = (packed: number): number => packed & 0x7fff;
+/** The lane (0 left, 1 right) of a packed belt item. */
+export const beltItemLane = (packed: number): number => (packed >> 15) & 1;
+/** How far a packed belt item moved on the last tick, in subtiles. */
+export const beltItemMoved = (packed: number): number => packed >>> 16;
+
+/**
+ * Where the parts of a buffer made by {@link encodeBelts} start, checked
+ * against its length: belt `b`'s header is at `BELT_HEADER + b * BELT_STRIDE`,
+ * its item count at `counts + b`, and the items of all belts follow each
+ * other from `items` on. `null` if the buffer is too short for its count.
+ */
+export function beltLayout(v: Int32Array): { count: number; counts: number; items: number } | null {
+  const count = v[0] ?? 0;
+  if (count < 0) return null;
+  const counts = BELT_HEADER + count * BELT_STRIDE;
+  const items = counts + count;
+  return items <= v.length ? { count, counts, items } : null;
+}
+/** Words before the first belt record in {@link encodeBelts}. */
+export const BELT_HEADER = 1;
+
+/** Scratch for `encodeBelts`, grown as needed and reused. */
+const beltScratch = {
+  /** Per belt record: its line's id and its index on that line. */
+  line: new Int32Array(256),
+  index: new Int32Array(256),
+  /** Per line touched: where its belts start in `slot`. */
+  base: new Map<number, number>(),
+  /** Per belt of a touched line (at its line's base + its index): its record, or -1. */
+  slot: new Int32Array(256),
+  /** Per item found, in walk order: its record, offset and packed fields. */
+  itemSlot: new Int32Array(1024),
+  itemOffset: new Int32Array(1024),
+  itemPacked: new Int32Array(1024),
+  /** Per record: items so far, then where its next item goes. */
+  counts: new Int32Array(256),
+};
+
+function grown(a: Int32Array<ArrayBuffer>, n: number): Int32Array<ArrayBuffer> {
+  if (a.length >= n) return a;
+  let size = a.length * 2;
+  while (size < n) size *= 2;
+  return new Int32Array(size);
+}
 
 /**
  * Encodes the belts (every tier, underground belts included) whose tile lies
- * in the chunks of `range`, with the items on them, as int32s:
- * `[beltCount]`, then per belt `[x, y, dir, shape, itemCount, type, mode]`
- * followed by `itemCount` records `[lane, offset, moved, item]` (`shape` a
- * `BeltShape`; `type` the entity type, whose `beltSpeed` is its tier;
- * `mode` an `UndergroundMode`; `offset` the item's distance from the belt's
- * end edge in subtiles, 0..256; `moved` how far it moved on the last tick,
- * for drawing it between ticks). Items under the ground between an
- * underground pair are on no belt and not sent. A splitter comes as two
- * records, one per half (its left half first, see src/sim/belts/splitter.ts),
- * each on its own tile with `mode` `SPLITTER_HALF_MODE + half`. Belts come
- * in the order of `encodeEntities`.
+ * in the chunks of `range`, with the items on them, as int32s in three blocks:
+ * `[beltCount]`, then per belt `BELT_STRIDE` fields `[x, y, dir, shape, type,
+ * mode]` (see {@link BeltField}), then per belt its item count, then the
+ * items of every belt in belt order, `BELT_ITEM_STRIDE` words each:
+ * `[offset, packed]` (`offset` the item's distance from the belt's end edge in
+ * subtiles, 0..256; `packed` its lane, how far it moved on the last tick, for
+ * drawing it between ticks, and its id, see {@link packBeltItem}). Items on
+ * a belt come lane by lane, each from the belt's end backwards. The belts
+ * block only changes when belts do, so a snapshot that only moves items
+ * changes the counts and items alone (src/worker/snapshotDelta.ts sends just
+ * those). Items under the ground between an underground pair are on no belt
+ * and not sent. A splitter comes as two records, one per half (its left half
+ * first, see src/sim/belts/splitter.ts), each on its own tile with `mode`
+ * `SPLITTER_HALF_MODE + half`. Belts come in the order of `encodeEntities`.
  */
-export function encodeBelts(state: SimState, range: ChunkRange | null): Int32Array<ArrayBuffer> {
+export function encodeBelts(
+  state: SimState,
+  range: ChunkRange | null,
+  writer?: SnapshotWriter,
+): Int32Array<ArrayBuffer> {
+  const w = start(writer);
   const table = beltTable(state.entities);
   if (range === null || !table) {
-    return new Int32Array(1);
+    w.push(0);
+    return finish(w, writer);
   }
   const { store, occupancy } = state.entities;
-  const ids = occupancy.originsIn(range).filter((id) => table.isBelt(id));
-  // Walk each line once, picking out the items on the belts in range.
-  const items = new Map<number, number[]>();
-  const wanted = new Map<number, Map<number, number[]>>();
-  const want = (line: number, index: number, list: number[]) => {
-    let byIndex = wanted.get(line);
-    if (!byIndex) wanted.set(line, (byIndex = new Map<number, number[]>()));
-    byIndex.set(index, list);
-  };
-  /** The items of a splitter's right half (its left half's are in `items`). */
-  const rightHalf = new Map<number, number[]>();
+  const ids = occupancy.originsIn(range, scratchIds());
+  const sc = beltScratch;
+  // The header block, and which line and index each record's items are on.
+  const countAt = w.skip(1);
   let records = 0;
-  for (const id of ids) {
-    const list: number[] = [];
-    items.set(id, list);
-    records++;
-    if (table.isSplitter(id)) {
-      const [left, right] = table.halfLines(id);
-      const second: number[] = [];
-      rightHalf.set(id, second);
-      want(left.id, 0, list);
-      want(right.id, 0, second);
-      records++;
-      continue;
+  const record = (lineId: number, index: number) => {
+    if (records === sc.line.length) {
+      const line = new Int32Array(records * 2);
+      line.set(sc.line);
+      sc.line = line;
+      const idx = new Int32Array(records * 2);
+      idx.set(sc.index);
+      sc.index = idx;
     }
-    want(table.beltLine(id), table.beltIndex(id), list);
-  }
-  for (const [lineId, byIndex] of wanted) {
-    table.forEachItem(table.line(lineId)!, (k, lane, offset, moved, item) => {
-      byIndex.get(k)?.push(lane, offset, moved, item);
-    });
-  }
-  const out: number[] = [records];
+    sc.line[records] = lineId;
+    sc.index[records] = index;
+    records++;
+  };
   for (const id of ids) {
-    const list = items.get(id)!;
-    const second = rightHalf.get(id);
-    if (second) {
-      for (const [half, halfItems] of [list, second].entries()) {
-        const tile = splitterHalfTile(store.x(id), store.y(id), store.dir(id), half);
-        out.push(
-          tile.x,
-          tile.y,
-          store.dir(id),
-          BeltShape.Straight,
-          halfItems.length / BELT_ITEM_STRIDE,
-          store.type(id),
-          SPLITTER_HALF_MODE + half,
-        );
-        for (const v of halfItems) out.push(v);
+    if (!table.isBelt(id)) continue;
+    const x = store.x(id);
+    const y = store.y(id);
+    const dir = store.dir(id);
+    const type = store.type(id);
+    if (table.isSplitter(id)) {
+      const halves = table.halfLines(id);
+      for (let half = 0; half < 2; half++) {
+        const tile = splitterHalfTile(x, y, dir, half);
+        w.push(tile.x);
+        w.push(tile.y);
+        w.push(dir);
+        w.push(BeltShape.Straight);
+        w.push(type);
+        w.push(SPLITTER_HALF_MODE + half);
+        record(halves[half]!.id, 0);
       }
       continue;
     }
-    out.push(
-      store.x(id),
-      store.y(id),
-      store.dir(id),
-      table.shape(id),
-      list.length / BELT_ITEM_STRIDE,
-      store.type(id),
-      table.mode(id),
-    );
-    for (const v of list) out.push(v);
+    w.push(x);
+    w.push(y);
+    w.push(dir);
+    w.push(table.shape(id));
+    w.push(type);
+    w.push(table.mode(id));
+    record(table.beltLine(id), table.beltIndex(id));
   }
-  return Int32Array.from(out);
+  w.set(countAt, records);
+  // Map each touched line's belts to their records.
+  sc.base.clear();
+  let slots = 0;
+  for (let r = 0; r < records; r++) {
+    const lineId = sc.line[r]!;
+    if (!sc.base.has(lineId)) {
+      sc.base.set(lineId, slots);
+      slots += table.line(lineId)!.belts.length;
+    }
+  }
+  sc.slot = grown(sc.slot, slots);
+  sc.slot.fill(-1, 0, slots);
+  for (let r = 0; r < records; r++) {
+    sc.slot[sc.base.get(sc.line[r]!)! + sc.index[r]!] = r;
+  }
+  // Walk each touched line once, picking out the items on belts in range.
+  sc.counts = grown(sc.counts, records + 1);
+  const counts = sc.counts;
+  counts.fill(0, 0, records + 1);
+  let found = 0;
+  for (const [lineId, base] of sc.base) {
+    const line = table.line(lineId)!;
+    const last = line.belts.length - 1;
+    for (const l of line.lanes) {
+      const n = l.count;
+      if (n === 0) continue;
+      if (found + n > sc.itemSlot.length) {
+        const size = Math.max(found + n, sc.itemSlot.length * 2);
+        for (const key of ['itemSlot', 'itemOffset', 'itemPacked'] as const) {
+          const next = new Int32Array(size);
+          next.set(sc[key].subarray(0, found));
+          sc[key] = next;
+        }
+      }
+      const lane = l.index;
+      let d = 0;
+      for (let i = 0; i < n; i++) {
+        d += l.gap(i);
+        // `line.beltIndexAt(d)`.
+        const k = Math.max(0, Math.min(last, Math.floor(d / BELT_LENGTH)));
+        const r = sc.slot[base + k]!;
+        if (r < 0) continue;
+        sc.itemSlot[found] = r;
+        sc.itemOffset[found] = d - k * BELT_LENGTH;
+        sc.itemPacked[found] = packBeltItem(lane, l.moved(i), l.item(i));
+        counts[r]!++;
+        found++;
+      }
+    }
+  }
+  // The counts, then the items, each record's in the order they were found.
+  w.reserve(records + found * BELT_ITEM_STRIDE);
+  let at = w.length + records;
+  for (let r = 0; r < records; r++) {
+    const n = counts[r]!;
+    w.push(n);
+    counts[r] = at;
+    at += n * BELT_ITEM_STRIDE;
+  }
+  w.skip(found * BELT_ITEM_STRIDE);
+  for (let i = 0; i < found; i++) {
+    const r = sc.itemSlot[i]!;
+    const o = counts[r]!;
+    w.set(o, sc.itemOffset[i]!);
+    w.set(o + 1, sc.itemPacked[i]!);
+    counts[r] = o + BELT_ITEM_STRIDE;
+  }
+  return finish(w, writer);
 }
 
 /** A belt and its items as decoded on the main thread. */
@@ -293,22 +461,29 @@ export interface BeltData {
 export function decodeBelts(buffer: ArrayBuffer): BeltData[] {
   const v = new Int32Array(buffer);
   const out: BeltData[] = [];
-  let o = 1;
-  const count = v[0] ?? 0;
-  for (let b = 0; b < count && o + BELT_RECORD_HEADER <= v.length; b++) {
-    const n = v[o + 4]!;
+  const layout = beltLayout(v);
+  if (!layout) return out;
+  let o = layout.items;
+  for (let b = 0; b < layout.count; b++) {
+    const h = BELT_HEADER + b * BELT_STRIDE;
     const belt: BeltData = {
-      x: v[o]!,
-      y: v[o + 1]!,
-      dir: v[o + 2]!,
-      shape: v[o + 3]!,
-      type: v[o + 5]!,
-      mode: v[o + 6]!,
+      x: v[h + BeltField.x]!,
+      y: v[h + BeltField.y]!,
+      dir: v[h + BeltField.dir]!,
+      shape: v[h + BeltField.shape]!,
+      type: v[h + BeltField.type]!,
+      mode: v[h + BeltField.mode]!,
       items: [],
     };
-    o += BELT_RECORD_HEADER;
+    const n = v[layout.counts + b]!;
     for (let i = 0; i < n && o + BELT_ITEM_STRIDE <= v.length; i++, o += BELT_ITEM_STRIDE) {
-      belt.items.push({ lane: v[o]!, offset: v[o + 1]!, moved: v[o + 2]!, item: v[o + 3]! });
+      const packed = v[o + 1]!;
+      belt.items.push({
+        lane: beltItemLane(packed),
+        offset: v[o]!,
+        moved: beltItemMoved(packed),
+        item: beltItemId(packed),
+      });
     }
     out.push(belt);
   }
@@ -350,32 +525,34 @@ export const InserterField = {
 export function encodeInserters(
   state: SimState,
   range: ChunkRange | null,
+  writer?: SnapshotWriter,
 ): Int32Array<ArrayBuffer> {
+  const w = start(writer);
+  const countAt = w.skip(1);
   if (range === null) {
-    return new Int32Array(1);
+    return finish(w, writer);
   }
   const { entities } = state;
   const { store, occupancy } = entities;
-  const ids = occupancy
-    .originsIn(range)
-    .filter((id) => inserterTableOf(entities, store.type(id)) !== undefined);
-  const out = new Int32Array(1 + ids.length * INSERTER_STRIDE);
-  out[0] = ids.length;
-  ids.forEach((id, i) => {
-    const o = 1 + i * INSERTER_STRIDE;
+  let count = 0;
+  for (const id of occupancy.originsIn(range, scratchIds())) {
     const type = store.type(id);
-    const table = inserterTableOf(entities, type)!;
+    const table = inserterTableOf(entities, type);
+    if (!table) continue;
     const { held, arm } = table.hand(id);
-    out[o + InserterField.x] = store.x(id);
-    out[o + InserterField.y] = store.y(id);
-    out[o + InserterField.dir] = store.dir(id);
-    out[o + InserterField.arm] = arm;
-    out[o + InserterField.held] = held;
-    out[o + InserterField.swing] = table.lastSwing(id, entities);
-    out[o + InserterField.span] = table.armEnd;
-    out[o + InserterField.type] = type;
-  });
-  return out;
+    w.reserve(INSERTER_STRIDE);
+    w.push(store.x(id));
+    w.push(store.y(id));
+    w.push(store.dir(id));
+    w.push(arm);
+    w.push(held);
+    w.push(table.lastSwing(id, entities));
+    w.push(table.armEnd);
+    w.push(type);
+    count++;
+  }
+  w.set(countAt, count);
+  return finish(w, writer);
 }
 
 /** An inserter as decoded on the main thread. */
@@ -435,43 +612,81 @@ export const MEMBER_STRIDE = 5;
  *   `MemberStats`; network 0 when not connected). Steam engines animate
  *   with what they delivered.
  */
-export function encodePower(state: SimState, range: ChunkRange | null): Int32Array<ArrayBuffer> {
+export function encodePower(
+  state: SimState,
+  range: ChunkRange | null,
+  writer?: SnapshotWriter,
+): Int32Array<ArrayBuffer> {
+  const w = start(writer);
   const grid = powerGrid(state.entities);
   if (range === null || !grid) {
-    return new Int32Array(4);
+    w.skip(4);
+    return finish(w, writer);
   }
   const { store, occupancy } = state.entities;
-  const origins = occupancy.originsIn(range);
-  const poles = origins.filter((id) => grid.isPole(id));
-  const inRange = new Set(poles);
-  const out: number[] = [poles.length];
-  const nets = new Set<number>();
+  const origins = occupancy.originsIn(range, scratchIds());
+  const poles = powerScratch.poles;
+  const inRange = powerScratch.inRange;
+  const nets = powerScratch.nets;
+  poles.length = 0;
+  inRange.clear();
+  nets.clear();
+  for (const id of origins) {
+    if (grid.isPole(id)) {
+      poles.push(id);
+      inRange.add(id);
+    }
+  }
+  w.push(poles.length);
   for (const id of poles) {
     const net = grid.networkOfPole(id);
     nets.add(net);
-    out.push(id, store.type(id), store.x(id), store.y(id), net);
+    w.push(id);
+    w.push(store.type(id));
+    w.push(store.x(id));
+    w.push(store.y(id));
+    w.push(net);
   }
-  const wires: number[] = [];
+  const wireCountAt = w.skip(1);
+  let wires = 0;
   for (const id of poles) {
     for (const n of grid.neighbours(id)) {
-      if (n > id && inRange.has(n)) wires.push(id, n);
+      if (n > id && inRange.has(n)) {
+        w.push(id);
+        w.push(n);
+        wires++;
+      }
     }
   }
-  out.push(wires.length / 2, ...wires);
+  w.set(wireCountAt, wires);
   const sorted = [...nets].sort((a, b) => a - b);
-  out.push(sorted.length);
+  w.push(sorted.length);
   for (const net of sorted) {
     const n = grid.network(net)!;
-    out.push(net, n.poles, n.demand | 0, n.supply | 0, n.satisfaction);
+    w.push(net);
+    w.push(n.poles);
+    w.push(n.demand | 0);
+    w.push(n.supply | 0);
+    w.push(n.satisfaction);
   }
-  const members: number[] = [];
+  const memberCountAt = w.skip(1);
+  let members = 0;
   for (const id of origins) {
     const m = grid.member(id);
-    if (m) members.push(id, m.network, m.demand | 0, m.maxOutput | 0, m.drawn | 0);
+    if (!m) continue;
+    w.push(id);
+    w.push(m.network);
+    w.push(m.demand | 0);
+    w.push(m.maxOutput | 0);
+    w.push(m.drawn | 0);
+    members++;
   }
-  out.push(members.length / MEMBER_STRIDE, ...members);
-  return Int32Array.from(out);
+  w.set(memberCountAt, members);
+  return finish(w, writer);
 }
+
+/** Scratch for `encodePower`, emptied on every call. */
+const powerScratch = { poles: [] as number[], inRange: new Set<number>(), nets: new Set<number>() };
 
 /** A pole as decoded on the main thread. */
 export interface PoleData {
@@ -689,20 +904,24 @@ export const RESEARCH_TECH_STRIDE = 4;
  * researching now, and the whole working ticks done on those, summed over
  * the labs). Sent in every snapshot: a few dozen bytes.
  */
-export function encodeResearch(state: SimState, playerId: number): Int32Array<ArrayBuffer> {
+export function encodeResearch(
+  state: SimState,
+  playerId: number,
+  writer?: SnapshotWriter,
+): Int32Array<ArrayBuffer> {
   const force = forceOf(state, playerId);
   const labs = labTable(state.entities);
-  const out = new Int32Array(2 + TECH_IDS.length * RESEARCH_TECH_STRIDE);
-  out[0] = state.research.currentOf(force);
-  out[1] = TECH_IDS.length;
-  TECH_IDS.forEach((tech, i) => {
-    const o = 2 + i * RESEARCH_TECH_STRIDE;
-    out[o] = tech;
-    out[o + 1] = state.research.unitsDone(force, tech);
-    out[o + 2] = labs?.unitsInProgress(tech) ?? 0;
-    out[o + 3] = labs?.ticksInProgress(tech) ?? 0;
-  });
-  return out;
+  const w = start(writer);
+  w.reserve(2 + TECH_IDS.length * RESEARCH_TECH_STRIDE);
+  w.push(state.research.currentOf(force));
+  w.push(TECH_IDS.length);
+  for (const tech of TECH_IDS) {
+    w.push(tech);
+    w.push(state.research.unitsDone(force, tech));
+    w.push(labs?.unitsInProgress(tech) ?? 0);
+    w.push(labs?.ticksInProgress(tech) ?? 0);
+  }
+  return finish(w, writer);
 }
 
 /** The research of the local player's force as decoded on the main thread. */

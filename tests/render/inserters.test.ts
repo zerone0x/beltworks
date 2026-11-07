@@ -4,6 +4,7 @@ import { ItemId } from '../../src/data/items';
 import { ghostInserterTiles } from '../../src/render/entityLayer';
 import {
   ARM_LENGTH,
+  InserterLayer,
   armColor,
   armLength,
   armTip,
@@ -113,6 +114,39 @@ describe('swingFraction', () => {
     expect(swingFraction(at(13 * 65_536, 32_768, span), 1)).toBeCloseTo(0.5, 9);
     expect(swingFraction(at(13 * 65_536, 32_768, span), 0)).toBeCloseTo(12.5 / 26, 9);
     expect(swingFraction(at(5, 1, 0), 0)).toBe(0);
+  });
+});
+
+describe('InserterLayer.apply', () => {
+  /** An `encodeInserters` buffer of burner inserters `[x, arm, held, swing]` facing east on row 0. */
+  const buffer = (...list: [number, number, number, number][]) => {
+    const out = [list.length];
+    for (const [x, arm, held, swing] of list) out.push(x, 0, East, arm, held, swing, 36, BURNER);
+    return Int32Array.from(out).buffer;
+  };
+
+  it('updates the same inserters in place and rebuilds when they change', () => {
+    const layer = new InserterLayer();
+    layer.apply(buffer([1, 0, 0, 0], [2, 10, ItemId.Coal, 1]), 0);
+    const [a, b] = layer.data;
+    expect(b).toMatchObject({ x: 2, arm: 10, held: ItemId.Coal, swing: 1 });
+    // Arms and hands moved: the same objects, updated.
+    layer.apply(buffer([1, 1, 0, 1], [2, 11, ItemId.Coal, 1]), 16);
+    expect(layer.data[0]).toBe(a);
+    expect(layer.data[1]).toBe(b);
+    expect(b).toMatchObject({ arm: 11 });
+    expect(layer.poses(2, 0)?.held).toBe(ItemId.Coal);
+    // One of them turned: new records.
+    layer.apply(buffer([1, 1, 0, 1], [3, 11, 0, 0]), 32);
+    expect(layer.data[1]).not.toBe(b);
+    expect(layer.poses(2, 0)).toBeNull();
+    expect(layer.poses(3, 0)?.held).toBe(0);
+    // The same buffer again (an unchanged snapshot section): nothing to read.
+    const same = buffer([1, 2, 0, 1]);
+    layer.apply(same, 48);
+    const records = layer.data;
+    layer.apply(same, 64);
+    expect(layer.data).toBe(records);
   });
 });
 

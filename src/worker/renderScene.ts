@@ -40,7 +40,8 @@ import { Direction } from '../sim/entities/direction';
 import { MachineState } from '../sim/entities/machine';
 import {
   BELT_ITEM_STRIDE,
-  BELT_RECORD_HEADER,
+  BELT_STRIDE,
+  packBeltItem,
   ENTITY_STRIDE,
   INSERTER_STRIDE,
   MEMBER_STRIDE,
@@ -266,23 +267,24 @@ export class RenderScene {
   encodeBelts(window: ChunkRect | null, tick: number): Int32Array<ArrayBuffer> {
     if (!window) return new Int32Array(1);
     const belts = this.entities.filter((e) => e.speed > 0 && this.inWindow(e, window));
-    const out = new Int32Array(
-      1 + belts.length * (BELT_RECORD_HEADER + 2 * ITEMS_PER_LANE * BELT_ITEM_STRIDE),
-    );
+    const perBelt = 2 * ITEMS_PER_LANE;
+    const out = new Int32Array(1 + belts.length * (BELT_STRIDE + 1 + perBelt * BELT_ITEM_STRIDE));
     out[0] = belts.length;
-    let o = 1;
-    for (const b of belts) {
-      out.set([b.x, b.y, b.dir, b.shape, 2 * ITEMS_PER_LANE, b.type, b.mode], o);
-      o += BELT_RECORD_HEADER;
+    const counts = 1 + belts.length * BELT_STRIDE;
+    let o = counts + belts.length;
+    belts.forEach((b, i) => {
+      out.set([b.x, b.y, b.dir, b.shape, b.type, b.mode], 1 + i * BELT_STRIDE);
+      out[counts + i] = perBelt;
       // Offsets count down to the belt's end edge; items wrap onto the next belt.
       const front = (((b.id * 29 - tick * b.speed) % ITEM_SPACING) + ITEM_SPACING) % ITEM_SPACING;
       for (let lane = 0; lane < 2; lane++) {
         for (let k = 0; k < ITEMS_PER_LANE; k++) {
-          out.set([lane, front + k * ITEM_SPACING, b.speed, b.item], o);
+          out[o] = front + k * ITEM_SPACING;
+          out[o + 1] = packBeltItem(lane, b.speed, b.item);
           o += BELT_ITEM_STRIDE;
         }
       }
-    }
+    });
     return out;
   }
 

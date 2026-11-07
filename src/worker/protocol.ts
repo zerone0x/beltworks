@@ -10,7 +10,11 @@
  * `CancelCraft`, and the tech tree's `SetResearch`; like every command they are validated for shape here and
  * ignored by the simulation when they don't apply.
  *
- * Bulk data travels in ArrayBuffers that are transferred, not copied.
+ * Bulk data travels in ArrayBuffers that are transferred, not copied. The
+ * int32 sections of a snapshot (`DELTA_SECTIONS`) go as deltas: whole, as a
+ * patch on the previous one, or not at all when unchanged
+ * (`SnapshotWireMessage`, src/worker/snapshotDelta.ts); `SimClient` turns
+ * them back into whole sections (`SnapshotMessage`).
  */
 
 import type { CommandInput } from '../sim/commands';
@@ -162,10 +166,16 @@ export type MainToWorker =
   | SetPausedMessage;
 
 /**
- * Render state after the latest tick. Sent once per worker wake-up that ran at
- * least one tick (not once per tick): when the worker catches up several ticks
- * at once, only the newest state is useful to the renderer, and `ticksRun`
- * says how many ticks it covers.
+ * Render state after the latest tick, as the main thread's consumers get it
+ * (`SimClient.onSnapshot`): every section whole. Sent once per worker
+ * wake-up that ran at least one tick (not once per tick): when the worker
+ * catches up several ticks at once, only the newest state is useful to the
+ * renderer, and `ticksRun` says how many ticks it covers.
+ *
+ * A section of `DELTA_SECTIONS` that didn't change since the previous
+ * snapshot is the very same `ArrayBuffer` as in that snapshot, so a consumer
+ * can skip it by identity (`buffer === last`). Buffers are never written to
+ * once delivered: keeping one is safe.
  */
 export interface SnapshotMessage {
   type: 'snapshot';
@@ -240,6 +250,30 @@ export interface SnapshotMessage {
   sentAt: number;
 }
 
+/** The int32 snapshot sections the worker sends as deltas, in the order of `patched`'s bits. */
+export const DELTA_SECTIONS = [
+  'players',
+  'research',
+  'entities',
+  'belts',
+  'inserters',
+  'power',
+] as const;
+export type DeltaSection = (typeof DELTA_SECTIONS)[number];
+
+/**
+ * A snapshot as the worker sends it: each of `DELTA_SECTIONS` is the whole
+ * section, a patch on the one sent before (its bit in `patched` set), or
+ * `null` when it didn't change (src/worker/snapshotDelta.ts). The main
+ * thread must apply every one, in order.
+ */
+export type SnapshotWireMessage = Omit<SnapshotMessage, DeltaSection> & {
+  [K in DeltaSection]: ArrayBuffer | null;
+} & {
+  /** Bit `i` set: section `DELTA_SECTIONS[i]` is a patch. */
+  patched: number;
+};
+
 export interface StatsMessage {
   type: 'stats';
   /** Ticks completed. */
@@ -278,4 +312,4 @@ export interface LoadedMessage {
 }
 
 export type WorkerToMain =
-  SnapshotMessage | StatsMessage | ErrorMessage | SavedMessage | LoadedMessage;
+  SnapshotWireMessage | StatsMessage | ErrorMessage | SavedMessage | LoadedMessage;

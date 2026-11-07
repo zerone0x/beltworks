@@ -12,7 +12,7 @@ import { EntityTypeId, SAT_ONE } from '../../src/data/entities';
 import { RECIPES, RecipeId } from '../../src/data/recipes';
 import { TechId } from '../../src/data/technologies';
 import { MachineState } from '../../src/sim/entities/machine';
-import type { InserterData } from '../../src/sim/snapshot';
+import { packBeltItem, type InserterData } from '../../src/sim/snapshot';
 
 const WINDOW = { cx0: -1, cy0: -1, cx1: 1, cy1: 1 };
 
@@ -207,13 +207,17 @@ describe('loop sources', () => {
   });
 
   it('lists belts whose items moved, from the snapshot buffer', () => {
-    // [count], then per belt [x, y, dir, shape, itemCount, type, mode] and [lane, offset, moved, item] per item.
+    // [count], then per belt [x, y, dir, shape, type, mode], then the item
+    // counts, then [offset, packed] per item (see encodeBelts).
     const T = EntityTypeId.TransportBelt;
     const buffer = new Int32Array([
       3,
-      ...[0, 0, 0, 0, 2, T, 0, 0, 10, 0, 1, 1, 50, 2, 1], // the second item moved
-      ...[1, 0, 0, 0, 1, T, 0, 0, 10, 0, 1], // stuck
-      ...[2, 4, 0, 0, 0, T, 0], // empty
+      ...[0, 0, 0, 0, T, 0],
+      ...[1, 0, 0, 0, T, 0],
+      ...[2, 4, 0, 0, T, 0],
+      ...[2, 1, 0], // the third belt is empty
+      ...[10, packBeltItem(0, 0, 1), 50, packBeltItem(1, 2, 1)], // the second item moved
+      ...[10, packBeltItem(0, 0, 1)], // stuck
     ]).buffer;
     expect(beltSources(buffer)).toEqual([{ x: 0.5, y: 0.5 }]);
     expect(beltSources(new ArrayBuffer(0))).toEqual([]);

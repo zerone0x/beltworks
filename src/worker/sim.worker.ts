@@ -25,6 +25,7 @@ import { Sim } from '../sim/tick';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
 import { BENCH_SCENES, RenderScene, isGridScene, isRenderScene } from './renderScene';
 import { FixedStepClock } from './loop';
+import { SnapshotEncoder } from './snapshotDelta';
 import { sharedNow } from './snapshotMeter';
 import {
   LOCAL_PLAYER_ID,
@@ -59,6 +60,8 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let paused = false;
 /** Dev and test builds only: the scripted render scene sent instead of the simulation's entities. */
 let scene: RenderScene | null = null;
+/** What the main thread has of each delta section, and the writers they are encoded into. */
+const deltas = new SnapshotEncoder();
 
 // Stats accumulated since the last `stats` message.
 let statTicks = 0;
@@ -117,53 +120,44 @@ function sendSnapshot(ticksRun: number): void {
     return;
   }
   const encodeStart = performance.now();
-  const players = encodePlayers(sim.state);
-  const inventory = encodeInventory(sim.state, LOCAL_PLAYER_ID);
-  const craftQueue = encodeCraftQueue(sim.state, LOCAL_PLAYER_ID);
-  const research = encodeResearch(sim.state, LOCAL_PLAYER_ID);
+  const w = deltas.writers;
   const batch = streamer.collect();
   const chunks = batch && batch.chunks.length > 0 ? encodeChunks(batch.chunks) : null;
   const window = batch?.window ?? null;
-  const entities = scene
-    ? scene.encodeEntities(window, sim.tick)
-    : encodeEntities(sim.state, window);
-  const belts = scene ? scene.encodeBelts(window, sim.tick) : encodeBelts(sim.state, window);
-  const inserters = scene
-    ? scene.encodeInserters(window, sim.tick)
-    : encodeInserters(sim.state, window);
-  const power = scene ? scene.encodePower(window) : encodePower(sim.state, window);
+  // The int32 sections, encoded into reused writers and sent as deltas.
+  const { sections, patched, transfer } = deltas.encode({
+    players: encodePlayers(sim.state, w.players),
+    research: encodeResearch(sim.state, LOCAL_PLAYER_ID, w.research),
+    entities: scene
+      ? scene.encodeEntities(window, sim.tick)
+      : encodeEntities(sim.state, window, w.entities),
+    belts: scene ? scene.encodeBelts(window, sim.tick) : encodeBelts(sim.state, window, w.belts),
+    inserters: scene
+      ? scene.encodeInserters(window, sim.tick)
+      : encodeInserters(sim.state, window, w.inserters),
+    power: scene ? scene.encodePower(window) : encodePower(sim.state, window, w.power),
+  });
+  const inventory = encodeInventory(sim.state, LOCAL_PLAYER_ID);
+  const craftQueue = encodeCraftQueue(sim.state, LOCAL_PLAYER_ID);
   const detail = inspected !== 0 ? encodeEntityDetail(sim.state, LOCAL_PLAYER_ID, inspected) : null;
   const network = inspected !== 0 ? encodeNetworkDetail(sim.state, inspected) : null;
-  const transfer: Transferable[] = [
-    players.buffer,
-    inventory.buffer,
-    craftQueue.buffer,
-    research.buffer,
-    entities.buffer,
-    belts.buffer,
-    inserters.buffer,
-    power.buffer,
-  ];
+  transfer.push(inventory.buffer, craftQueue.buffer);
   if (chunks) transfer.push(chunks);
   if (detail) transfer.push(detail.buffer);
   if (network) transfer.push(network.buffer);
   let bytes = 0;
-  for (const b of transfer) bytes += (b as ArrayBuffer).byteLength;
+  for (const b of transfer) bytes += b.byteLength;
   post(
     {
       type: 'snapshot',
       tick: sim.tick,
       ticksRun,
       viewport,
-      players: players.buffer,
+      ...sections,
+      patched,
       inventory: inventory.buffer,
       craftQueue: craftQueue.buffer,
-      research: research.buffer,
-      entities: entities.buffer,
-      belts: belts.buffer,
-      inserters: inserters.buffer,
-      power: power.buffer,
-      chunkWindow: batch?.window ?? null,
+      chunkWindow: window,
       chunks,
       inspected,
       entityDetail: detail?.buffer ?? null,
@@ -182,6 +176,8 @@ function start(next: Sim): void {
   // A fresh streamer resends every chunk in the window, replacing the main
   // thread's copies from the previous world.
   streamer = new ChunkStreamer(next.state.world);
+  // Likewise every snapshot section goes whole once.
+  deltas.reset();
   if (viewport) {
     streamer.setViewport(viewport);
   }

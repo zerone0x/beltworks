@@ -4,6 +4,7 @@ import { formatReport, percentiles, type ProfileReport } from '../../src/profile
 import { BeltLayer } from '../../src/render/beltLayer';
 import { decodeBelts, decodeInserters, decodePower, ENTITY_STRIDE } from '../../src/sim/snapshot';
 import { BENCH_SCENES, RenderScene, isRenderScene } from '../../src/worker/renderScene';
+import { SnapshotMeter } from '../../src/worker/snapshotMeter';
 import { SCENES } from '../../tools/bench/scenes/index';
 
 const ALL = { cx0: -100, cy0: -100, cx1: 100, cy1: 100 };
@@ -82,6 +83,32 @@ describe('belt layer parsing', () => {
   });
 });
 
+describe('belt layer updates', () => {
+  it('keeps the draw order while only items move, and only moves the clock for the same buffer', () => {
+    const scene = new RenderScene('grid-1k');
+    const layer = new BeltLayer();
+    const first = scene.encodeBelts(ALL, 0).buffer;
+    layer.apply(first, 0, 0);
+    const before = layer.data;
+    // The next tick: the same belts, the items moved on.
+    const next = scene.encodeBelts(ALL, 1).buffer;
+    layer.apply(next, 1, 16);
+    const after = layer.data;
+    expect(after.map((b) => [b.x, b.y])).toEqual(before.map((b) => [b.x, b.y]));
+    expect(after).not.toEqual(before);
+    expect(after).toEqual(decodeSorted(next));
+    expect(layer.itemCount).toBe(scene.items);
+    // The same buffer again: the data stays, decoded once.
+    layer.apply(next, 2, 32);
+    expect(layer.data).toBe(after);
+  });
+});
+
+/** `decodeBelts` in draw order (north to south, then west to east). */
+function decodeSorted(buffer: ArrayBuffer) {
+  return decodeBelts(buffer).sort((p, q) => p.y - q.y || p.x - q.x);
+}
+
 describe('render profile report', () => {
   it('computes percentiles', () => {
     const values = Array.from({ length: 100 }, (_, i) => i + 1);
@@ -125,5 +152,54 @@ describe('render profile report', () => {
     expect(text).toContain('Test GPU');
     expect(text).toContain('| factory 1x | sprites + minimap | 59.9 | 16.7 / 17.0 / 20.0 / 33.0 |');
     expect(text).toContain('| 0.04 / 0.25 |');
+    expect(text).not.toContain('Snapshots');
+  });
+
+  it('adds what the snapshots cost when the profile metered them', () => {
+    const meter = new SnapshotMeter();
+    meter.record(2, 4096, 1, 0.5, 1);
+    meter.record(4, 8192, 3, 1.5, 2);
+    const cost = meter.summary();
+    expect(cost.catchUps).toBe(1);
+    expect(cost.encode.max).toBe(4);
+    expect(cost.ups).toBeGreaterThan(0);
+    const p = { p50: 16.7, p95: 17, p99: 20, max: 33, mean: 16.9 };
+    const text = formatReport({
+      renderer: 'Test GPU',
+      software: false,
+      width: 1280,
+      height: 720,
+      resolution: 1,
+      terrain: 'rendered',
+      maxTexels: 64,
+      stages: [
+        {
+          name: 'factory 1x',
+          zoom: 1,
+          panning: false,
+          view: 'sprites',
+          minimap: false,
+          minimapMs: { p50: 0, p95: 0, p99: 0, max: 0, mean: 0 },
+          mapBuilds: 0,
+          mapUploads: 0,
+          frames: 180,
+          fps: 59.9,
+          interval: p,
+          work: p,
+          hitches: 0,
+          bakes: 0,
+          entities: 10,
+          belts: 5,
+          beltItems: 40,
+          snapshots: cost,
+        },
+      ],
+    });
+    expect(text).toContain('Snapshots (worker encode');
+    expect(text).toMatch(
+      /\| factory 1x \| [\d.]+ \| [\d.]+ \| 1 \| 4\.00 \/ 4\.00 \/ 4\.00 \| 8\.0 \/ 8\.0 \|/,
+    );
+    meter.reset();
+    expect(meter.summary().encode.max).toBe(0);
   });
 });

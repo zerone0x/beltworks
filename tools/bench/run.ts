@@ -21,6 +21,8 @@
  *   --threshold <ratio>    mean tick time growth that counts as a regression (default 0.2)
  *   --fail-on-regression   exit with status 1 on a regression (default: only warn)
  *   --update-baseline      overwrite the --baseline file with this run
+ *   --snapshot             measure snapshot encoding and transfer instead of tick time
+ *                          (snapshot.ts; --warmup and --ticks apply, default 600 measured ticks)
  *
  * The Markdown table (and the comparison) also go to stdout. Regressions are
  * printed as GitHub Actions warnings when running in Actions.
@@ -30,7 +32,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { cpus, arch, platform } from 'node:os';
 import { dirname } from 'node:path';
 import { parseArgs } from 'node:util';
-import { measureScene, type MeasureOptions } from './measure';
+import { WARMUP_TICKS, measureScene, type MeasureOptions } from './measure';
 import {
   DEFAULT_REGRESSION_THRESHOLD,
   REPORT_VERSION,
@@ -40,6 +42,12 @@ import {
   type BenchReport,
 } from './report';
 import { SCENES } from './scenes/index';
+import {
+  SNAPSHOT_TICKS,
+  measureSnapshots,
+  snapshotMarkdown,
+  type SnapshotResult,
+} from './snapshot';
 
 function writeFile(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -73,6 +81,7 @@ function main(): void {
       threshold: { type: 'string' },
       'fail-on-regression': { type: 'boolean', default: false },
       'update-baseline': { type: 'boolean', default: false },
+      snapshot: { type: 'boolean', default: false },
     },
   });
 
@@ -99,6 +108,22 @@ function main(): void {
     values.threshold === undefined ? DEFAULT_REGRESSION_THRESHOLD : Number(values.threshold);
   if (!Number.isFinite(threshold) || threshold < 0) {
     throw new Error(`--threshold must be a non-negative number, got ${String(values.threshold)}`);
+  }
+
+  if (values.snapshot) {
+    const results: SnapshotResult[] = [];
+    for (const scene of SCENES.filter((s) => names.includes(s.name))) {
+      process.stderr.write(`bench: ${scene.name}: building, then measuring snapshots...\n`);
+      const { sim } = scene.build();
+      const warmup = warmupTicks ?? scene.defaults?.warmupTicks ?? WARMUP_TICKS;
+      for (let i = 0; i < warmup; i++) sim.step();
+      results.push(measureSnapshots(scene.name, sim, measuredTicks ?? SNAPSHOT_TICKS));
+    }
+    const markdown = snapshotMarkdown(results);
+    process.stdout.write(`${markdown}\n`);
+    if (values.json) writeFile(values.json, `${JSON.stringify(results, null, 2)}\n`);
+    if (values.md) writeFile(values.md, `${markdown}\n`);
+    return;
   }
 
   const cpuList = cpus();
