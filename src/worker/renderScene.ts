@@ -2,7 +2,7 @@
  * Dev and test builds only: the scenes the render profile can draw
  * (docs/TOOLING.md, "Render profile"), picked with `?scene=`:
  *
- * - The benchmark scenes (`1k`, `power`, `10k`, `50k`; tools/bench/scenes/),
+ * - The benchmark scenes (`1k`, `power`, `m3`, `10k`, `50k`; tools/bench/scenes/),
  *   built by the worker through commands at start, exactly as the benchmark
  *   builds them (a second or two for `10k`), and then simulated as usual.
  * - A grid factory (`grid-1k`, `grid-10k`, this file): a scripted scene with
@@ -68,7 +68,7 @@ export const GRID_SCENES: Readonly<Record<string, { cols: number; rows: number }
 };
 
 /** The benchmark scenes (tools/bench/scenes/index.ts) by name. */
-export const BENCH_SCENES: readonly string[] = ['1k', 'power', '10k', '50k'];
+export const BENCH_SCENES: readonly string[] = ['1k', 'power', 'm3', '10k', '50k'];
 
 /** Whether `name` is a grid scene. */
 export function isGridScene(name: unknown): boolean {

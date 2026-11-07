@@ -3,7 +3,8 @@ import { EntityTypeId, isBeltType } from '../../src/data/entities';
 import { formatReport, percentiles, type ProfileReport } from '../../src/profile/renderProfile';
 import { BeltLayer } from '../../src/render/beltLayer';
 import { decodeBelts, decodeInserters, decodePower, ENTITY_STRIDE } from '../../src/sim/snapshot';
-import { RenderScene, isRenderScene } from '../../src/worker/renderScene';
+import { BENCH_SCENES, RenderScene, isRenderScene } from '../../src/worker/renderScene';
+import { SCENES } from '../../tools/bench/scenes/index';
 
 const ALL = { cx0: -100, cy0: -100, cx1: 100, cy1: 100 };
 
@@ -19,6 +20,7 @@ describe('grid render scene', () => {
     expect(isRenderScene('10k')).toBe(true);
     expect(isRenderScene('nope')).toBe(false);
     expect(() => new RenderScene('10k')).toThrow();
+    expect(BENCH_SCENES).toEqual(SCENES.map((s) => s.name));
     expect(() => new RenderScene('nope')).toThrow();
   });
 
