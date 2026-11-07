@@ -99,6 +99,8 @@ Curves come in at the west (`curve-left`) or east (`curve-right`) edge of a nort
 
 ### Splitters
 
+![A splitter sharing coal out between two belts, at 2× zoom](screenshots/art-splitters.png)
+
 `models/splitters.py`, in the `logistics` atlas: `splitter`, `fast-splitter`, `express-splitter` (2×1, 4 directions). The belt layer draws each half as a straight belt of the splitter's tier (the shared surface and the tier's side frames, `SPLITTER_TIER` in `beltSprites.ts`), and the model is only what stands over them: a gantry across the middle of both halves in the tier color, on legs at the outer sides and a dark divider between the halves that runs the whole tile, with a dark slot over each half on both faces and an arrow on top of each half. It is drawn with the underground hoods, above the items (`coverContainer`), so items pass under it, and casts a shadow. Its ghost is the gantry alone. Without sprites, the placeholder is a bar in the tier color across both halves.
 
 ### Inserters
