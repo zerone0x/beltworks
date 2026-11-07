@@ -53,8 +53,11 @@
  * rebuilt from their belts; other lines keep their ids and items. Items that
  * end up closer than the minimum spacing where two lines join are pushed back
  * towards the start of the line, past it if need be (they move on once there
- * is room). A removed belt's items are refunded with it (removeEntity in
- * src/sim/entities/build.ts), and the removal is refused if they don't fit.
+ * is room). Where a rebuilt line hands on to another line's start, the items
+ * pushed past that start move into the feeding lane, which is pushed back to
+ * keep the spacing across the boundary (`settle`). A removed belt's items
+ * are refunded with it (removeEntity in src/sim/entities/build.ts), and the
+ * removal is refused if they don't fit.
  *
  * Other systems move items with `insertAt`, `takeAt`, `peekAt` and `peekEnd`
  * on a line and lane, and `beltLine`/`beltOffset`/`beltEnd` find a belt's
@@ -585,9 +588,11 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     if (line.outLane >= 0) return 0;
     const target = out.lanes[lane.index];
     if (target === lane || target.count === 0) return 0;
-    // At most the spacing (`Lane.move` relies on it): items a rebuild pushed
-    // past the target's start edge only hold this lane back that far.
-    const floor = Math.min(BELT_ITEM_SPACING, BELT_ITEM_SPACING - (out.length - target.total));
+    // Counted across the boundary: where a rebuild pushed the target's last
+    // item past its start edge (onto this lane's own belt), this lane stops
+    // the spacing behind it, more than the spacing from its end, until that
+    // item has moved on into its line.
+    const floor = BELT_ITEM_SPACING - (out.length - target.total);
     if (floor <= 0) return 0;
     if (target.changedAt >= this.tick - 1) this.waiting = true;
     return floor;
@@ -616,8 +621,11 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       // the side-load point (further up the same lane, where the spacing is
       // checked), so a lane fed at a fixed point fills at exactly the
       // spacing even when the spacing isn't a multiple of its speed (the
-      // express belt's 24).
+      // express belt's 24). Near the target's start (an underground
+      // entrance's rear half) it also keeps the spacing from the first item
+      // of the lane that hands on to that start from another line.
       pos = target.fitNear(line.outPos, out.speed - 1);
+      if (pos > this.backLimit(out, target)) pos = -1;
     } else if (target === lane) {
       // A loop of one line: onto its own start edge (the lane moves on as a whole).
       pos = target.fitNear(line.outPos, 0);
@@ -649,6 +657,22 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     this.wakeLane(target);
     this.notifyWatchers(out, pos, pos);
     return Output.Moved;
+  }
+
+  /**
+   * The farthest distance from the end of `line` at which an item may join
+   * lane `lane` and stay the spacing ahead of the first item of the lane
+   * that hands on to the line's start from another line (if there is one).
+   * O(1): a line has at most three feeders.
+   */
+  private backLimit(line: TransportLine, lane: LineLane): number {
+    for (const f of line.feeders) {
+      if (f.outLane >= 0 || f === line) continue;
+      const from = f.lanes[lane.index];
+      if (from.count === 0) break;
+      return line.length + from.gap(0) - BELT_ITEM_SPACING;
+    }
+    return Number.MAX_SAFE_INTEGER;
   }
 
   private wakeLane(lane: LineLane): void {
@@ -942,11 +966,62 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
 
     // 4. Where the new lines, and the old lines that fed the old ones, now end.
     for (const line of [...created, ...feeders]) this.computeOutput(line);
+    // 5. The spacing across the hand-overs onto other lines' starts there.
+    for (const line of [...created, ...feeders]) this.settle(line, new Set());
     for (const line of [...created, ...feeders]) {
       this.wakeLane(line.lanes[0]);
       this.wakeLane(line.lanes[1]);
     }
     for (const b of sorted) this.notifyBelt(b);
+  }
+
+  /**
+   * After a rebuild, where `line` hands on to the start of another line
+   * (lane by lane): the items of the target lane that were pushed past its
+   * start edge are on this line's end belt, so they move into this lane at
+   * that distance from its end, and this lane's items are pushed back (past
+   * its start if need be) to keep the spacing, counting across the boundary
+   * from the target's last item. When that pushes this lane's last item
+   * further back, the line handing on to this one's start settles in turn
+   * (each line once, so it ends in a loop of lines).
+   */
+  private settle(line: TransportLine, seen: Set<TransportLine>): void {
+    const out = line.out;
+    if (!out || line.outLane >= 0 || out === line || seen.has(line)) return;
+    seen.add(line);
+    let grew = false;
+    for (const lane of line.lanes) {
+      const target = out.lanes[lane.index];
+      const floor = (): number =>
+        target.count > 0 ? BELT_ITEM_SPACING - (out.length - target.total) : 0;
+      if (target.total <= out.length && (lane.count === 0 || lane.gap(0) >= floor())) continue;
+      const entries: [number, number][] = [];
+      while (target.count > 0 && target.total > out.length) {
+        const pos = target.total - out.length;
+        entries.push([pos, target.removeAt(target.count - 1)]);
+      }
+      let d = 0;
+      for (let i = 0; i < lane.count; i++) entries.push([(d += lane.gap(i)), lane.item(i)]);
+      const total = lane.total;
+      while (lane.count > 0) lane.removeAt(lane.count - 1);
+      entries.sort((a, b) => a[0] - b[0]);
+      let prev = 0;
+      for (const [pos, item] of entries) {
+        const at =
+          lane.count === 0 ? Math.max(pos, floor()) : Math.max(pos, prev + BELT_ITEM_SPACING);
+        lane.pushBack(at - prev, item);
+        prev = at;
+      }
+      if (lane.total > total) grew = true;
+      this.wakeLane(lane);
+      this.wakeLane(target);
+      this.wakeFeeders(out, lane.index);
+      this.wakeFeeders(line, lane.index);
+      this.notifyWatchers(line, 0, Number.MAX_SAFE_INTEGER);
+      this.notifyWatchers(out, 0, Number.MAX_SAFE_INTEGER);
+    }
+    if (!grew) return;
+    for (const f of line.feeders) if (f.outLane < 0) this.settle(f, seen);
   }
 
   private createLine(belts: number[], saved: Map<number, SavedItem[]>): TransportLine {

@@ -109,7 +109,15 @@ function checkAsleep(table: BeltTable): void {
       if (out && !(line.outOnly >= 0 && lane.index !== line.outOnly)) {
         const target = out.lanes[line.outLane < 0 ? lane.index : line.outLane]!;
         const slack = line.outLane >= 0 ? out.speed - 1 : 0;
-        expect(target.fitNear(line.outPos, slack)).toBe(-1);
+        const pos = target.fitNear(line.outPos, slack);
+        // A side-load also stays the spacing ahead of the first item of the
+        // lane handing on to the target's start from another line.
+        const from = out.feeders.find((f) => f.outLane < 0 && f !== out)?.lanes[target.index];
+        const limit =
+          line.outLane >= 0 && from && from.count > 0
+            ? out.length + from.gap(0) - BELT_ITEM_SPACING
+            : Infinity;
+        expect(pos < 0 || pos > limit).toBe(true);
       }
     }
   }
@@ -675,15 +683,12 @@ describe('random building with every belt type', () => {
         const from = w.table.beltOffset(id);
         if (w.table.takeAt(line, rng.nextInt(2), from, w.table.beltEnd(id)) !== 0) refunded++;
       }
-      // Moving items never brings them closer than the spacing across a
-      // hand-over onto another line (a rebuild may push items together;
-      // those only ever move apart).
+      // The spacing holds across every hand-over onto another line's start,
+      // after the edit and after every tick.
+      checkCross(w.table);
       for (let n = rng.nextInt(20); n > 0; n--) {
-        const before = crossGaps(w.table);
         w.step();
-        for (const [key, d] of crossGaps(w.table)) {
-          expect(d).toBeGreaterThanOrEqual(Math.min(BELT_ITEM_SPACING, before.get(key) ?? 64));
-        }
+        checkCross(w.table);
       }
       checkLanes(w.table);
       checkAsleep(w.table);
@@ -698,6 +703,214 @@ describe('random building with every belt type', () => {
         if (b !== 0 && w.table.mode(b) === UndergroundMode.Exit && w.table.partner(b)) pairs++;
     }
     expect(pairs).toBeGreaterThan(0);
+  });
+});
+
+/** Lane `lane` of `line` as distances from its end. */
+function positions(line: TransportLine, lane: BeltLane): number[] {
+  const out: number[] = [];
+  let d = 0;
+  for (const g of line.lanes[lane].gaps()) out.push((d += g));
+  return out;
+}
+
+describe('spacing across hand-overs after rebuilds', () => {
+  it('moves items a rebuild pushes past a line start onto the line feeding it', () => {
+    const w = world();
+    // Fast into express; the express end belt faces back, so nothing joins yet.
+    const r = w.run(RED.belt, 0, 0, East, 2);
+    const p = w.run(BLUE.belt, 2, 0, East, 2);
+    const q = w.place(BLUE.belt, 4, 0, West);
+    const [rl, pl, ql] = [w.lineOf(r[0]!), w.lineOf(p[0]!), w.lineOf(q)];
+    expect(rl.out).toBe(pl);
+    for (const lane of [Left, Right]) {
+      // The express line packed from its end to its start edge, an item at
+      // the start edge of the belt facing it, and two on the fast line.
+      for (let pos = 0; pos <= pl.length; pos += 64) w.table.insertAt(pl.id, lane, pos, IRON);
+      w.table.insertAt(ql.id, lane, ql.length, COAL);
+      w.table.insertAt(rl.id, lane, 128, IRON);
+      w.table.insertAt(rl.id, lane, 192, IRON);
+    }
+    const items = w.onMap();
+    // Turned to continue the express line: its start item lands on the
+    // express line's first item, which pushes all nine back by the spacing,
+    // the last one 64 past the line's start, onto the fast line's end belt.
+    w.entities.setDirection(q, East);
+    const line = w.lineOf(q);
+    expect(line.belts).toEqual([q, p[1], p[0]]);
+    const fast = w.lineOf(r[0]!);
+    expect(fast.out).toBe(line);
+    for (const lane of [Left, Right]) {
+      // That item now belongs to the fast line, 64 from its end, with the
+      // fast line's own items behind it.
+      expect(positions(line, lane)).toEqual([256, 320, 384, 448, 512, 576, 640, 704, 768]);
+      expect(positions(fast, lane)).toEqual([64, 128, 192]);
+    }
+    expect(w.onMap()).toBe(items);
+    checkCross(w.table);
+    // Blocked at the express end: nothing comes closer across the boundary,
+    // and it all goes to sleep.
+    for (let t = 0; t < 200; t++) {
+      w.step();
+      checkLanes(w.table);
+      checkCross(w.table);
+      checkAsleep(w.table);
+    }
+    expect(w.table.activeLanes).toBe(0);
+    expect(w.onMap()).toBe(items);
+  });
+
+  it('pushes the feeding lane back when a rebuild leaves its items too close', () => {
+    const w = world();
+    // Express into fast, both packed, and a gap in the fast line closed last.
+    const b = w.run(BLUE.belt, 0, 0, East, 2);
+    const r = w.run(RED.belt, 2, 0, East, 1);
+    const end = w.place(RED.belt, 3, 0, West);
+    const [bl, rl, el] = [w.lineOf(b[0]!), w.lineOf(r[0]!), w.lineOf(end)];
+    for (const lane of [Left, Right]) {
+      for (let pos = 0; pos <= bl.length; pos += 64) w.table.insertAt(bl.id, lane, pos, IRON);
+      for (let pos = 0; pos <= rl.length; pos += 64) w.table.insertAt(rl.id, lane, pos, IRON);
+      w.table.insertAt(el.id, lane, el.length, COAL);
+    }
+    const items = w.onMap();
+    w.entities.setDirection(end, East);
+    // The fast line pushes its items back by the spacing, one onto the
+    // express end belt, which pushes the express items back in turn: the
+    // last one past the express line's start (nothing feeds it).
+    const fast = w.lineOf(end);
+    const express = w.lineOf(b[0]!);
+    for (const lane of [Left, Right]) {
+      expect(positions(fast, lane)).toEqual([256, 320, 384, 448, 512]);
+      expect(positions(express, lane)).toEqual([64, 128, 192, 256, 320, 384, 448, 512, 576, 640]);
+    }
+    expect(w.onMap()).toBe(items);
+    checkCross(w.table);
+    for (let t = 0; t < 100; t++) {
+      w.step();
+      checkCross(w.table);
+    }
+    expect(w.table.activeLanes).toBe(0);
+  });
+
+  it("side-loads an entrance's rear half no closer than the spacing to the lane feeding it", () => {
+    for (const from of [YELLOW, RED]) {
+      for (const side of TIERS) {
+        // Emptied at the end every tick, or one item every 7 ticks (backed up).
+        for (const period of [1, 7]) {
+          const w = world();
+          // A line of `from` belts into an express entrance from behind, and a
+          // `side` belt side-loading its open rear half: its right lane onto
+          // the entrance's left lane, 64 from the entrance's start edge.
+          const back = w.run(from.belt, 0, 0, East, 3);
+          const entrance = w.place(BLUE.underground, 3, 0, East);
+          const exit = w.place(BLUE.underground, 5, 0, East);
+          const loader = w.run(side.belt, 3, -3, South, 3);
+          const [bl, xl, sl] = [w.lineOf(back[0]!), w.lineOf(exit), w.lineOf(loader[0]!)];
+          expect(xl.belts).toEqual([exit, 0, entrance]);
+          expect([bl.out, sl.out, sl.outLane, sl.outOnly]).toEqual([xl, xl, Left, Right]);
+          const fed = [0, 0];
+          for (let t = 0; t < 1500; t++) {
+            w.step();
+            if (t % period === 0) w.table.takeAt(xl.id, Left, 0, BLUE.belt.beltSpeed! - 1);
+            [bl.lanes[Left], sl.lanes[Right]].forEach((l, k) => {
+              const pos = l.count === 0 ? l.line.length : l.total + BELT_ITEM_SPACING;
+              if (pos <= l.line.length && w.table.insertAt(l.line.id, l.index, pos, IRON))
+                fed[k]!++;
+            });
+            checkLanes(w.table);
+            checkCross(w.table);
+          }
+          // Both kept feeding the express lane (a fast lane behind leaves the
+          // side-load little room, as before).
+          const name = `${from.belt.name}, ${side.belt.name}, ${String(period)}`;
+          expect(Math.min(...fed), name).toBeGreaterThan(10);
+        }
+      }
+    }
+  });
+
+  it('holds a lane back the spacing behind items pushed past the start of the line it feeds', () => {
+    // What a rebuild leaves where nothing could take the items in (a loop
+    // of lines too full): the target's last item 64 past its start edge.
+    const w = world();
+    const r = w.run(RED.belt, 0, 0, East, 2);
+    const [b] = w.run(BLUE.belt, 2, 0, East, 1);
+    const [rl, bl] = [w.lineOf(r[0]!), w.lineOf(b!)];
+    for (let k = 0; k < 6; k++) bl.lanes[Left].pushBack(k === 0 ? 0 : 64, IRON);
+    rl.lanes[Left].pushBack(192, IRON);
+    rl.lanes[Left].pushBack(64, IRON);
+    w.table.insertAt(rl.id, Left, 448, IRON);
+    for (let t = 0; t < 100; t++) {
+      w.step();
+      checkCross(w.table);
+      checkAsleep(w.table);
+    }
+    // 128 from its end: 64 behind that item.
+    expect(positions(rl, Left)).toEqual([128, 192, 256]);
+    expect(w.table.activeLanes).toBe(0);
+    // Emptied at the express end, everything moves on, still spaced.
+    let taken = 0;
+    for (let t = 0; t < 400; t++) {
+      if (w.table.takeAt(bl.id, Left, 0, BLUE.belt.beltSpeed! - 1) !== 0) taken++;
+      w.step();
+      checkLanes(w.table);
+      checkCross(w.table);
+    }
+    expect(taken).toBe(9);
+    expect(w.onMap()).toBe(0);
+  });
+});
+
+describe('random building with every belt type, on a wider strip', () => {
+  it('keeps the spacing across hand-overs where rebuilds push items past a line start', () => {
+    // The edits that found it (#60): seed 27 of the review's stress test,
+    // where a rebuild pushed an express line's last item past its start
+    // while a fast line fed it, by round 778.
+    const protos = TIERS.flatMap((t) => [t.belt, t.underground]);
+    const w = world();
+    const rng = Rng.fromSeed(27 * 104729);
+    let inserted = 0;
+    let refunded = 0;
+    let pushedPast = 0;
+    for (let round = 0; round < 900; round++) {
+      const x = rng.nextInt(14);
+      const y = rng.nextInt(5);
+      const id = w.entities.at(x, y);
+      const action = rng.nextInt(12);
+      if (id === 0) {
+        if (action < 7) {
+          const dir = (
+            rng.nextInt(3) === 0 ? rng.nextInt(4) : East + 2 * rng.nextInt(2)
+          ) as Direction;
+          w.place(protos[rng.nextInt(protos.length)]!, x, y, dir);
+        }
+      } else if (action < 2) {
+        const count = w.entities.contents(id).reduce((n, s) => n + s.count, 0);
+        if (w.entities.remove(id)) refunded += count;
+      } else if (action < 4) {
+        const dir = action === 2 ? w.entities.rotation(id) : (rng.nextInt(4) as Direction);
+        w.entities.setDirection(id, dir);
+      } else if (action < 8) {
+        inserted += w.entities.insert(id, action & 1 ? IRON : COAL, 1 + rng.nextInt(3));
+      } else {
+        const line = w.table.beltLine(id);
+        const from = w.table.beltOffset(id);
+        if (w.table.takeAt(line, rng.nextInt(2), from, w.table.beltEnd(id)) !== 0) refunded++;
+      }
+      checkCross(w.table);
+      for (const line of w.table.lines()) {
+        for (const lane of line.lanes) if (lane.total > line.length) pushedPast++;
+      }
+      for (let n = rng.nextInt(25); n > 0; n--) {
+        w.step();
+        checkCross(w.table);
+      }
+      checkLanes(w.table);
+      checkAsleep(w.table);
+      expect(w.onMap() + refunded).toBe(inserted);
+    }
+    // Items did end up past a line's start along the way.
+    expect(pushedPast).toBeGreaterThan(0);
   });
 });
 
