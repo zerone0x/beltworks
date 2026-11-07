@@ -77,6 +77,24 @@ describe('terrain bakes', () => {
     ]);
   });
 
+  it('fill holes in bands too while the view moves, holes first', () => {
+    const { layer, bakes } = setup();
+    layer.update(undefined, view, 1, 0);
+    bakes.length = 0;
+    // A step east brings chunk (1, 0) on screen without a texture.
+    layer.update(undefined, { ...view, x: 30 }, 1, 16);
+    expect(bakes).toEqual([{ cx: 1, cy: 0, texels: 16, from: 0, to: 8 }]);
+    expect(layer.stats().sprites).toBe(1);
+    for (let t = 2; t <= 4; t++) layer.update(undefined, { ...view, x: 30 }, 1, t * 16);
+    expect(bakes.map((b) => [b.cx, b.cy, b.to])).toEqual([
+      [1, 0, 8],
+      [1, 0, 16],
+      [1, 0, 24],
+      [1, 0, 32],
+    ]);
+    expect(layer.stats().sprites).toBe(2);
+  });
+
   it('start a banded bake over when its chunk changes', () => {
     const { layer, bakes } = setup();
     layer.update(undefined, view, 1, 0);

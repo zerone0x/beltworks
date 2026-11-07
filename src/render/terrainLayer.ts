@@ -60,9 +60,8 @@ export const BAKES_PER_FRAME = 4;
 export const RENDERED_BAKE_TEXELS = 1024 * 1024;
 /**
  * Rendered terrain: while the view moves, the share of `RENDERED_BAKE_TEXELS`
- * baked per frame in bands once no chunk on screen is missing its texture (a
- * quarter of a chunk at 1×: about 60 ms instead of 250 ms per frame on a
- * software renderer).
+ * baked per frame, in bands of tile rows (a quarter of a chunk at 1×: about
+ * 60 ms instead of 250 ms per frame on a software renderer).
  */
 export const BACKGROUND_BAKE_SHARE = 1 / 4;
 /** Rendered terrain: the view counts as moving until it stood still this long (ms). */
@@ -247,16 +246,18 @@ export class TerrainLayer {
     zoom?: number,
     nowMs: number = performance.now(),
   ): void {
+    // The first view isn't a move.
     const old = this.view;
     if (
       view &&
-      (!old || old.x !== view.x || old.y !== view.y || old.w !== view.w || old.h !== view.h)
+      old &&
+      (old.x !== view.x || old.y !== view.y || old.w !== view.w || old.h !== view.h)
     ) {
       this.movedAt = nowMs;
     }
     if (view) this.view = view;
     if (zoom !== undefined) {
-      if (zoom !== this.zoom) this.movedAt = nowMs;
+      if (old && zoom !== this.zoom) this.movedAt = nowMs;
       this.zoom = zoom;
       this.texels = texelsForZoom(zoom, this.maxTexels);
       this.detail = detailTexels(zoom, this.maxTexels);
@@ -266,8 +267,7 @@ export class TerrainLayer {
       const scale = (Math.min(this.maxTexels, 32) / 32) ** 2;
       const texels = RENDERED_BAKE_TEXELS * scale;
       // While the view moves, a long frame shows as a stutter: spread the
-      // bakes that don't fill a hole over frames. Standing still, bake as
-      // fast as before.
+      // bakes over frames. Standing still, bake as fast as before.
       const moving = nowMs - this.movedAt < SETTLE_MS;
       const background = moving ? texels * BACKGROUND_BAKE_SHARE : texels;
       const baked = this.updateRendered(budget, texels, background);
@@ -479,14 +479,15 @@ export class TerrainLayer {
   }
 
   /**
-   * Bakes base textures; whether it baked any. Chunks on screen without a
-   * texture (holes) are baked whole, up to `maxChunks` and `texels` texels
-   * per frame (at least one chunk). The rest (chunks around the view, and
-   * new resolutions or changes of chunks already shown) are baked in bands
-   * of tile rows, `background` texels per frame (less than a chunk while the
-   * view moves), so a new chunk coming near the view while panning costs a
-   * few small steps instead of one long frame (software renderers take
-   * about a quarter of a second per chunk).
+   * Bakes base textures; whether it baked any. While the view stands still
+   * (`background` is all of `texels`), chunks on screen without a texture
+   * (holes) are baked whole, up to `maxChunks` and `texels` texels per frame
+   * (at least one chunk). The rest (chunks around the view, new resolutions,
+   * changes of chunks already shown), and while the view moves the holes
+   * too (first), are baked in bands of tile rows, `background` texels per
+   * frame, so a new chunk coming near the view while panning or zooming
+   * costs a few small steps instead of one long frame (software renderers
+   * take about a quarter of a second per chunk).
    */
   private updateRendered(maxChunks: number, texels: number, background: number): boolean {
     this.queue.clear();
@@ -509,18 +510,18 @@ export class TerrainLayer {
       if (this.wanted(c) && this.needsBake(c) && this.neighboursReady(c)) candidates.push(c);
     }
     if (candidates.length === 0 && !this.baseJob) return false;
-    // Nearest to the view's center first.
     const mx = view ? view.x + view.w / 2 : 0;
     const my = view ? view.y + view.h / 2 : 0;
     const distance = (c: CachedChunk) =>
       Math.abs((c.data.cx << CHUNK_SHIFT) + CHUNK_SIZE / 2 - mx) +
       Math.abs((c.data.cy << CHUNK_SHIFT) + CHUNK_SIZE / 2 - my);
-    candidates.sort((a, b) => distance(a) - distance(b));
     const hole = (c: CachedChunk) =>
       !c.sprite && (!view || nearView(view, 0, c.data.cx, c.data.cy));
+    // Holes first, then nearest to the view's center.
+    candidates.sort((a, b) => Number(hole(b)) - Number(hole(a)) || distance(a) - distance(b));
     const holes = candidates.filter(hole);
     if (this.baseJob && hole(this.baseJob.chunk)) holes.unshift(this.baseJob.chunk);
-    if (holes.length > 0) {
+    if (holes.length > 0 && background >= texels) {
       const size = CHUNK_SIZE * this.texels;
       const count = Math.min(maxChunks, Math.max(1, Math.floor(texels / (size * size))));
       for (const c of holes.slice(0, count)) {
