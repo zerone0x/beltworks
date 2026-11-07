@@ -15,7 +15,7 @@ concurrency:
 # Jobs (docs/TOOLING.md, "End-to-end tests"):
 #   check       lint, typecheck, unit tests (incl. the Node side of the determinism check), production build
 #   e2e-build   builds the test-mode bundle once and hands `dist/` to the shards as an artifact
-#   e2e-shard   the Playwright suite in 4 shards (`--shard i/n`), each writing a blob report
+#   e2e-shard   the Playwright suite in 6 shards (`--shard i/n`), each writing a blob report
 #   e2e         merges the shards' reports into one HTML report; the single status that sums up the e2e
 #               suite (it fails if the build or any shard failed or was cancelled)
 
@@ -81,8 +81,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
-        total: [4]
+        shard: [1, 2, 3, 4, 5, 6]
+        total: [6]
     name: e2e-shard (${{ matrix.shard }}/${{ matrix.total }})
     steps:
       - uses: actions/checkout@v7

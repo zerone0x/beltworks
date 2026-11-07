@@ -126,7 +126,7 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
   await page.waitForFunction(() => window.__beltworks!.terrainReady(), undefined, {
     timeout: 10_000,
   });
-  // (The logistics atlas adds belts, inserters and poles: tests/e2e/artLogistics.spec.ts.)
+  // (The logistics atlas adds belts, inserters and poles: `sceneArt.spec.ts`, `beltTiersArt.spec.ts`, `insertersArt.spec.ts`.)
   await expect
     .poll(async () => (await sprites(page)).models)
     .toEqual(expect.arrayContaining(MODELS));
