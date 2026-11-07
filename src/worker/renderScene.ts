@@ -1,9 +1,16 @@
 /**
- * Dev and test builds only: a scripted factory for the render profile
- * (docs/TOOLING.md, "Render profile"). With `?scene=10k` (or `1k`) the
- * worker still runs the real simulation for the player and the terrain, but
- * sends this scene's entities, belts, inserters and power grid in every
- * snapshot instead of the simulation's: the same buffers `encodeEntities`,
+ * Dev and test builds only: the scenes the render profile can draw
+ * (docs/TOOLING.md, "Render profile"), picked with `?scene=`:
+ *
+ * - The benchmark scenes (`1k`, `power`, `10k`, `50k`; tools/bench/scenes/),
+ *   built by the worker through commands at start, exactly as the benchmark
+ *   builds them (a second or two for `10k`), and then simulated as usual.
+ * - A grid factory (`grid-1k`, `grid-10k`, this file): a scripted scene with
+ *   no simulation behind it, ready at once, every belt full and every
+ *   machine working. The worker still runs the real simulation for the
+ *   player and the terrain, but sends this scene's entities, belts,
+ *   inserters and power grid in every snapshot instead of the simulation's:
+ *   the same buffers `encodeEntities`,
  * `encodeBelts`, `encodeInserters` and `encodePower` write (src/sim/snapshot.ts),
  * filtered to the snapshot's chunk window the same way, so the main thread
  * decodes and draws them exactly as it would a real factory.
@@ -14,7 +21,7 @@
  * other block's loop dives through an underground pair), inserters of every
  * type swinging from the loop into six assembling machines and from those
  * into six stone furnaces, three electric poles wired to their neighbours,
- * and a boiler with a steam engine. The 10k scene is 12 × 11 blocks: 10 032
+ * and a boiler with a steam engine. `grid-10k` is 12 × 11 blocks: 10 032
  * entities and 49 632 items on belts, the M4 target scene
  * (docs/ARCHITECTURE.md, "Performance targets").
  *
@@ -54,15 +61,23 @@ const FIRST_ID = 0x4000_0000;
 /** The scene's one power network id. */
 const NETWORK = 1;
 
-/** Scene sizes: blocks across and down. */
-export const RENDER_SCENES: Readonly<Record<string, { cols: number; rows: number }>> = {
-  '1k': { cols: 4, rows: 3 },
-  '10k': { cols: 12, rows: 11 },
+/** Grid scene sizes: blocks across and down. */
+export const GRID_SCENES: Readonly<Record<string, { cols: number; rows: number }>> = {
+  'grid-1k': { cols: 4, rows: 3 },
+  'grid-10k': { cols: 12, rows: 11 },
 };
 
-/** Whether `name` is a known render scene. */
+/** The benchmark scenes (tools/bench/scenes/index.ts) by name. */
+export const BENCH_SCENES: readonly string[] = ['1k', 'power', '10k', '50k'];
+
+/** Whether `name` is a grid scene. */
+export function isGridScene(name: unknown): boolean {
+  return typeof name === 'string' && Object.hasOwn(GRID_SCENES, name);
+}
+
+/** Whether `name` is a known render scene: a benchmark scene or a grid. */
 export function isRenderScene(name: unknown): boolean {
-  return typeof name === 'string' && Object.hasOwn(RENDER_SCENES, name);
+  return isGridScene(name) || (typeof name === 'string' && BENCH_SCENES.includes(name));
 }
 
 interface SceneEntity {
@@ -118,8 +133,8 @@ export class RenderScene {
   readonly items: number;
 
   constructor(readonly name: string) {
-    const size = RENDER_SCENES[name];
-    if (!size) throw new Error(`unknown render scene "${name}"`);
+    const size = GRID_SCENES[name];
+    if (!size) throw new Error(`unknown grid scene "${name}"`);
     // Centered on the spawn.
     const x0 = -Math.floor((size.cols * BLOCK_W) / 2);
     const y0 = -Math.floor((size.rows * BLOCK_H) / 2);

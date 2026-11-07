@@ -7,15 +7,18 @@ import { RenderScene, isRenderScene } from '../../src/worker/renderScene';
 
 const ALL = { cx0: -100, cy0: -100, cx1: 100, cy1: 100 };
 
-describe('render scene', () => {
-  const scene = new RenderScene('10k');
+describe('grid render scene', () => {
+  const scene = new RenderScene('grid-10k');
 
   it('is the M4 target scene: 10k entities and about 50k items on belts', () => {
     expect(scene.entities.length).toBeGreaterThanOrEqual(10_000);
     expect(scene.entities.length).toBeLessThan(10_500);
     expect(scene.items).toBeGreaterThanOrEqual(48_000);
+    expect(isRenderScene('grid-10k')).toBe(true);
+    // The benchmark scenes are built by the worker (tools/bench/scenes/).
     expect(isRenderScene('10k')).toBe(true);
     expect(isRenderScene('nope')).toBe(false);
+    expect(() => new RenderScene('10k')).toThrow();
     expect(() => new RenderScene('nope')).toThrow();
   });
 
@@ -62,7 +65,7 @@ describe('render scene', () => {
 
 describe('belt layer parsing', () => {
   it('reads the belts in draw order with every item, without decoding objects per frame', () => {
-    const scene = new RenderScene('1k');
+    const scene = new RenderScene('grid-1k');
     const buffer = scene.encodeBelts(ALL, 7).buffer;
     const layer = new BeltLayer();
     layer.apply(buffer.slice(0), 7, 0);

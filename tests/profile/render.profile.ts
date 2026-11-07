@@ -3,7 +3,8 @@
  * game with a render scene, runs `renderProfile` (src/profile/renderProfile.ts)
  * and writes the report to `profile-results/render.json` and `.md`.
  *
- * Environment: `PROFILE_SCENE` (default `10k`), `PROFILE_MS` (recorded time
+ * Environment: `PROFILE_SCENE` (default `10k`, the benchmark factory; or
+ * `grid-10k`, `50k`, ...), `PROFILE_MS` (recorded time
  * per stage, default 3000), `PROFILE_STAGES` (comma-separated stage names),
  * `PROFILE_FRAMES` (at least this many frames per stage, default 20),
  * `PROFILE_TEXELS` (the terrain's texel cap, `?texels=`; default: the

@@ -44,8 +44,9 @@ export interface ProfileStage {
 const TERRAIN_Y = 200;
 
 /**
- * The default stages. The `?scene=10k` factory spans about 336 × 110 tiles
- * around the spawn, so at 0.25× it fills the screen.
+ * The default stages. The `?scene=10k` benchmark factory spans about 176 ×
+ * 165 tiles around the spawn (`grid-10k` 336 × 110), so at 0.25× it fills
+ * the screen; the pans start inside its west half and head east.
  */
 export const DEFAULT_STAGES: readonly ProfileStage[] = [
   { name: 'terrain 1x', x: 0, y: TERRAIN_Y, zoom: 1 },
@@ -55,8 +56,8 @@ export const DEFAULT_STAGES: readonly ProfileStage[] = [
   { name: 'factory 1x', x: 0, y: 0, zoom: 1 },
   { name: 'factory 0.5x', x: 0, y: 0, zoom: 0.5 },
   { name: 'factory 0.25x', x: 0, y: 0, zoom: 0.25 },
-  { name: 'pan factory 1x', x: -120, y: 0, zoom: 1, vx: 512 },
-  { name: 'pan factory 0.5x', x: -120, y: 10, zoom: 0.5, vx: 512 },
+  { name: 'pan factory 1x', x: -60, y: 0, zoom: 1, vx: 512 },
+  { name: 'pan factory 0.5x', x: -60, y: 10, zoom: 0.5, vx: 512 },
   { name: 'pan terrain 1x', x: 0, y: TERRAIN_Y + 120, zoom: 1, vx: 512 },
   { name: 'jump terrain 1x', x: 400, y: TERRAIN_Y, zoom: 1, noWait: true },
 ];

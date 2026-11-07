@@ -307,11 +307,11 @@ export function startingKitFromUrl(search: string): ItemStack[] | undefined {
 }
 
 /**
- * The scripted render scene asked for by a `scene` URL parameter (dev and
- * test builds only; `RENDER_SCENES` in src/worker/renderScene.ts), e.g.
- * `?scene=10k`: its factory replaces the simulation's entities in every
- * snapshot, for the render profile. `undefined` without one; throws on an
- * unknown scene.
+ * The render scene asked for by a `scene` URL parameter (dev and test builds
+ * only; src/worker/renderScene.ts), e.g. `?scene=10k`: a benchmark scene the
+ * worker builds at start, or a grid factory (`grid-10k`) that replaces the
+ * simulation's entities in every snapshot, for the render profile.
+ * `undefined` without one; throws on an unknown scene.
  */
 export function renderSceneFromUrl(search: string): string | undefined {
   const param = new URLSearchParams(search).get('scene');

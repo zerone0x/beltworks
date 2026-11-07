@@ -25,7 +25,7 @@ Dev and test builds (`npm run dev`, `npm run build:test`) read a few URL paramet
 |---|---|
 | `?kit=name:count,...` | The starting kit (D29) |
 | `?art=1` / `?art=0` | The terrain's rendered look (D41) or the flat placeholder colors. Default: rendered in dev builds, placeholder in test builds, so the end-to-end specs that aren't about the art stay fast on CI's software renderer, where baking the rendered terrain is slow. The art, render and screenshot specs (`art.spec.ts`, the `*Art.spec.ts` logistics sprite specs, `render.spec.ts`) pass `?art=1` |
-| `?scene=1k\|10k` | A scripted render scene (`src/worker/renderScene.ts`): the worker sends its factory in every snapshot instead of the simulation's entities, belts, inserters and grid (the simulation still runs the player and the terrain; nothing in it changes). `10k` is 10 032 entities with 49 632 items on belts, centered on the spawn; `1k` is 912 entities. See "Render profile" |
+| `?scene=name` | A render scene (`src/worker/renderScene.ts`), for the render profile: a benchmark scene (`1k`, `power`, `10k`, `50k`; see "Benchmarks"), which the worker builds through commands at start in place of the new game (about 1.5 s for `10k`) and then simulates, or a grid factory (`grid-1k`, `grid-10k`) that is ready at once: no simulation behind it, the worker sends its entities, belts, inserters and grid in every snapshot instead of the simulation's (10 032 entities and 49 632 items on belts, every belt full and every machine working, for `grid-10k`). Neither changes anything for a game without the parameter. See "Render profile" |
 | `?profile=1` | Runs the render profile once the art has loaded and shows the report in a panel (and the console); `profileMs=` sets the recorded time per stage, `profileStages=` (comma-separated names) picks stages |
 | `?texels=8\|16\|32\|64` | The most texels per tile the rendered terrain bakes at (implies `?art=1`; 64 allows the detail textures zoomed in, as on a GPU); software renderers default to 16 (docs/ART.md, "Terrain") |
 
@@ -66,7 +66,7 @@ Playwright shards by test count, in file order (`fullyParallel` makes every test
 
 ## Render profile
 
-The render profile (`src/profile/renderProfile.ts`) measures frame times the way a player sees them. It drives the camera through fixed stages and records every frame of each: bare terrain at 1×, 0.5× and 0.25× (200 tiles south of the spawn), the `?scene=10k` factory at 2×, 1×, 0.5× and 0.25× (0.25× shows nearly all of it), panning across the factory at 1× and 0.5× and across bare terrain at 1× (512 screen pixels per second, so new chunks keep coming into the bake margin), and a jump to unbaked terrain (recorded from the jump, so its frames include the bakes). Each stage waits until the terrain around the view is baked and the worker has sent the scene, renders 30 warm-up frames, then records for 3 s and at least 20 frames (software renderers can take hundreds of milliseconds per frame).
+The render profile (`src/profile/renderProfile.ts`) measures frame times the way a player sees them. It drives the camera through fixed stages and records every frame of each: bare terrain at 1×, 0.5× and 0.25× (200 tiles south of the spawn), the `?scene=10k` benchmark factory (10 037 entities, about 50 000 items on belts; `PROFILE_SCENE` picks another) at 2×, 1×, 0.5× and 0.25× (0.25× shows nearly all of it), panning across the factory at 1× and 0.5× and across bare terrain at 1× (512 screen pixels per second, so new chunks keep coming into the bake margin), and a jump to unbaked terrain (recorded from the jump, so its frames include the bakes). Each stage waits until the terrain around the view is baked and the worker has sent the scene, renders 30 warm-up frames, then records for 3 s and at least 20 frames (software renderers can take hundreds of milliseconds per frame).
 
 For each stage it reports:
 
@@ -81,11 +81,11 @@ PROFILE_GPU=1 npm run profile:render                   # headed Chromium on this
 PROFILE_URL=http://localhost:5173/ npm run profile:render   # against `npm run dev` instead of a test build
 ```
 
-It is a Playwright run of `tests/profile/render.profile.ts` (`playwright.profile.config.ts`: a test build served on port 4174, separate from the end-to-end suite). The report goes to stdout and to `profile-results/render.md` and `.json`. Other variables: `PROFILE_SCENE` (`1k` or `10k`), `PROFILE_FRAMES` (minimum frames per stage), `PROFILE_TEXELS` (`?texels=`), `PROFILE_ART=0` (placeholder terrain), `PROFILE_OUT` (output path without extension).
+It is a Playwright run of `tests/profile/render.profile.ts` (`playwright.profile.config.ts`: a test build served on port 4174, separate from the end-to-end suite). The report goes to stdout and to `profile-results/render.md` and `.json`. Other variables: `PROFILE_SCENE` (a `?scene=` name), `PROFILE_FRAMES` (minimum frames per stage), `PROFILE_TEXELS` (`?texels=`), `PROFILE_ART=0` (placeholder terrain), `PROFILE_OUT` (output path without extension).
 
 **On a real GPU.** Headless Chromium renders with SwiftShader on the CPU, where the frame interval is dominated by fill rate (terrain, shadows and belts are full-screen layers) and other processes on the machine: compare `work` there, and compare `interval` only between runs on the same machine back to back. For real frame times, either run `PROFILE_GPU=1 npm run profile:render` on a desktop with a GPU (a headed Chromium; check that the report's renderer line names the GPU, not SwiftShader), or start `npm run dev` and open `http://localhost:5173/?scene=10k&profile=1` in any desktop browser: the report appears in a panel at the bottom left when it is done (about a minute) and as JSON in the console. Keep the window in front and at the size you want measured (the report lists it); a browser started with `--disable-gpu-vsync --disable-frame-rate-limit` shows intervals below 16.7 ms. The M4 target (docs/ARCHITECTURE.md, "Performance targets") is a steady 60 fps on the 10k scene: p99 interval under ~20 ms on every factory stage.
 
-CI only runs a short smoke version (`tests/e2e/profile.spec.ts`, two stages on the `1k` scene) so the profile keeps working; its numbers are not checked.
+CI only runs a short smoke version (`tests/e2e/profile.spec.ts`, two stages on the `grid-1k` scene) so the profile keeps working; its numbers are not checked.
 
 ## Benchmarks
 

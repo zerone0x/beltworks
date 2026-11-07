@@ -2,7 +2,8 @@ import { expect, test } from '@playwright/test';
 
 /**
  * Keeps the render profile (docs/TOOLING.md, "Render profile") working: a
- * short run on the small render scene. The real profile runs locally
+ * short run on the small grid scene (ready at once; the benchmark scenes
+ * are built by the worker first). The real profile runs locally
  * (`npm run profile:render`), not in CI: software rendering on shared
  * runners says little about frame times.
  */
@@ -10,7 +11,7 @@ test('the render profile runs on the scripted factory', async ({ page }) => {
   test.setTimeout(120_000);
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(err.message));
-  await page.goto('./?scene=1k');
+  await page.goto('./?scene=grid-1k');
   await page.waitForFunction(() => window.__beltworks !== undefined);
   const report = await page.evaluate(() =>
     window.__beltworks!.renderProfile({
