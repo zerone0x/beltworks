@@ -3,7 +3,7 @@
  * research, entities, belts, inserters, power) as the whole section, as a
  * patch on the one it sent before, or not at all when it didn't change; the
  * main thread rebuilds the whole section from that (docs/ARCHITECTURE.md,
- * "Snapshot transfer"; docs/DECISIONS.md, D49).
+ * "Snapshot transfer"; docs/DECISIONS.md, D56).
  *
  * A patch is int32s: `[length, then runs of [start, count, ...count words]]`,
  * runs in ascending order and apart: the new section is the previous one

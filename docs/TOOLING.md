@@ -78,6 +78,7 @@ For each stage it reports:
 - **interval**: the time from one frame to the next (p50 / p95 / p99 / max), and the mean frame rate. It includes whatever the GPU, or a software rasterizer, needs before the browser starts the next frame, so it is the frame time on screen; with vsync it can't go below ~16.7 ms.
 - **work**: the main thread's time inside a frame (the game's ticker callbacks, then Pixi building and submitting the draw calls). It is the JavaScript cost of rendering even where vsync or a slow rasterizer hides it in `interval`.
 - frames over 50 ms (hitches), terrain textures baked during the stage, and the entities, belts and belt items around the view at its end.
+- **snapshots** (a second table, from `SnapshotMeter` in `src/worker/snapshotMeter.ts`): snapshots received per second, the UPS they covered, catch-ups (snapshots covering more than one tick), the worker's time to encode one (p50 / p95 / max), the bytes transferred, the latency from the worker's `postMessage` to the main thread's handler (with a slow software renderer this is mostly the main thread being busy with a frame), and the main thread's time to decode and apply one (the client's delta decoding plus `onSnapshot`: the view's layers and the panels).
 
 ```sh
 npm run profile:render                                 # headless Chromium (software rendering), 10k scene
@@ -109,6 +110,15 @@ npm run bench -- --baseline tools/bench/baseline.json --update-baseline  # overw
 ```
 
 Other options: `--warmup <ticks>`, `--ticks <ticks>`, `--runs <n>`, `--warmup-runs <n>`, `--threshold <ratio>` (default `0.2`), `--compare-md <file>`, `--fail-on-regression`. `npm run test:bench` runs the tests of the tooling itself (`tests/bench/`).
+
+**Snapshot cost** (`--snapshot`, `tools/bench/snapshot.ts`; e.g. `npm run bench -- 10k --snapshot`): instead of timing ticks, builds each scene, warms it up, then after each of 600 ticks (`--ticks`) encodes the snapshot sections the worker sends (D56) for a chunk window over every entity of the scene, into reused writers and through the deltas as the worker does, passes them through `structuredClone` with the buffers transferred (what `postMessage` does) and rebuilds the whole sections as `SimClient` does. It reports per tick the encoding (and each section's encoder), the deltas, the transfer, the worker's total, the main thread's decoding, the bytes of the whole sections and of what was sent, and how often each section went whole, as a patch or not at all (`--json`, `--md` as above). The render layers that read the sections are measured in the browser by the render profile.
+
+| Scene | Entities / belt items | Encode | Deltas | Transfer | Worker total (p99) | Main decode | KiB whole / sent |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `1k` | 1 000 / 226 | 0.23 ms | 0.06 ms | 0.03 ms | 0.31 ms (1.2) | 0.02 ms | 50.7 / 4.2 |
+| `10k` | 10 037 / 49 210 | 3.42 ms | 0.82 ms | 0.10 ms | 4.34 ms (7.3) | 0.15 ms | 956 / 386 |
+
+(Node 22 on a shared 4-core dev machine; means per tick.) Before D56 the same 10k window took 14.2 ms of encoding per snapshot (p99 23.6 ms; the belt encoder alone 11.9 ms) and sent 1 342 KiB, every section whole.
 
 **Per-system timings** (`--profile`, `tools/bench/profile.ts`): after the measured runs, one more run builds the scene, warms it up the same way, and runs the measured ticks through `profiledStep`, which does what `Sim.step()` does but runs the systems itself and times each one with `performance.now()`. It lives in the benchmark only, so the game pays nothing for it. Three systems are split finer: drills (burner, electric), machines (furnaces, assembling machines, labs) and players (movement and hand-mining, hand-crafting). The report gets a table of the mean time per tick and share of each stage; the stage times include the timer calls (a dozen per tick, well under a microsecond), which matters for the microsecond-scale 1k and power scenes only, which is why the headline numbers come from the unprofiled runs. The profiled run must end in the same state hash as the measured ones, and the tests check that profiled ticks match `Sim.step()` and that `SYSTEMS` (src/sim/tick.ts) still has the systems the profiler knows: change the tick order and update `STAGES` with it.
 
