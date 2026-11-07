@@ -406,7 +406,9 @@ export class TechTreePanel {
         const out = recipePrototype(r)?.outputs[0];
         if (!out) continue;
         const icon = smallIcon(out[0], 20);
-        icon.dataset.item = itemPrototype(out[0])?.name ?? '';
+        // Not `data-item`: that holds the item id the icon is redrawn from
+        // when the rendered icons load (`setSlotIcon`).
+        icon.dataset.unlock = itemPrototype(out[0])?.name ?? '';
         unlocks.appendChild(icon);
       }
     }

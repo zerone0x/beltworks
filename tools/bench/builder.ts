@@ -16,6 +16,7 @@ import type { Axis, CommandInput } from '../../src/sim/commands';
 import type { Direction } from '../../src/sim/entities/direction';
 import { tileCenter } from '../../src/sim/fixed';
 import { PLAYER_SPEED } from '../../src/sim/player';
+import { forceOf } from '../../src/sim/research/unlocks';
 import type { Sim } from '../../src/sim/tick';
 
 /** One `Place` command: an item, the top-left tile of the footprint and a direction. */
@@ -108,6 +109,25 @@ export class Builder {
       }
       return id;
     });
+  }
+
+  /** Sets the recipe of assembling machine `entity` (a `SetRecipe` command). Throws if it was ignored. */
+  setRecipe(entity: number, recipe: number): void {
+    this.send({ type: 'SetRecipe', playerId: this.playerId, entity, recipe });
+    this.sim.step();
+    if (this.sim.state.entities.selectedRecipe(entity) !== recipe) {
+      throw new Error(`SetRecipe ${String(recipe)} on entity ${String(entity)} was ignored`);
+    }
+  }
+
+  /** Makes `tech` the current research (a `SetResearch` command). Throws if it was ignored. */
+  setResearch(tech: number): void {
+    this.send({ type: 'SetResearch', playerId: this.playerId, tech });
+    this.sim.step();
+    const { state } = this.sim;
+    if (state.research.currentOf(forceOf(state, this.playerId)) !== tech) {
+      throw new Error(`SetResearch ${String(tech)} was ignored`);
+    }
   }
 
   /**
