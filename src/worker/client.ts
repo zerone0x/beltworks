@@ -95,7 +95,8 @@ export class SimClient {
   }
 
   private measure(msg: StatsMessage): SimStats {
-    const now = performance.now();
+    // The worker's clock: when the messages were sent, not when they were read.
+    const now = msg.at;
     let ups = 0;
     if (this.lastStats && now > this.lastStats.at) {
       ups = ((msg.tick - this.lastStats.tick) * 1000) / (now - this.lastStats.at);

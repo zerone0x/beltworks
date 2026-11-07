@@ -73,6 +73,7 @@ function wake(): void {
         tick: sim.tick,
         tickMs: statStepMs / statTicks,
         droppedTicks: statDropped,
+        at: performance.now(),
       });
       statTicks = 0;
       statStepMs = 0;

@@ -141,14 +141,27 @@ function chunk(type, body) {
 }
 
 /**
- * Encodes RGBA pixels as an 8-bit RGBA PNG, choosing each row's filter by the
- * smallest sum of absolute differences, at maximum compression.
+ * Encodes RGBA pixels as an 8-bit PNG (RGB when every pixel is opaque, else
+ * RGBA), choosing each row's filter by the smallest sum of absolute
+ * differences, at maximum compression.
  * @param {Image} image
  * @returns {Buffer}
  */
 export function encodePng(image) {
-  const { width, height, data } = image;
-  const stride = width * 4;
+  const { width, height } = image;
+  let opaque = true;
+  for (let i = 3; i < image.data.length && opaque; i += 4) opaque = image.data[i] === 255;
+  const bpp = opaque ? 3 : 4;
+  let data = image.data;
+  if (opaque) {
+    data = new Uint8Array(width * height * 3);
+    for (let i = 0, o = 0; i < image.data.length; i += 4, o += 3) {
+      data[o] = image.data[i];
+      data[o + 1] = image.data[i + 1];
+      data[o + 2] = image.data[i + 2];
+    }
+  }
+  const stride = width * bpp;
   const out = Buffer.alloc((stride + 1) * height);
   const candidate = new Uint8Array(stride);
   const best = new Uint8Array(stride);
@@ -160,9 +173,9 @@ export function encodePng(image) {
       let score = 0;
       for (let x = 0; x < stride; x++) {
         const v = data[row + x];
-        const a = x >= 4 ? data[row + x - 4] : 0;
+        const a = x >= bpp ? data[row + x - bpp] : 0;
         const b = y > 0 ? data[row - stride + x] : 0;
-        const c = x >= 4 && y > 0 ? data[row - stride + x - 4] : 0;
+        const c = x >= bpp && y > 0 ? data[row - stride + x - bpp] : 0;
         let f;
         switch (filter) {
           case 0:
@@ -197,7 +210,7 @@ export function encodePng(image) {
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header[8] = 8;
-  header[9] = 6;
+  header[9] = opaque ? 2 : 6;
   return Buffer.concat([
     SIGNATURE,
     chunk('IHDR', header),

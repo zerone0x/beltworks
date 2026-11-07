@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { TILE_PX } from '../../src/render/camera';
+import { FREE_MARGIN } from '../../src/render/terrainLayer';
 import { startingPatches } from '../../src/sim/world/generate';
 import { formatTile } from '../../src/ui/debugOverlay';
 
@@ -37,13 +38,15 @@ test('initial view renders the terrain around the spawn', async ({ page }) => {
   await open(page);
   expect(await camera(page)).toEqual({ x: 0, y: 0, zoom: 1 });
   const stats = await page.evaluate(() => window.__beltworks!.terrainStats());
-  expect(stats.sprites).toBe(stats.windowChunks);
+  expect(stats.sprites).toBe(stats.bakeChunks);
 
   // The overlay shows changing tick counts; mask it (and the help hint's
   // text, whose font differs between machines) so the image is stable.
   const options = {
     mask: [page.locator('#debug-overlay'), page.locator('#help-hint')],
     maxDiffPixelRatio: 0.01,
+    // A full-HD screenshot takes a while in software rendering.
+    timeout: 15_000,
   };
   await expect(page).toHaveScreenshot('initial-view.png', options);
 
@@ -113,6 +116,8 @@ test('wheel zooms towards the cursor, arrows and middle-drag pan, without errors
 });
 
 test('panning across many chunks keeps only the window around the view', async ({ page }) => {
+  // Each jump bakes a few chunks of rendered terrain, which is slow in software (CI).
+  test.setTimeout(120_000);
   const errors = collectErrors(page);
   await open(page);
   const size = page.viewportSize()!;
@@ -120,6 +125,11 @@ test('panning across many chunks keeps only the window around the view', async (
   // At zoom 1 the screen spans at most this many chunks per axis, plus the margin on both sides.
   const maxWindow =
     (Math.ceil(size.width / chunkPx) + 1 + 2) * (Math.ceil(size.height / chunkPx) + 1 + 2);
+  // Rendered terrain keeps textures (4 MiB each at 1×) for the chunks within FREE_MARGIN of the view.
+  const reach = 2 * FREE_MARGIN * TILE_PX;
+  const maxTextures =
+    (Math.ceil((size.width + reach) / chunkPx) + 1) *
+    (Math.ceil((size.height + reach) / chunkPx) + 1);
 
   // Jump the camera 3 chunks at a time across ~120 chunks, waiting for each view to load.
   for (let i = 1; i <= 40; i++) {
@@ -128,8 +138,12 @@ test('panning across many chunks keeps only the window around the view', async (
     const stats = await page.evaluate(() => window.__beltworks!.terrainStats());
     // Nothing outside the viewport + margin survives.
     expect(stats.chunks).toBe(stats.windowChunks);
-    expect(stats.sprites).toBe(stats.windowChunks);
     expect(stats.windowChunks).toBeLessThanOrEqual(maxWindow);
+    // Chunk textures near the view are baked, and those further away freed:
+    // at most the chunks within FREE_MARGIN tiles of the view stay.
+    expect(stats.sprites).toBeGreaterThanOrEqual(stats.bakeChunks);
+    expect(stats.sprites).toBeLessThanOrEqual(maxTextures);
+    expect(stats.textureBytes).toBeLessThanOrEqual(maxTextures * 4 * 1024 * 1024);
   }
   expect(errors).toEqual([]);
 });

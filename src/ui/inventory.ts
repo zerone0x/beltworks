@@ -12,7 +12,7 @@
  */
 
 import { itemPrototype } from '../data/items';
-import { ICON_PX, iconDataUrl } from '../render/itemIcons';
+import { ICON_PX, hasRenderedIcon, iconDataUrl, onIconsChanged } from '../render/itemIcons';
 import type { SlotData } from '../sim/snapshot';
 
 /** Slots shown in the hotbar: the first slots of the inventory. */
@@ -88,8 +88,18 @@ export function makeSlotIcon(): HTMLElement {
 
 /** Shows item `item`'s icon on an element from `makeSlotIcon`, or nothing for 0. */
 export function setSlotIcon(icon: HTMLElement, item: number): void {
+  icon.dataset.item = String(item);
   icon.style.backgroundImage = item === 0 ? 'none' : `url(${iconDataUrl(item)})`;
+  // Rendered icons scale smoothly; the lettered pixel art stays crisp.
+  icon.style.imageRendering = hasRenderedIcon(item) ? 'auto' : 'pixelated';
 }
+
+// When the rendered icons arrive (or letters are toggled), every slot shows the new ones.
+onIconsChanged(() => {
+  for (const icon of document.querySelectorAll<HTMLElement>('.icon[data-item]')) {
+    setSlotIcon(icon, Number(icon.dataset.item));
+  }
+});
 
 /** CSS color for a 0xRRGGBB value. */
 export function cssColor(rgb: number): string {

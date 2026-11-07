@@ -16,6 +16,8 @@ import { BuildInput, isPlaceableSlot } from './render/buildInput';
 import { GameView } from './render/gameView';
 import { PlayerInput } from './render/playerInput';
 import { SPRITE_ATLASES, loadSpriteAtlases } from './render/sprites';
+import { loadTerrainArt } from './render/terrainArt';
+import { loadItemIcons } from './render/itemIcons';
 import { CraftQueueStrip, CraftingPanel } from './ui/crafting';
 import { DebugOverlay } from './ui/debugOverlay';
 import { EntityPanel, hasEntityGui } from './ui/entityPanel';
@@ -118,10 +120,18 @@ async function main(): Promise<void> {
     client.setViewport(viewport);
   });
   // Pre-rendered sprites (docs/ART.md); placeholders until (or unless) they load.
-  void loadSpriteAtlases(
-    SPRITE_ATLASES.map((name) => `${import.meta.env.BASE_URL}sprites/${name}.json`),
-  ).then((atlas) => {
-    view.setSprites(atlas);
+  // The game runs with its placeholders until (or unless) each part loads.
+  const sprites = `${import.meta.env.BASE_URL}sprites/`;
+  void Promise.allSettled([
+    loadSpriteAtlases(SPRITE_ATLASES.map((name) => `${sprites}${name}.json`)).then((atlas) => {
+      view.setSprites(atlas);
+    }),
+    loadItemIcons(`${sprites}icons.json`),
+    loadTerrainArt(`${sprites}terrain.json`).then((art) => {
+      view.setTerrainArt(art, testHook?.terrainTexelsFromUrl(window.location.search));
+    }),
+  ]).then(() => {
+    view.artSettled = true;
   });
   const input = new PlayerInput({
     element: app.canvas,

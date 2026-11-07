@@ -20,8 +20,11 @@ import { MachineState } from '../sim/entities/machine';
 import { TILE_PX } from './camera';
 
 export const ATLAS_VERSION = 1;
-/** The atlases in `public/sprites/` the game loads, by name. */
-export const SPRITE_ATLASES = ['entities', 'logistics'] as const;
+/**
+ * The entity atlases in `public/sprites/` the game loads, by name (terrain
+ * and item icons have their own loaders: terrainArt.ts, itemIcons.ts).
+ */
+export const SPRITE_ATLASES = ['entities', 'logistics', 'power'] as const;
 /** Opacity of the shadow layer (shadows are drawn at full strength into it, so they never double up). */
 export const SHADOW_ALPHA = 0.5;
 
@@ -57,6 +60,10 @@ export interface AtlasIndex {
   /** `[sheet, x, y, w, h, ax, ay]` per frame. */
   frames: [number, number, number, number, number, number, number][];
   models: Record<string, AtlasModelIndex>;
+  /** Seamless ground textures (the `terrain` atlas): one PNG each, `period`² tiles. */
+  ground?: Record<string, { file: string; period: number }>;
+  /** Item icons by item name (the `icons` atlas): `size`² texels at `[sheet, x, y]`. */
+  icons?: { size: number; items: Record<string, [number, number, number]> };
 }
 
 /** One frame: its texture, and where the footprint's center falls in it (texels). */
@@ -227,6 +234,23 @@ export function modelDirection(model: { directions: number }, dir: number): numb
  * placeholders) when there is none or it can't be read.
  */
 export async function loadSpriteAtlas(url: string): Promise<SpriteAtlas | null> {
+  const files = await loadAtlasFiles(url);
+  return files && new SpriteAtlas(files.index, files.sheets);
+}
+
+/** An atlas index and its sheets, loaded. */
+export interface AtlasFiles {
+  index: AtlasIndex;
+  sheets: Texture[];
+  /** The URL the sheets and ground textures are relative to. */
+  base: string;
+}
+
+/**
+ * Loads the atlas index at `url` and its sheets (with mipmaps, for zoomed-out
+ * views); `null` when there is none or it can't be read.
+ */
+export async function loadAtlasFiles(url: string): Promise<AtlasFiles | null> {
   try {
     const response = await fetch(url);
     if (!response.ok) return null;
@@ -240,9 +264,9 @@ export async function loadSpriteAtlas(url: string): Promise<SpriteAtlas | null> 
         }),
       ),
     );
-    return new SpriteAtlas(index, sheets);
+    return { index, sheets, base };
   } catch (err) {
-    console.warn('sprites: falling back to placeholders:', err);
+    console.warn(`sprites: can't load ${url}, falling back to placeholders:`, err);
     return null;
   }
 }
