@@ -121,10 +121,43 @@ describe('baseline comparison', () => {
   });
 
   it('has a committed baseline for every scene', () => {
-    const baseline = JSON.parse(
-      readFileSync(new URL('../../tools/bench/baseline.json', import.meta.url), 'utf8'),
-    ) as BenchReport;
-    expect(baseline.scenes.map((s) => s.name).sort()).toEqual(SCENES.map((s) => s.name).sort());
+    // The scenes CI runs on every PR, and the heavy ones it runs nightly.
+    const names = (file: string): string[] =>
+      (
+        JSON.parse(
+          readFileSync(new URL(`../../tools/bench/${file}`, import.meta.url), 'utf8'),
+        ) as BenchReport
+      ).scenes
+        .map((s) => s.name)
+        .sort();
+    expect(names('baseline.json')).toEqual(
+      SCENES.filter((s) => !s.heavy)
+        .map((s) => s.name)
+        .sort(),
+    );
+    expect(names('baseline-nightly.json')).toEqual(
+      SCENES.filter((s) => s.heavy)
+        .map((s) => s.name)
+        .sort(),
+    );
+  });
+
+  it('lists each scene’s run settings when they differ, with work and profiles', () => {
+    const a = scene('a', 1);
+    const b = {
+      ...scene('b', 1),
+      warmupTicks: 1200,
+      work: { before: { beltItems: 10 }, after: { beltItems: 12 } },
+      profile: {
+        ticks: 10,
+        meanMs: 1,
+        stages: [{ name: 'belts', system: 'belts', meanMs: 0.75, share: 0.75 }],
+      },
+    };
+    const md = reportMarkdown(report(a, b));
+    expect(md).toContain('- `b`: 1200 warm-up + 3600 measured ticks per run');
+    expect(md).toContain('- `b`: beltItems 10 → 12');
+    expect(md).toContain('| belts | 0.7500 (75.0%) |');
   });
 });
 

@@ -31,9 +31,28 @@ export interface BenchReport {
 const ms = (v: number): string => v.toFixed(4);
 const rate = (v: number): string => Math.round(v).toLocaleString('en-US');
 
-/** A Markdown table of the report's scenes. */
+/** How a scene was run: ticks per run, runs, untimed runs. */
+function runSettings(
+  s: Pick<SceneResult, 'warmupTicks' | 'measuredTicks' | 'warmupRuns'> & {
+    runs: readonly unknown[];
+  },
+): string {
+  return (
+    `${String(s.warmupTicks)} warm-up + ${String(s.measuredTicks)} measured ticks per run, ` +
+    `median of ${String(s.runs.length)} runs by mean, after ${String(s.warmupRuns)} untimed runs`
+  );
+}
+
+const count = (v: number): string => v.toLocaleString('en-US');
+
+/**
+ * A Markdown table of the report's scenes, then the work the scenes did
+ * during the measured ticks and their per-system profiles, where they have
+ * them.
+ */
 export function reportMarkdown(report: BenchReport): string {
   const { environment: env } = report;
+  const machine = `Node ${env.node} on ${env.cpu} (${String(env.cpus)} CPUs, ${env.platform}/${env.arch}).`;
   const lines = [
     '| Scene | Entities | Belt items | Mean (ms) | p50 (ms) | p99 (ms) | Max (ms) | Ticks/s | Target mean |',
     '|---|---:|---:|---:|---:|---:|---:|---:|---|',
@@ -42,10 +61,45 @@ export function reportMarkdown(report: BenchReport): string {
       return `| ${s.name} | ${String(s.entities)} | ${String(s.beltItems)} | ${ms(s.meanMs)} | ${ms(s.p50Ms)} | ${ms(s.p99Ms)} | ${ms(s.maxMs)} | ${rate(s.ticksPerSecond)} | ${target} |`;
     }),
     '',
-    `${String(report.scenes[0]?.warmupTicks ?? 0)} warm-up + ${String(report.scenes[0]?.measuredTicks ?? 0)} measured ticks per run, ` +
-      `median of ${String(report.scenes[0]?.runs.length ?? 0)} runs by mean, after ${String(report.scenes[0]?.warmupRuns ?? 0)} untimed runs; ` +
-      `Node ${env.node} on ${env.cpu} (${String(env.cpus)} CPUs, ${env.platform}/${env.arch}).`,
   ];
+  // One line when every scene ran the same way, else one per scene.
+  const settings = [...new Set(report.scenes.map(runSettings))];
+  if (settings.length > 1) {
+    lines.push(...report.scenes.map((s) => `- \`${s.name}\`: ${runSettings(s)}.`), '', machine);
+  } else {
+    const first = report.scenes[0];
+    const none = { warmupTicks: 0, measuredTicks: 0, warmupRuns: 0, runs: [] };
+    lines.push(`${runSettings(first ?? none)}; ${machine}`);
+  }
+  const worked = report.scenes.filter((s) => s.work);
+  if (worked.length > 0) {
+    lines.push('', 'Work during the measured ticks (before → after):', '');
+    for (const s of worked) {
+      const { before, after } = s.work!;
+      const parts = Object.keys(after).map(
+        (k) => `${k} ${count(before[k] ?? 0)} → ${count(after[k] ?? 0)}`,
+      );
+      lines.push(`- \`${s.name}\`: ${parts.join(', ')}`);
+    }
+  }
+  const profiled = report.scenes.filter((s) => s.profile);
+  if (profiled.length > 0) {
+    lines.push(
+      '',
+      'Per-system time per tick in ms (share of the profiled tick), from one extra profiled run per scene:',
+      '',
+      `| System | ${profiled.map((s) => s.name).join(' | ')} |`,
+      `|---|${profiled.map(() => '---:').join('|')}|`,
+    );
+    for (const { name } of profiled[0]!.profile!.stages) {
+      const cells = profiled.map((s) => {
+        const t = s.profile!.stages.find((x) => x.name === name);
+        return t ? `${ms(t.meanMs)} (${(t.share * 100).toFixed(1)}%)` : 'n/a';
+      });
+      lines.push(`| ${name} | ${cells.join(' | ')} |`);
+    }
+    lines.push(`| total | ${profiled.map((s) => ms(s.profile!.meanMs)).join(' | ')} |`);
+  }
   return lines.join('\n');
 }
 
@@ -124,7 +178,10 @@ const pct = (v: number | undefined): string =>
   v === undefined ? 'n/a' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
 
 /** A Markdown table of the comparison, with a warning line per regression. */
-export function comparisonMarkdown(comparison: Comparison): string {
+export function comparisonMarkdown(
+  comparison: Comparison,
+  baselinePath = 'tools/bench/baseline.json',
+): string {
   const lines = [
     '| Scene | Mean (ms) | Δ mean | p50 (ms) | Δ p50 | p99 (ms) | Δ p99 | Status |',
     '|---|---:|---:|---:|---:|---:|---:|---|',
@@ -152,7 +209,7 @@ export function comparisonMarkdown(comparison: Comparison): string {
     if (s.stateChanged) {
       out.push(
         `Scene \`${s.name}\` ends in a different state than the baseline (hash ${s.current.hash}, was ${s.baseline?.hash ?? 'n/a'}): ` +
-          'the scene or the simulation changed. If that is intended, update `tools/bench/baseline.json`.',
+          `the scene or the simulation changed. If that is intended, update \`${baselinePath}\`.`,
       );
     }
     return out;

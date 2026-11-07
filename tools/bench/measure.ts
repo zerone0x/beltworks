@@ -14,6 +14,14 @@
  * away: on a 2-core CI runner V8 keeps optimizing the simulation for the
  * first few runs (the first run measured up to 4× slower than the fifth), and
  * 600 warm-up ticks of a microsecond-scale scene are too short for that.
+ *
+ * Heavy scenes (10k, 50k) take milliseconds per tick and their builds run
+ * thousands of ticks, which warms the JIT anyway, so they default to fewer
+ * runs and no untimed ones (`BenchScene.defaults`); options passed here
+ * override those. A scene with a `probe` has its counters read around the
+ * measured ticks of every run, and `assertWork` checks them. With `profile`,
+ * one extra run times every system (profile.ts); it must end in the same
+ * state as the measured runs.
  */
 
 import { beltTable } from '../../src/sim/belts/belts';
@@ -21,7 +29,14 @@ import { SAT_ONE } from '../../src/data/entities';
 import { MachineState } from '../../src/sim/entities/machine';
 import { powerGrid } from '../../src/sim/power/grid';
 import type { Sim } from '../../src/sim/tick';
-import type { BenchScene, BuiltScene } from './scene';
+import {
+  checkSystems,
+  profiledStep,
+  profileResult,
+  SystemProfile,
+  type ProfileResult,
+} from './profile';
+import type { BenchScene, BuiltScene, WorkCounters } from './scene';
 
 export const WARMUP_TICKS = 600;
 export const MEASURED_TICKS = 3_600;
@@ -60,6 +75,10 @@ export interface SceneResult extends TickStats {
   activity: SceneActivity;
   /** State hash after the last measured tick (hex), the same for every run: identifies the scene. */
   hash: string;
+  /** The scene's work counters (`BenchScene.probe`) after the warm-up and after the measured ticks. */
+  work?: { before: WorkCounters; after: WorkCounters };
+  /** Per-system timings from one extra profiled run (`--profile`). */
+  profile?: ProfileResult;
 }
 
 export interface SceneActivity {
@@ -128,17 +147,30 @@ export interface MeasureOptions {
   measuredTicks?: number;
   runs?: number;
   warmupRuns?: number;
+  /** Add one profiled run with per-system timings (profile.ts). */
+  profile?: boolean;
 }
 
-/** One run: build, warm up, time every measured tick. */
-function runOnce(
-  scene: BenchScene,
-  warmupTicks: number,
-  measuredTicks: number,
-): { built: BuiltScene; stats: TickStats; activity: SceneActivity; hash: string } {
+interface RunResult {
+  built: BuiltScene;
+  stats: TickStats;
+  activity: SceneActivity;
+  hash: string;
+  work?: { before: WorkCounters; after: WorkCounters };
+}
+
+const hex = (sim: Sim): string => `0x${sim.hash().toString(16).padStart(8, '0')}`;
+
+/**
+ * One run: build, warm up, time every measured tick. With a `probe`, the
+ * scene's counters are read around the measured ticks, and `assertWork`
+ * checks them.
+ */
+function runOnce(scene: BenchScene, warmupTicks: number, measuredTicks: number): RunResult {
   const built = scene.build();
   const { sim } = built;
   for (let i = 0; i < warmupTicks; i++) sim.step();
+  const before = scene.probe?.(sim);
   // Start the measured window with a clean heap where the runtime allows it
   // (`node --expose-gc`, as `npm run bench` does).
   (globalThis as { gc?: () => void }).gc?.();
@@ -148,23 +180,49 @@ function runOnce(
     sim.step();
     durations[i] = performance.now() - start;
   }
-  return {
+  const result: RunResult = {
     built,
     stats: tickStats(durations),
     activity: sceneActivity(sim),
-    hash: `0x${sim.hash().toString(16).padStart(8, '0')}`,
+    hash: hex(sim),
   };
+  if (before && scene.probe) {
+    const after = scene.probe(sim);
+    scene.assertWork?.(before, after, sim);
+    result.work = { before, after };
+  }
+  return result;
+}
+
+/**
+ * A profiled run: build, warm up, then run the measured ticks through
+ * `profiledStep`. Returns the profile and the end state's hash, which must
+ * match the measured runs' (profiled ticks are ordinary ticks).
+ */
+function profileOnce(
+  scene: BenchScene,
+  warmupTicks: number,
+  measuredTicks: number,
+): { profile: ProfileResult; hash: string } {
+  checkSystems();
+  const { sim } = scene.build();
+  for (let i = 0; i < warmupTicks; i++) sim.step();
+  (globalThis as { gc?: () => void }).gc?.();
+  const profile = new SystemProfile();
+  for (let i = 0; i < measuredTicks; i++) profiledStep(sim, profile);
+  return { profile: profileResult(profile), hash: hex(sim) };
 }
 
 /** Runs `scene` `runs` times and reports the run with the median mean tick time. */
 export function measureScene(scene: BenchScene, options: MeasureOptions = {}): SceneResult {
-  const warmupTicks = options.warmupTicks ?? WARMUP_TICKS;
-  const measuredTicks = options.measuredTicks ?? MEASURED_TICKS;
-  const count = options.runs ?? RUNS;
+  const defaults = scene.defaults ?? {};
+  const warmupTicks = options.warmupTicks ?? defaults.warmupTicks ?? WARMUP_TICKS;
+  const measuredTicks = options.measuredTicks ?? defaults.measuredTicks ?? MEASURED_TICKS;
+  const count = options.runs ?? defaults.runs ?? RUNS;
   if (!Number.isSafeInteger(count) || count < 1) {
     throw new RangeError(`runs must be a positive integer, got ${String(count)}`);
   }
-  const warmupRuns = options.warmupRuns ?? WARMUP_RUNS;
+  const warmupRuns = options.warmupRuns ?? defaults.warmupRuns ?? WARMUP_RUNS;
   for (let i = 0; i < warmupRuns; i++) runOnce(scene, warmupTicks, measuredTicks);
   const runs = Array.from({ length: count }, () => runOnce(scene, warmupTicks, measuredTicks));
   const hashes = new Set(runs.map((r) => r.hash));
@@ -175,7 +233,17 @@ export function measureScene(scene: BenchScene, options: MeasureOptions = {}): S
   }
   const median = runs.slice().sort((a, b) => a.stats.meanMs - b.stats.meanMs)[(count - 1) >> 1]!;
   const { built } = median;
-  return {
+  let profile: ProfileResult | undefined;
+  if (options.profile) {
+    const profiled = profileOnce(scene, warmupTicks, measuredTicks);
+    if (profiled.hash !== median.hash) {
+      throw new Error(
+        `scene ${scene.name}: the profiled run ended in ${profiled.hash}, the measured ones in ${median.hash}`,
+      );
+    }
+    profile = profiled.profile;
+  }
+  const result: SceneResult = {
     name: scene.name,
     description: scene.description,
     entities: built.sim.state.entities.count,
@@ -191,4 +259,7 @@ export function measureScene(scene: BenchScene, options: MeasureOptions = {}): S
     activity: median.activity,
     hash: median.hash,
   };
+  if (median.work) result.work = median.work;
+  if (profile) result.profile = profile;
+  return result;
 }
