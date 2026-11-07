@@ -25,7 +25,8 @@ export interface LaneOutlet {
   /**
    * How close to the end item 0 of `lane` may come right now (0: all the
    * way). Where the lane hands on to the start of another lane, item 0 has
-   * to stay the spacing behind that lane's last item.
+   * to stay the spacing behind that lane's last item, so the limit is more
+   * than the spacing while that item sits past the lane's start edge.
    */
   minFront(lane: Lane): number;
   /**
@@ -236,8 +237,9 @@ export class Lane {
     let rem = speed;
     for (;;) {
       const g0 = this.gap(0);
-      // The outlet's limit is at most the spacing, so it only matters near the end.
-      const floor = outlet !== null && g0 < rem + this.spacing ? outlet.minFront(this) : 0;
+      // Asked every time (O(1)): the limit may lie more than the spacing from
+      // the end, where a rebuild pushed the target's last item past its start.
+      const floor = outlet !== null ? outlet.minFront(this) : 0;
       if (g0 > floor) {
         const a = Math.min(rem, g0 - floor);
         this.setGap(0, g0 - a);
