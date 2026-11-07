@@ -20,7 +20,9 @@ import {
 import { MachineState } from '../../src/sim/entities/machine';
 import { tileCenter } from '../../src/sim/fixed';
 import { decodeEntityDetail, encodeEntityDetail } from '../../src/sim/snapshot';
+import { saveSim } from '../../src/sim/save/save';
 import { Sim } from '../../src/sim/tick';
+import { reload, stepTogether } from './saveRoundTrip';
 
 const { North, East, South, West } = Direction;
 const COAL = ItemId.Coal;
@@ -257,6 +259,36 @@ describe('burner inserter', () => {
     expect(d.hand(d.inserter)).toEqual({ held: PLATE, arm: 1 });
     expect(d.entities.wake.watchersOf(d.source)).toEqual([]);
     expect(d.entities.wake.watchersOf(d.target)).toEqual([]);
+  });
+
+  it('keeps waiting on a full target and its source the same way after a save and load', () => {
+    // Inserter `a` (3, 0) waits on its source chest (2, 0) and its full target
+    // chest (4, 0). Unfuelled inserters on (5, 0) and (4, 1) take from the
+    // target, so they wait on it too: one subscribed before `a`, one after.
+    // Loading rebuilds `a`'s subscriptions target first; it must not take
+    // that for a change and subscribe again (reordering the target's watchers).
+    const s = setup();
+    const source = s.place(ItemId.WoodenChest, 2, 0);
+    const target = s.place(ItemId.WoodenChest, 4, 0);
+    s.place(ItemId.WoodenChest, 6, 0);
+    const before = s.place(ItemId.BurnerInserter, 5, 0, East);
+    for (let i = 0; i < 16; i++) s.entities.insert(target, ItemId.Stone, 50);
+    s.step();
+    const a = s.place(ItemId.BurnerInserter, 3, 0, East);
+    s.entities.insert(a, COAL, 1);
+    s.entities.insert(source, PLATE, 2);
+    s.step();
+    expect(s.entities.status(a)).toBe(InserterState.WaitingForTarget);
+    const after = s.place(ItemId.BurnerInserter, 4, 1, South);
+    s.step();
+    expect(s.entities.wake.watchersOf(target)).toEqual([before, a, after]);
+    const copy = reload(s.sim);
+    // More plates wake `a`, which still has nowhere to put them.
+    s.entities.insert(source, PLATE, 1);
+    copy.state.entities.insert(source, PLATE, 1);
+    stepTogether(s.sim, copy, 3);
+    expect(copy.state.entities.wake.watchersOf(target)).toEqual([before, a, after]);
+    expect(Buffer.from(saveSim(copy)).equals(Buffer.from(saveSim(s.sim)))).toBe(true);
   });
 
   it('holds its item at a target filled while it swings, and drops it once the target has room', () => {

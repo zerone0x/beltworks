@@ -60,10 +60,18 @@ export class WakeSubscriptions {
     return targets?.length === 1 && targets[0] === target;
   }
 
-  /** Whether `watcher`'s subscriptions are exactly to `first` and then `second`. */
+  /**
+   * Whether `watcher`'s subscriptions are exactly to `first` and `second`, in
+   * either order (`load` rebuilds a watcher's list in the order of the saved
+   * targets, not the order it subscribed in).
+   */
   watchesExactly(watcher: number, first: number, second: number): boolean {
     const targets = this.byWatcher.get(watcher);
-    return targets?.length === 2 && targets[0] === first && targets[1] === second;
+    return (
+      targets?.length === 2 &&
+      ((targets[0] === first && targets[1] === second) ||
+        (targets[0] === second && targets[1] === first))
+    );
   }
 
   /** The watchers of `target`, in subscription order (a copy). */
