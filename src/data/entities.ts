@@ -10,7 +10,7 @@
  * tables and behavior (src/sim/entities/), belts (every tier, underground
  * belts included, in one table) theirs in src/sim/belts/, small electric
  * poles (the power grid), boilers and steam
- * engines theirs in src/sim/power/.
+ * engines theirs in src/sim/power/, and labs theirs in src/sim/research/.
  *
  * Energy is in integer joules; a burner entity burns `energyPerTick` joules on
  * every tick it works (60 ticks/s, so 1 500 J/tick is 90 kW). An electric
@@ -45,6 +45,8 @@ export const EntityTypeId = {
   UndergroundBelt: 18,
   FastUndergroundBelt: 19,
   ExpressUndergroundBelt: 20,
+  // Research (M3).
+  Lab: 21,
 } as const;
 
 export type EntityTypeId = (typeof EntityTypeId)[keyof typeof EntityTypeId];
@@ -459,6 +461,20 @@ export const ENTITIES: Readonly<Record<RealEntityTypeId, EntityPrototype>> = {
     beltSpeed: 24,
     undergroundMaxGap: 8,
   },
+  // Research (M3), with the shared design numbers.
+  [EntityTypeId.Lab]: {
+    id: EntityTypeId.Lab,
+    name: 'lab',
+    label: 'Lab',
+    width: 3,
+    height: 3,
+    rotatable: false,
+    item: ItemId.Lab,
+    color: 0xc9d2db,
+    energySource: 'electric',
+    // 60 kW while researching; no drain.
+    energyPerTick: 1_000,
+  },
 };
 
 /** Every real entity type id, in id order. */
@@ -483,6 +499,7 @@ export const ENTITY_TYPE_IDS: readonly RealEntityTypeId[] = [
   EntityTypeId.UndergroundBelt,
   EntityTypeId.FastUndergroundBelt,
   EntityTypeId.ExpressUndergroundBelt,
+  EntityTypeId.Lab,
 ];
 
 /** Whether `proto` is an inserter (burner, electric, fast or long-handed). */

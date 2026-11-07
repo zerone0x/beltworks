@@ -12,6 +12,9 @@ import { createEntityTables } from './entities/registry';
 import type { EntityTypeTable } from './entities/table';
 import { FNV1A32_OFFSET_BASIS, fnv1a32 } from './hash';
 import { PlayerTable } from './player';
+import { labTable } from './research/lab';
+import { ResearchState } from './research/research';
+import { DEFAULT_FORCE } from './research/unlocks';
 import { Rng } from './rng';
 import { World } from './world/world';
 
@@ -27,6 +30,8 @@ export interface SimState {
   readonly world: World;
   /** Every placed entity, with the occupancy index and the per-type tables. */
   readonly entities: Entities;
+  /** Every force's research: current research, progress, researched set. */
+  readonly research: ResearchState;
 }
 
 export interface SimOptions {
@@ -41,13 +46,18 @@ export interface SimOptions {
    * Tests use it to add fake tables, such as power producers.
    */
   entityTables?: readonly EntityTypeTable[];
+  /**
+   * Technologies every force has researched in the new game (default none).
+   * For tests, benchmarks and dev builds' `?research=` (src/testHook.ts).
+   */
+  researched?: readonly number[];
 }
 
 /**
  * Bump when the hashed layout changes, so stale expected hashes fail loudly
  * instead of matching by accident.
  */
-export const STATE_HASH_VERSION = 16;
+export const STATE_HASH_VERSION = 17;
 
 export function createSimState(options: SimOptions): SimState {
   const seed = options.seed >>> 0;
@@ -59,6 +69,10 @@ export function createSimState(options: SimOptions): SimState {
       inventory.add(item, count);
     }
   }
+  const research = new ResearchState();
+  for (const tech of options.researched ?? []) research.markResearched(DEFAULT_FORCE, tech);
+  const entities = new Entities(options.entityTables ?? createEntityTables());
+  labTable(entities)?.attach(research);
   return {
     tick: 0,
     seed,
@@ -66,7 +80,8 @@ export function createSimState(options: SimOptions): SimState {
     players,
     crafting: new CraftingTable(players.count),
     world: new World(seed),
-    entities: new Entities(options.entityTables ?? createEntityTables()),
+    entities,
+    research,
   };
 }
 
@@ -81,5 +96,6 @@ export function hashState(state: SimState): number {
   h = state.crafting.hashInto(h);
   h = state.world.hashInto(h);
   h = state.entities.hashInto(h);
+  h = state.research.hashInto(h);
   return h;
 }

@@ -18,6 +18,8 @@ import { updateInserters } from './entities/inserter';
 import { insertIntoEntity, setEntityRecipe, takeFromEntity } from './entities/transfer';
 import { updatePlayers } from './player';
 import { powerGrid } from './power/grid';
+import { labTable } from './research/lab';
+import { forceOf, isRecipeUnlocked } from './research/unlocks';
 import { createSimState, hashState, type SimOptions, type SimState } from './state';
 
 export interface System {
@@ -46,12 +48,13 @@ export const SYSTEMS: readonly System[] = [
     run: ({ state }) => updateInserters(state.entities),
   },
   {
-    // Furnaces, then assembling machines 1 and 2.
+    // Furnaces, then assembling machines 1 and 2, then labs.
     name: 'machines',
     run: ({ state }) => {
       furnaceTable(state.entities)?.update(state.entities);
       for (const type of ASSEMBLER_TYPES)
         assemblerTable(state.entities, type)?.update(state.entities);
+      labTable(state.entities)?.update(state.entities);
     },
   },
   {
@@ -104,13 +107,34 @@ export function applyCommand(state: SimState, cmd: Command): void {
     case 'SetRecipe':
       setEntityRecipe(state, cmd.playerId, cmd.entity, cmd.recipe);
       break;
-    case 'Craft':
-      state.crafting.queue(cmd.playerId, players.inventory(cmd.playerId), cmd.recipe, cmd.count);
+    case 'Craft': {
+      const force = forceOf(state, cmd.playerId);
+      state.crafting.queue(
+        cmd.playerId,
+        players.inventory(cmd.playerId),
+        cmd.recipe,
+        cmd.count,
+        (r) => isRecipeUnlocked(state, force, r),
+      );
       break;
+    }
     case 'CancelCraft':
       state.crafting.cancel(cmd.playerId, players.inventory(cmd.playerId), cmd.index);
       break;
+    case 'SetResearch':
+      setResearch(state, cmd.playerId, cmd.tech);
+      break;
   }
+}
+
+/**
+ * Makes `tech` the current research of player `playerId`'s force (0 stops),
+ * if it can be researched, and wakes the labs. Returns whether it changed.
+ */
+export function setResearch(state: SimState, playerId: number, tech: number): boolean {
+  if (!state.research.setCurrent(forceOf(state, playerId), tech)) return false;
+  labTable(state.entities)?.wakeAll();
+  return true;
 }
 
 export class Sim {

@@ -116,6 +116,17 @@ export interface CancelCraftCommand extends CommandBase {
   readonly index: number;
 }
 
+/**
+ * Makes technology `tech` the current research of the player's force (0
+ * stops researching). Ignored unless it can be researched: it isn't yet,
+ * and its prerequisites are (see src/sim/research/research.ts). Needs no
+ * reach.
+ */
+export interface SetResearchCommand extends CommandBase {
+  readonly type: 'SetResearch';
+  readonly tech: number;
+}
+
 export type Command =
   | MoveCommand
   | MineStartCommand
@@ -127,7 +138,8 @@ export type Command =
   | TakeCommand
   | SetRecipeCommand
   | CraftCommand
-  | CancelCraftCommand;
+  | CancelCraftCommand
+  | SetResearchCommand;
 export type CommandType = Command['type'];
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -195,6 +207,8 @@ export function validateCommandInput(input: unknown): string | null {
         : 'Craft needs a uint16 recipe and a count in [1, 65535]';
     case 'CancelCraft':
       return isUint16(c.index) ? null : 'CancelCraft needs a uint16 index';
+    case 'SetResearch':
+      return isUint16(c.tech) ? null : 'SetResearch needs a uint16 tech';
     default:
       return `unknown command type ${String(c.type)}`;
   }

@@ -8,6 +8,7 @@ import { ENTITIES, EntityTypeId } from '../../data/entities';
 import { BeltTable } from '../belts/belts';
 import { BoilerTable } from '../power/boiler';
 import { PowerGrid } from '../power/grid';
+import { LabTable } from '../research/lab';
 import { SteamEngineTable } from '../power/steamEngine';
 import { AssemblerTable } from './assembler';
 import { ChestTable } from './chest';
@@ -36,5 +37,6 @@ export function createEntityTables(): EntityTypeTable[] {
     new ChestTable(ENTITIES[EntityTypeId.IronChest]),
     new ElectricInserterTable(ENTITIES[EntityTypeId.FastInserter]),
     new ElectricInserterTable(ENTITIES[EntityTypeId.LongHandedInserter]),
+    new LabTable(),
   ];
 }

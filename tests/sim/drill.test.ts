@@ -431,6 +431,7 @@ describe('burner mining drill', () => {
       power: 0,
       network: 0,
       satisfaction: 0,
+      technology: 0,
       slots: [
         { item: ItemId.Coal, count: 1 },
         { item: 0, count: 0 },

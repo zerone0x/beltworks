@@ -14,6 +14,8 @@ import type { GameView } from './render/gameView';
 import type { TerrainStats, TileInfo } from './render/terrainLayer';
 import type { EntityPanel } from './ui/entityPanel';
 import type { PowerPanel } from './ui/powerPanel';
+import type { TechTreePanel } from './ui/techTree';
+import { TECH_IDS, TECHNOLOGIES, technologyPrototype } from './data/technologies';
 import { SUBTILES_PER_TILE } from './sim/fixed';
 import { runDeterminismScenario, type DeterminismResult } from './sim/scenarios/determinism';
 import {
@@ -22,6 +24,7 @@ import {
   PLAYER_STRIDE,
   type CraftQueueData,
   type PowerData,
+  type ResearchData,
   type SlotData,
 } from './sim/snapshot';
 import { World } from './sim/world/world';
@@ -189,6 +192,17 @@ export interface BeltworksTestHook {
    * and whether the ghost shows a sprite.
    */
   sprites(): { models: string[]; entities: number; animated: number; ghost: boolean };
+  /**
+   * The local player's force's research from the latest snapshot: the
+   * current technology's name (`''` for none) and, per technology name, the
+   * units researched and whether it is done.
+   */
+  research(): {
+    current: string;
+    techs: Record<string, { unitsDone: number; researched: boolean }>;
+  };
+  /** Whether the tech tree panel is open. */
+  techTreeOpen(): boolean;
 }
 
 declare global {
@@ -223,16 +237,42 @@ export function startingKitFromUrl(search: string): ItemStack[] | undefined {
     });
 }
 
+const TECH_BY_NAME = new Map(TECH_IDS.map((id) => [TECHNOLOGIES[id].name, id]));
+
+/**
+ * The technologies researched from the start asked for by a `research` URL
+ * parameter (dev and test builds only): comma-separated technology names,
+ * e.g. `?research=automation,logistics`, or `all`. For end-to-end tests that
+ * need locked recipes without researching them first (docs/DECISIONS.md,
+ * D38). `undefined` without the parameter; throws on an unknown name.
+ */
+export function researchedFromUrl(search: string): number[] | undefined {
+  const param = new URLSearchParams(search).get('research');
+  if (param === null) return undefined;
+  if (param === 'all') return [...TECH_IDS];
+  return param
+    .split(',')
+    .filter((name) => name !== '')
+    .map((name) => {
+      const id = TECH_BY_NAME.get(name);
+      if (id === undefined) throw new Error(`unknown technology "${name}"`);
+      return id;
+    });
+}
+
 export interface TestHookContext {
   client: SimClient;
   view: GameView;
   build: BuildInput;
   entityPanel: EntityPanel;
   powerPanel: PowerPanel;
+  techTree: TechTreePanel;
   /** The world seed the game runs with. */
   seed: number;
   /** The local player's inventory as last shown by the UI. */
   inventory: () => SlotData[];
+  /** The local player's force's research as last shown by the UI. */
+  research: () => ResearchData;
 }
 
 export function installTestHook({
@@ -241,8 +281,10 @@ export function installTestHook({
   build,
   entityPanel,
   powerPanel,
+  techTree,
   seed,
   inventory,
+  research,
 }: TestHookContext): void {
   let world: World | null = null;
   window.__beltworks = {
@@ -368,5 +410,16 @@ export function installTestHook({
       ...view.entities.sprites.stats,
       ghost: view.ghost.spriteShown,
     }),
+    research: () => {
+      const r = research();
+      const techs: Record<string, { unitsDone: number; researched: boolean }> = {};
+      for (const id of TECH_IDS) {
+        const t = TECHNOLOGIES[id];
+        const unitsDone = r.techs.get(id)?.unitsDone ?? 0;
+        techs[t.name] = { unitsDone, researched: unitsDone >= t.units };
+      }
+      return { current: technologyPrototype(r.current)?.name ?? '', techs };
+    },
+    techTreeOpen: () => techTree.isOpen,
   };
 }

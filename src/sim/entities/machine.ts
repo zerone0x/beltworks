@@ -1,7 +1,7 @@
 /**
  * Machine states shared by every entity type that works on its own (furnaces,
  * mining drills and inserters, burner and electric, and assembling
- * machines; labs later). See docs/ARCHITECTURE.md,
+ * machines, and labs). See docs/ARCHITECTURE.md,
  * "Machine sleep": a machine that isn't `Working` leaves its system's active
  * list until something it waits on changes.
  *
@@ -42,6 +42,11 @@ export const MachineState = {
   LowPower: 10,
   /** An assembling machine with no recipe set. */
   NoRecipe: 11,
+  /**
+   * A lab with nothing to research: no current research, or every unit
+   * left of it is already being researched in other labs.
+   */
+  NoResearch: 12,
 } as const;
 
 export type MachineState = (typeof MachineState)[keyof typeof MachineState];

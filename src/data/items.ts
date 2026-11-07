@@ -44,6 +44,10 @@ export const ItemId = {
   UndergroundBelt: 29,
   FastUndergroundBelt: 30,
   ExpressUndergroundBelt: 31,
+  // Research (M3).
+  Lab: 32,
+  AutomationSciencePack: 33,
+  LogisticSciencePack: 34,
 } as const;
 
 export type ItemId = (typeof ItemId)[keyof typeof ItemId];
@@ -305,6 +309,28 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 50,
     color: 0x3a8fd9,
   },
+  // Research (M3): the lab and the science packs it consumes.
+  [ItemId.Lab]: {
+    id: ItemId.Lab,
+    name: 'lab',
+    label: 'Lab',
+    stackSize: 10,
+    color: 0xd8dde3,
+  },
+  [ItemId.AutomationSciencePack]: {
+    id: ItemId.AutomationSciencePack,
+    name: 'automation-science-pack',
+    label: 'Automation science pack',
+    stackSize: 200,
+    color: 0xd23c3c,
+  },
+  [ItemId.LogisticSciencePack]: {
+    id: ItemId.LogisticSciencePack,
+    name: 'logistic-science-pack',
+    label: 'Logistic science pack',
+    stackSize: 200,
+    color: 0x3cb44a,
+  },
 };
 
 /** Every real item id, in id order. */
@@ -340,6 +366,9 @@ export const ITEM_IDS: readonly RealItemId[] = [
   ItemId.UndergroundBelt,
   ItemId.FastUndergroundBelt,
   ItemId.ExpressUndergroundBelt,
+  ItemId.Lab,
+  ItemId.AutomationSciencePack,
+  ItemId.LogisticSciencePack,
 ];
 
 /** The prototype of item `id`, or `undefined` for 0 and unknown ids. */

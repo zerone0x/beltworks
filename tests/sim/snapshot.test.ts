@@ -97,6 +97,7 @@ describe('encodeEntityDetail / decodeEntityDetail', () => {
       power: 0,
       network: 0,
       satisfaction: 0,
+      technology: 0,
       slots: [
         { item: ItemId.IronOre, count: 3 },
         { item: ItemId.Coal, count: 1 },

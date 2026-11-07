@@ -29,8 +29,15 @@ export class SimClient {
   onStats: ((stats: SimStats) => void) | null = null;
   onSnapshot: ((snapshot: SnapshotMessage) => void) | null = null;
 
-  /** `startingKit` replaces the default kit (dev and test builds only, see `InitMessage`). */
-  constructor(seed: number, startingKit?: { item: number; count: number }[]) {
+  /**
+   * `startingKit` replaces the default kit and `researched` technologies are
+   * researched from the start (dev and test builds only, see `InitMessage`).
+   */
+  constructor(
+    seed: number,
+    startingKit?: { item: number; count: number }[],
+    researched?: number[],
+  ) {
     this.worker = new Worker(new URL('./sim.worker.ts', import.meta.url), {
       type: 'module',
       name: 'beltworks-sim',
@@ -41,11 +48,12 @@ export class SimClient {
     this.worker.onerror = (event) => {
       console.error('Simulation worker failed:', event.message);
     };
-    this.send(
-      startingKit
-        ? { type: 'init', seed: seed >>> 0, startingKit }
-        : { type: 'init', seed: seed >>> 0 },
-    );
+    this.send({
+      type: 'init',
+      seed: seed >>> 0,
+      ...(startingKit && { startingKit }),
+      ...(researched && { researched }),
+    });
   }
 
   sendCommands(commands: CommandInput[]): void {

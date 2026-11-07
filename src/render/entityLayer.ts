@@ -48,6 +48,9 @@ const DRILL_HEAD_IDLE = 0x3a3c42;
 const DRILL_HEAD_WORKING = 0xd8d2bf;
 /** An assembling machine's work area, where its product icon shows. */
 const WORK_AREA = 0x26282c;
+/** A lab's glass dome: dark while idle, lit while it researches. */
+const LAB_DOME_IDLE = 0x2c3a48;
+const LAB_DOME_WORKING = 0x7fd4ff;
 /** Power icons: no power at all, and low power (satisfaction below 1). */
 export const NO_POWER_COLOR = 0xe0473c;
 export const LOW_POWER_COLOR = 0xf2c230;
@@ -138,6 +141,16 @@ export function drawEntity(
     ] as const) {
       g.circle(bx, by, 2.5).fill({ color: shade(color, 0.5), alpha });
     }
+  }
+  if (proto?.id === EntityTypeId.Lab) {
+    // A glass dome in the middle, on a darker ring.
+    const r = Math.min(width, height) * 0.3;
+    const cx = left + width / 2;
+    const cy = top + height / 2;
+    const working = status === MachineState.Working || status === MachineState.LowPower;
+    g.circle(cx, cy, r + 3).fill({ color: shade(color, 0.55), alpha });
+    g.circle(cx, cy, r).fill({ color: working ? LAB_DOME_WORKING : LAB_DOME_IDLE, alpha });
+    g.circle(cx - r * 0.35, cy - r * 0.35, r * 0.25).fill({ color: 0xffffff, alpha: alpha * 0.35 });
   }
   if (!proto?.rotatable) {
     return;

@@ -48,6 +48,10 @@ export const RecipeId = {
   UndergroundBelt: 24,
   FastUndergroundBelt: 25,
   ExpressUndergroundBelt: 26,
+  // Research (M3).
+  Lab: 27,
+  AutomationSciencePack: 28,
+  LogisticSciencePack: 29,
 } as const;
 
 export type RecipeId = (typeof RecipeId)[keyof typeof RecipeId];
@@ -326,6 +330,38 @@ export const RECIPES: Readonly<Record<RealRecipeId, Recipe>> = {
     ticks: 120,
     category: 'hand',
   },
+  // Research (M3), with the shared design numbers for the science packs.
+  [RecipeId.Lab]: {
+    id: RecipeId.Lab,
+    inputs: [
+      [ItemId.ElectronicCircuit, 10],
+      [ItemId.IronGearWheel, 10],
+      [ItemId.TransportBelt, 4],
+    ],
+    outputs: [[ItemId.Lab, 1]],
+    ticks: 120,
+    category: 'hand',
+  },
+  [RecipeId.AutomationSciencePack]: {
+    id: RecipeId.AutomationSciencePack,
+    inputs: [
+      [ItemId.CopperPlate, 1],
+      [ItemId.IronGearWheel, 1],
+    ],
+    outputs: [[ItemId.AutomationSciencePack, 1]],
+    ticks: 300,
+    category: 'hand',
+  },
+  [RecipeId.LogisticSciencePack]: {
+    id: RecipeId.LogisticSciencePack,
+    inputs: [
+      [ItemId.ElectricInserter, 1],
+      [ItemId.TransportBelt, 1],
+    ],
+    outputs: [[ItemId.LogisticSciencePack, 1]],
+    ticks: 360,
+    category: 'hand',
+  },
 };
 
 /** Every real recipe id, in id order. */
@@ -356,6 +392,9 @@ export const RECIPE_IDS: readonly RealRecipeId[] = [
   RecipeId.UndergroundBelt,
   RecipeId.FastUndergroundBelt,
   RecipeId.ExpressUndergroundBelt,
+  RecipeId.Lab,
+  RecipeId.AutomationSciencePack,
+  RecipeId.LogisticSciencePack,
 ];
 
 /** The hand recipes, in id order (the order of the crafting panel). */

@@ -27,7 +27,7 @@ import { recipePrototype, type Recipe } from '../../data/recipes';
 import { fnv1a32 } from '../hash';
 import type { Inventory } from '../inventory';
 import type { PlayerTable } from '../player';
-import { countItems, maxCraftable, planCraft } from './plan';
+import { countItems, maxCraftable, planCraft, type RecipeFilter } from './plan';
 
 /** Queue entries per player. */
 export const CRAFT_QUEUE_LENGTH = 32;
@@ -71,17 +71,24 @@ export class CraftingTable {
    * Queues up to `count` crafts of hand recipe `recipeId` for player `id`,
    * taking the inputs from `inventory`. Returns the number of crafts queued
    * (0 if none could be: an unknown or non-hand recipe, missing items, or a
-   * full queue).
+   * full queue). With `unlocked` (the player's force's `isRecipeUnlocked`),
+   * locked recipes are neither queued nor auto-queued as intermediates.
    */
-  queue(id: number, inventory: Inventory, recipeId: number, count: number): number {
+  queue(
+    id: number,
+    inventory: Inventory,
+    recipeId: number,
+    count: number,
+    unlocked?: RecipeFilter,
+  ): number {
     const recipe = recipePrototype(recipeId);
     if (!recipe || recipe.category !== 'hand') {
       return 0;
     }
     const available = countItems(inventory.items, inventory.counts);
     const free = CRAFT_QUEUE_LENGTH - this.length[id]!;
-    const n = maxCraftable(recipe, available, free, count);
-    const plan = n > 0 ? planCraft(recipe, n, available) : null;
+    const n = maxCraftable(recipe, available, free, count, unlocked);
+    const plan = n > 0 ? planCraft(recipe, n, available, unlocked) : null;
     if (!plan) {
       return 0;
     }

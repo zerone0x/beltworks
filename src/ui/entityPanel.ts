@@ -1,7 +1,7 @@
 /**
  * The entity GUI (plain DOM): opened by left-clicking a chest, furnace,
- * mining drill or inserter (burner or electric), boiler, steam engine or
- * assembling machine with nothing to build in hand. It shows the entity's slots (and, for a furnace,
+ * mining drill or inserter (burner or electric), boiler, steam engine,
+ * assembling machine or lab with nothing to build in hand. It shows the entity's slots (and, for a furnace,
  * drill or inserter, its state, smelting or mining progress or arm position,
  * and remaining fuel for burner entities; for a boiler, its state, fuel and
  * output; for a steam engine, its state, output out of its maximum and its
@@ -19,6 +19,9 @@
  * sends `SetRecipe`, which refunds the machine's contents. Below it, the
  * recipe as text, its input slots, the craft's progress and its output
  * slots (rebuilt whenever the recipe changes), then its power draw.
+ *
+ * A lab's window shows its science pack slots, the technology of the unit
+ * it is researching with that unit's progress, and its power draw.
  *
  * Both ways, a click (or shift-click) moves the whole stack, a right click
  * half of it (rounded up), and a ctrl-click or middle click one item
@@ -41,6 +44,7 @@ import {
 } from '../data/entities';
 import { fuelValue, itemPrototype } from '../data/items';
 import { recipePrototype, type Recipe } from '../data/recipes';
+import { SCIENCE_PACKS, technologyPrototype } from '../data/technologies';
 import { isAssemblerType } from '../sim/entities/assembler';
 import { DrillSlot } from '../sim/entities/drill';
 import { ElectricDrillSlot } from '../sim/entities/electricDrill';
@@ -76,7 +80,8 @@ export function hasEntityGui(type: number): boolean {
     isInserter(type) ||
     type === EntityTypeId.Boiler ||
     type === EntityTypeId.SteamEngine ||
-    isAssemblerType(type)
+    isAssemblerType(type) ||
+    type === EntityTypeId.Lab
   );
 }
 
@@ -187,6 +192,8 @@ export function statusView(status: number, type?: number): { key: string; text: 
       return { key: 'low-power', text: 'Low power' };
     case MachineState.NoRecipe:
       return { key: 'no-recipe', text: 'No recipe' };
+    case MachineState.NoResearch:
+      return { key: 'no-research', text: 'No research' };
     default:
       return { key: 'idle', text: '' };
   }
@@ -197,7 +204,8 @@ export function statusView(status: number, type?: number): { key: string; text: 
  * the recipe being smelted), a mining drill (progress on the unit being
  * mined), an inserter (the arm's position from its pickup to its drop tile)
  * or an assembling machine (progress on the craft, out of the recipe's time
- * at the machine's crafting speed).
+ * at the machine's crafting speed), or a lab (progress on the unit it is
+ * researching, out of the technology's ticks per unit).
  */
 export function machineBars(detail: EntityDetailData): { progress: number; fuel: number } {
   const proto = entityPrototype(detail.type);
@@ -206,7 +214,9 @@ export function machineBars(detail: EntityDetailData): { progress: number; fuel:
     ? (proto?.miningTicks ?? 0)
     : isInserter(detail.type)
       ? (proto?.swingTicks ?? 0)
-      : craftingTicks(recipeTicks, proto?.craftingSpeed);
+      : detail.type === EntityTypeId.Lab
+        ? (technologyPrototype(detail.technology)?.ticksPerUnit ?? 0)
+        : craftingTicks(recipeTicks, proto?.craftingSpeed);
   const value = fuelValue(detail.burning);
   return {
     progress: ticks > 0 ? Math.min(1, detail.progress / ticks) : 0,
@@ -306,6 +316,8 @@ export class EntityPanel {
     outputs: SlotGrid | null;
     progress: Bar | null;
   } | null = null;
+  /** A lab's pack slots, the technology it researches, and that unit's progress. */
+  private lab: { packs: SlotGrid; info: HTMLElement; progress: Bar } | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -457,6 +469,12 @@ export class EntityPanel {
     if (this.assembler) {
       this.updateAssembler(detail);
     }
+    if (this.lab) {
+      this.lab.packs.update(detail.slots);
+      this.lab.progress.set(machineBars(detail).progress);
+      const t = technologyPrototype(detail.technology);
+      this.lab.info.textContent = t ? `Researching ${t.label}` : 'Idle: no unit under way';
+    }
     if (this.power) {
       const view = powerView(detail);
       this.power.output.set(view.output);
@@ -484,8 +502,13 @@ export class EntityPanel {
     this.machine = null;
     this.power = null;
     this.assembler = null;
+    this.lab = null;
     if (isAssemblerType(type)) {
       this.buildAssembler();
+      return;
+    }
+    if (type === EntityTypeId.Lab) {
+      this.buildLab();
       return;
     }
     if (isChest(type)) {
@@ -620,6 +643,31 @@ export class EntityPanel {
       progress: null,
     };
     this.body.append(picker, info, crafting, this.power.element);
+  }
+
+  /** A lab: its pack slots, the unit it researches with its progress bar, and power. */
+  private buildLab(): void {
+    const info = document.createElement('div');
+    info.dataset.role = 'research';
+    Object.assign(info.style, { fontSize: '12px', color: '#b9b29e', marginBottom: '6px' });
+    const row = document.createElement('div');
+    Object.assign(row.style, {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+    } satisfies Partial<CSSStyleDeclaration>);
+    const packs = new SlotGrid(SCIENCE_PACKS.length, SCIENCE_PACKS.length, (i, transfer) => {
+      this.takeSlot(i, transfer);
+    });
+    packs.element.dataset.role = 'packs';
+    packs.setHints(SCIENCE_PACKS);
+    packs.update([]);
+    const progress = new Bar('progress', '#f2d36b');
+    progress.element.style.width = '96px';
+    row.append(packs.element, progress.element);
+    this.power = this.buildPower();
+    this.lab = { packs, info, progress };
+    this.body.append(info, row, this.power.element);
   }
 
   /** Shows an assembling machine's options, recipe, slots and progress from `detail`. */

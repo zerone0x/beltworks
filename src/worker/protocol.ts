@@ -5,8 +5,8 @@
  * Worker → main: `snapshot`, `stats`, `error`.
  *
  * Commands include the build commands `Place`, `Remove` and `Rotate` and the
- * entity GUI's `Insert`, `Take` and `SetRecipe` and the crafting commands `Craft` and
- * `CancelCraft`; like every command they are validated for shape here and
+ * entity GUI's `Insert`, `Take` and `SetRecipe`, the crafting commands `Craft` and
+ * `CancelCraft`, and the tech tree's `SetResearch`; like every command they are validated for shape here and
  * ignored by the simulation when they don't apply.
  *
  * Bulk data travels in ArrayBuffers that are transferred, not copied.
@@ -70,6 +70,11 @@ export interface InitMessage {
    * src/testHook.ts), for end-to-end tests that need more than the kit has.
    */
   startingKit?: { item: number; count: number }[];
+  /**
+   * Technologies researched from the start. Only dev and test builds send
+   * it (a `?research=` URL parameter, see src/testHook.ts).
+   */
+  researched?: number[];
 }
 
 export interface CommandsMessage {
@@ -115,6 +120,8 @@ export interface SnapshotMessage {
   inventory: ArrayBuffer;
   /** Crafting queue of `LOCAL_PLAYER_ID` as uint16s; see `encodeCraftQueue` in src/sim/snapshot.ts. */
   craftQueue: ArrayBuffer;
+  /** Research of `LOCAL_PLAYER_ID`'s force as int32s; see `encodeResearch` in src/sim/snapshot.ts. */
+  research: ArrayBuffer;
   /**
    * Every entity with its origin inside `chunkWindow`, as int32 records; see
    * `ENTITY_STRIDE` and `encodeEntities` in src/sim/snapshot.ts. Empty before

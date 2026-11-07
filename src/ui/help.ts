@@ -16,6 +16,7 @@ export const CONTROLS: readonly ControlHelp[] = [
   { keys: 'WASD', action: 'Walk' },
   { keys: 'Hold right mouse', action: 'Mine the ore under the cursor (within reach)' },
   { keys: 'E', action: 'Inventory and crafting (click a recipe to craft)' },
+  { keys: 'T', action: 'Tech tree: pick what labs research from science packs' },
   { keys: '1–0 / click', action: 'Select a hotbar item; again, right-click or Q to put it away' },
   { keys: 'Click in inventory', action: 'Select any item to build from the inventory (E)' },
   { keys: 'Q', action: 'With nothing selected: pick the item of the entity under the cursor' },

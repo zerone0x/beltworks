@@ -63,6 +63,10 @@ const ICONS: Readonly<Partial<Record<RealItemId, IconSpec>>> = {
   [ItemId.UndergroundBelt]: { label: 'UG', shape: 'item' },
   [ItemId.FastUndergroundBelt]: { label: 'UF', shape: 'item' },
   [ItemId.ExpressUndergroundBelt]: { label: 'UX', shape: 'item' },
+  // Research: the lab, and the science packs in their own colors.
+  [ItemId.Lab]: { label: 'LA', shape: 'item' },
+  [ItemId.AutomationSciencePack]: { label: 'S1', shape: 'item' },
+  [ItemId.LogisticSciencePack]: { label: 'S2', shape: 'item' },
 };
 
 /** Color of unknown items, so bad data is obvious. */

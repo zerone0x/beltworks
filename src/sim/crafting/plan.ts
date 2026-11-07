@@ -11,6 +11,12 @@
  * intermediate entry makes is used by the craft it was queued for, which is
  * what lets the queue refund a cancelled craft without storing the
  * intermediates it already made (see src/sim/crafting/queue.ts).
+ *
+ * Locked recipes: every function takes an optional `unlocked` predicate
+ * (the force's `isRecipeUnlocked`, or the main thread's copy of it from the
+ * snapshot's research); a recipe it rejects is neither planned nor
+ * auto-queued as an intermediate. Without it every recipe counts as
+ * unlocked.
  */
 
 import { handRecipeFor, type Recipe } from '../../data/recipes';
@@ -39,28 +45,43 @@ export interface CraftPlan {
   readonly take: ReadonlyMap<number, number>;
 }
 
-/** The recipe auto-queued to make a missing `item`, or `undefined` if there is none. */
-export function intermediateRecipeFor(item: number): Recipe | undefined {
+/** Which recipes may be crafted (by id): the force's unlocked ones. */
+export type RecipeFilter = (recipe: number) => boolean;
+
+const EVERY_RECIPE: RecipeFilter = () => true;
+
+/**
+ * The recipe auto-queued to make a missing `item`, or `undefined` if there
+ * is none (or it isn't unlocked).
+ */
+export function intermediateRecipeFor(
+  item: number,
+  unlocked: RecipeFilter = EVERY_RECIPE,
+): Recipe | undefined {
   const recipe = handRecipeFor(item);
   if (!recipe || recipe.outputs.length !== 1 || recipe.outputs[0]![1] !== 1) {
     return undefined;
   }
-  return recipe;
+  return unlocked(recipe.id) ? recipe : undefined;
 }
 
 /**
  * Plans `crafts` crafts of `recipe` from the items in `available` (units per
  * item id). Inputs are taken in recipe order: what the inventory has is
  * taken, what it lacks is made by intermediates (which take their own inputs
- * the same way). Returns `null` if the items don't suffice, or an entry would
- * hold more than `MAX_ENTRY_CRAFTS` crafts.
+ * the same way). Returns `null` if the items don't suffice, an entry would
+ * hold more than `MAX_ENTRY_CRAFTS` crafts, or `recipe` isn't unlocked.
  */
 export function planCraft(
   recipe: Recipe,
   crafts: number,
   available: ReadonlyMap<number, number>,
+  unlocked: RecipeFilter = EVERY_RECIPE,
 ): CraftPlan | null {
   if (!Number.isInteger(crafts) || crafts < 1 || crafts > MAX_ENTRY_CRAFTS) {
+    return null;
+  }
+  if (!unlocked(recipe.id)) {
     return null;
   }
   const left = new Map(available);
@@ -80,7 +101,7 @@ export function planCraft(
       }
       const missing = want - have;
       if (missing > 0) {
-        const sub = intermediateRecipeFor(item);
+        const sub = intermediateRecipeFor(item, unlocked);
         if (!sub || depth >= MAX_INTERMEDIATE_DEPTH || !plan(sub, missing, depth + 1)) {
           return false;
         }
@@ -103,9 +124,11 @@ export function maxCraftable(
   available: ReadonlyMap<number, number>,
   freeEntries: number,
   limit: number = MAX_ENTRY_CRAFTS,
+  unlocked: RecipeFilter = EVERY_RECIPE,
 ): number {
+  if (!unlocked(recipe.id)) return 0;
   const fits = (n: number): boolean => {
-    const plan = planCraft(recipe, n, available);
+    const plan = planCraft(recipe, n, available, unlocked);
     return plan !== null && plan.entries.length <= freeEntries;
   };
   let lo = 0;
