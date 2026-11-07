@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { Texture } from 'pixi.js';
+import { Sprite, Texture } from 'pixi.js';
 import { describe, expect, it } from 'vitest';
 import { ENTITIES, EntityTypeId, type EntityPrototype } from '../../src/data/entities';
 import {
@@ -11,7 +11,8 @@ import {
 } from '../../src/render/beltSprites';
 import { TILE_PX } from '../../src/render/camera';
 import { ghostFrames } from '../../src/render/entityLayer';
-import { armFrame, restAngle } from '../../src/render/entitySprites';
+import { BeltDrawOrder } from '../../src/render/beltLayer';
+import { armFrame, placeArmShadow, restAngle } from '../../src/render/entitySprites';
 import { armAngle, armLength } from '../../src/render/inserterLayer';
 import { POLE_TOP, WIRE_SAG, wireEnd, wirePath } from '../../src/render/powerLayer';
 import {
@@ -212,6 +213,49 @@ describe('inserter arm sprites', () => {
       expect(restAngle(dir)).toBeCloseTo(armAngle(dir, 0), 12);
       expect(armAngle(dir, 1) - armAngle(dir, 0)).toBeCloseTo(Math.PI, 12);
     }
+  });
+});
+
+describe('inserter arm shadows', () => {
+  it('copy the arm, moved from where it shows down to the ground and along the light', () => {
+    const atlas = fakeAtlas(['burner-inserter']);
+    const model = atlas.model('burner-inserter')!;
+    model.points.pivot = [[0, -40]];
+    const arm = new Sprite();
+    arm.scale.set(model.scale);
+    arm.pivot.set(3, 4);
+    arm.position.set(100, 200);
+    arm.rotation = 0.1;
+    const shadow = new Sprite();
+    placeArmShadow(model, arm, shadow);
+    expect(shadow.texture).toBe(arm.texture);
+    expect(shadow.rotation).toBe(0.1);
+    expect([shadow.pivot.x, shadow.pivot.y]).toEqual([3, 4]);
+    // Lower than the pivot (the beam slopes down), and offset like any shadow of that height.
+    const lift = shadow.position.y - 200 - ((shadow.position.x - 100) / 0.8) * 0.36;
+    expect(lift).toBeGreaterThan(0);
+    expect(lift).toBeLessThan(40 * model.scale);
+    expect(shadow.position.x - 100).toBeCloseTo((lift / HEIGHT_ON_SCREEN) * SHADOW_OFFSET.x, 9);
+  });
+});
+
+describe('belt draw order', () => {
+  const belt = (x: number, y: number) => ({ x, y, dir: 0, shape: 0, type: 0, mode: 0, items: [] });
+
+  it('is north to south, so each belt covers the end face of the one north of it', () => {
+    const order = new BeltDrawOrder();
+    // A north-going line placed from its south end, as the snapshot lists it.
+    const line = [belt(0, 3), belt(0, 2), belt(1, 2), belt(0, 1)];
+    expect(order.sort(line).map((b) => [b.x, b.y])).toEqual([
+      [0, 1],
+      [0, 2],
+      [1, 2],
+      [0, 3],
+    ]);
+    // The same positions in the next snapshot (new records) keep the order; new positions re-sort.
+    const next = [belt(0, 3), belt(0, 2), belt(1, 2), belt(0, 1)];
+    expect(order.sort(next)[0]).toBe(next[3]);
+    expect(order.sort([belt(0, 3), belt(0, -5)]).map((b) => b.y)).toEqual([-5, 3]);
   });
 });
 
