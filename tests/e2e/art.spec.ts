@@ -263,6 +263,6 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
     });
   }
   // Sprites don't slow the frame rate down to a crawl (CI renders in software, so the bar is low).
-  expect(await fps(page, 2000)).toBeGreaterThanOrEqual(4);
+  expect(await fps(page, 2000)).toBeGreaterThan(5);
   expect(errors).toEqual([]);
 });

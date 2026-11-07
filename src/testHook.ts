@@ -232,6 +232,24 @@ const ITEM_BY_NAME = new Map(ITEM_IDS.map((id) => [ITEMS[id].name, id]));
  * `undefined` without the parameter; throws on an unknown item or a bad count.
  */
 /**
+ * Dev and test builds: whether the terrain uses its rendered look (docs/ART.md,
+ * "Terrain"), from an `?art=` URL parameter (`1` or `0`); without one, the
+ * rendered look in dev builds and the flat placeholder look in test builds
+ * (`mode` `test`): the end-to-end specs that aren't about the art run on the
+ * cheap placeholder, since CI's software renderer bakes the rendered terrain
+ * slowly. A `?texels=` parameter implies `?art=1`. Production builds always
+ * render it.
+ */
+export function renderedTerrainFromUrl(search: string, mode: string): boolean {
+  const params = new URLSearchParams(search);
+  const art = params.get('art');
+  if (art === '1') return true;
+  if (art === '0') return false;
+  if (art !== null) throw new Error(`bad art "${art}"`);
+  return params.has('texels') || mode !== 'test';
+}
+
+/**
  * Dev and test builds: the most texels per tile the rendered terrain bakes
  * at, from a `?texels=` URL parameter (8, 16 or 32), e.g. full density for
  * screenshots on a software renderer; `undefined` without one.

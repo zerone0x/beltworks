@@ -48,7 +48,8 @@ async function start(page: Page, kit: string): Promise<string[]> {
   });
   page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
   page.on('requestfailed', (req) => errors.push(`requestfailed: ${req.url()}`));
-  await page.goto(`./?kit=${kit}`);
+  // With the rendered terrain (test builds default to the flat placeholder).
+  await page.goto(`./?kit=${kit}&art=1`);
   await page.waitForFunction(() => window.__beltworks?.player() != null);
   await page.waitForFunction(() => window.__beltworks!.terrainReady(), undefined, {
     timeout: 10_000,

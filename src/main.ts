@@ -127,7 +127,12 @@ async function main(): Promise<void> {
       view.setSprites(atlas);
     }),
     loadItemIcons(`${sprites}icons.json`),
-    loadTerrainArt(`${sprites}terrain.json`).then((art) => {
+    // Test builds draw the flat placeholder terrain unless a spec asks for the
+    // rendered one (`?art=1`), which is slow to bake in CI's software renderer.
+    ((testHook?.renderedTerrainFromUrl(window.location.search, import.meta.env.MODE) ?? true)
+      ? loadTerrainArt(`${sprites}terrain.json`)
+      : Promise.resolve(null)
+    ).then((art) => {
       view.setTerrainArt(art, testHook?.terrainTexelsFromUrl(window.location.search));
     }),
   ]).then(() => {

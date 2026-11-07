@@ -17,6 +17,16 @@
 - [Blender](https://www.blender.org/) 4.2 LTS, headless: entity sprites are procedural `bpy` models under `art/blender/`, rendered and packed into `public/sprites/` by `npm run art` (D34; style guide, pipeline and how to add a model in docs/ART.md). Point the `BLENDER` environment variable at your Blender binary or a wrapper script; on the dev machine the default is `~/tools/blender.sh`. CI doesn't run Blender: the atlases are committed.
 - Entities without a model keep their placeholders drawn in code (colored shapes).
 
+### Dev and test URL parameters
+
+Dev and test builds (`npm run dev`, `npm run build:test`) read a few URL parameters (`src/testHook.ts`); production builds contain none of them.
+
+| Parameter | Effect |
+|---|---|
+| `?kit=name:count,...` | The starting kit (D29) |
+| `?art=1` / `?art=0` | The terrain's rendered look (D41) or the flat placeholder colors. Default: rendered in dev builds, placeholder in test builds, so the end-to-end specs that aren't about the art stay fast on CI's software renderer, where baking the rendered terrain is slow. The art, render and screenshot specs (`art.spec.ts`, `artLogistics.spec.ts`, `render.spec.ts`) pass `?art=1` |
+| `?texels=8\|16\|32` | The most texels per tile the rendered terrain bakes at (implies `?art=1`); software renderers default to 16 (docs/ART.md, "Terrain") |
+
 ## Agent workflow
 
 | Tool | Where it's used |

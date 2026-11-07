@@ -19,7 +19,8 @@ function collectErrors(page: Page): string[] {
 }
 
 async function open(page: Page): Promise<void> {
-  await page.goto('./');
+  // The rendered terrain (test builds default to the flat placeholder).
+  await page.goto('./?art=1');
   await page.waitForFunction(() => window.__beltworks !== undefined);
   await waitForTerrain(page);
 }
