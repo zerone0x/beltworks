@@ -31,7 +31,10 @@
  *   belt's far lane (`BeltTable.insertAt`, see `farLane`; on a splitter, of
  *   the half on that tile).
  * Only items the target accepts at all (`accepts` hook) are picked up, so an
- * inserter never holds something its target will never take.
+ * inserter never holds something its target will never take; for an
+ * assembling machine or a lab only those it has room for right now (`wants`
+ * hook, D45), so one fed several ingredients from one source doesn't hold
+ * one it can't take while another runs out.
  *
  * Timing: the arm swings `INSERTER_SWING_TICKS` (36) ticks from the pickup
  * tile to the drop tile and as many back, so with a source and a target that
@@ -59,7 +62,9 @@
  * ends a tick in any state but `Swinging` leaves the list, subscribed to the
  * one entity it waits on (wake.ts): its source while `WaitingForSource` (and
  * while `NoFuel` at the pickup end, to refuel from it), its target while it
- * holds an item the target won't take yet. It goes back on the list when
+ * holds an item the target won't take yet. While `WaitingForSource` on a
+ * source holding something its target takes but has no room for yet, it
+ * subscribes to the target as well (D45). It goes back on the list when
  * - its own slots change (fuel inserted, the hand emptied),
  * - the entity it waits on changes or goes away (for a belt: when items
  *   change near its tile, see "Notifications" in src/sim/belts/belts.ts),
@@ -433,9 +438,19 @@ export abstract class InserterTableBase implements EntityTypeTable {
       return InserterState.WaitingForTarget;
     }
     const item =
-      source !== 0 ? takeFrom(source, from, (it) => entities.accepts(target, it), entities) : 0;
+      source !== 0 ? takeFrom(source, from, (it) => entities.wants(target, it), entities) : 0;
     if (item === 0) {
-      this.waitOn(id, source, entities);
+      // Something the target takes but has no room for yet: it may want it
+      // once it uses some up, so wait on the target too (D45).
+      if (
+        source !== 0 &&
+        entities.wantsByRoom(target) &&
+        hasItem(source, from, (it) => entities.accepts(target, it), entities)
+      ) {
+        this.waitOnBoth(id, source, target, entities);
+      } else {
+        this.waitOn(id, source, entities);
+      }
       return InserterState.WaitingForSource;
     }
     this.held[row] = item;
@@ -479,6 +494,14 @@ export abstract class InserterTableBase implements EntityTypeTable {
     if (target !== 0 && wake.watchesOnly(id, target)) return;
     wake.unwatchAll(id);
     if (target !== 0) wake.watch(id, target);
+  }
+
+  /** Subscribes inserter `id` to `source` and `target` (both non-zero), in that order. */
+  private waitOnBoth(id: number, source: number, target: number, entities: Entities): void {
+    const { wake } = entities;
+    wake.unwatchAll(id);
+    wake.watch(id, source);
+    wake.watch(id, target);
   }
 
   /** Wakes the inserters whose pickup or drop tile entity `id` covers. */
@@ -536,6 +559,27 @@ function takeFrom(
   if (slot < 0) return 0;
   const item = entities.slots(source)[slot]!.item;
   return entities.take(source, slot, 1) === 1 ? item : 0;
+}
+
+/** Whether entity `source` holds a unit `accept` accepts where {@link takeFrom} would look. */
+function hasItem(
+  source: number,
+  tile: { x: number; y: number },
+  accept: (item: number) => boolean,
+  entities: Entities,
+): boolean {
+  const belts = beltTable(entities);
+  if (belts && isBeltType(entities.store.type(source))) {
+    const line = belts.beltLineAt(source, tile.x, tile.y);
+    const from = belts.beltOffset(source);
+    const to = belts.beltEnd(source);
+    for (let lane = 0; lane < 2; lane++) {
+      const item = belts.peekAt(line, lane, from, to);
+      if (item !== 0 && accept(item)) return true;
+    }
+    return false;
+  }
+  return entities.outputSlot(source, accept) >= 0;
 }
 
 /**

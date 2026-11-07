@@ -215,6 +215,11 @@ export class LabTable implements EntityTypeTable {
     return labSlotOf(item) >= 0;
   }
 
+  /** Packs with room in their slot (D45). */
+  wants(id: number, item: number): boolean {
+    return this.insertable(id, item) > 0;
+  }
+
   /** Packs go into their slot, up to a stack. */
   insert(id: number, item: number, count: number, entities: Entities): number {
     const i = labSlotOf(item);

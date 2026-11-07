@@ -568,6 +568,37 @@ describe('assembling machines with inserters', () => {
     expect(c.grid.member(c.id)!.demand).toBe(1_250);
   });
 
+  it('takes several ingredients from one mixed chest without getting stuck holding one (D45)', () => {
+    const c = chain(0, 0);
+    c.state.research.markResearched(0, TechId.LogisticSciencePack);
+    expect(setEntityRecipe(c.state, 0, c.id, RecipeId.LogisticSciencePack)).toBe(TransferResult.Ok);
+    // The inserters come first in the chest, so a pickup that ignored the
+    // machine's room would fill its inserter slot, then hold a third
+    // inserter forever while the belt slot stays empty.
+    c.entities.insert(c.source, ItemId.ElectricInserter, 4);
+    c.entities.insert(c.source, ItemId.TransportBelt, 4);
+    const ticks = craftingTicks(RECIPES[RecipeId.LogisticSciencePack].ticks, { num: 1, den: 2 });
+    c.step(4 * ticks + 600);
+    expect(c.count(c.target, ItemId.LogisticSciencePack)).toBe(4);
+    expect(
+      c.count(c.source, ItemId.ElectricInserter) + c.count(c.source, ItemId.TransportBelt),
+    ).toBe(0);
+    // While the machine had no room, the inserter slept on both the chest and the machine.
+    c.entities.insert(c.source, ItemId.ElectricInserter, 5);
+    c.step(400);
+    expect(c.count(c.id, ItemId.ElectricInserter)).toBe(2);
+    expect(c.inserters.hand(c.feed).held).toBe(0);
+    expect(c.entities.status(c.feed)).toBe(InserterState.WaitingForSource);
+    expect(c.entities.wake.watchersOf(c.id)).toContain(c.feed);
+    expect(c.inserters.activeCount).toBe(0);
+    // Once a belt arrives the machine starts a craft, and the inserter tops its slot up again.
+    c.entities.insert(c.source, ItemId.TransportBelt, 1);
+    c.step(400);
+    expect(c.table.crafting(c.id)).toBe(true);
+    expect(c.entities.slots(c.id)[0]).toEqual({ item: ItemId.ElectricInserter, count: 2 });
+    expect(c.count(c.source, ItemId.ElectricInserter)).toBe(2);
+  });
+
   it('wakes the inserters around it when its recipe changes', () => {
     const c = chain(10, 0);
     c.step(5);

@@ -204,4 +204,28 @@ describe('the committed icons atlas (public/sprites/icons.json)', () => {
     const names = ITEM_IDS.map((id) => ITEMS[id].name).sort();
     expect(Object.keys(index.icons!.items).sort()).toEqual(names);
   });
+
+  it('has a rendered icon in every cell it names, each its own (the sheet matches the index)', async () => {
+    // The art tools' PNG reader, imported by URL so TypeScript doesn't look for its types.
+    const { decodePng } = (await import(
+      new URL('../../tools/art/png.js', import.meta.url).href
+    )) as { decodePng: (file: Uint8Array) => { width: number; data: Uint8Array } };
+    const sheet = decodePng(
+      readFileSync(new URL('../../public/sprites/icons-0.png', import.meta.url)),
+    );
+    const size = index.icons!.size;
+    const cells = new Set<string>();
+    for (const [name, [s, x, y]] of Object.entries(index.icons!.items)) {
+      expect(s).toBe(0);
+      cells.add(`${String(x)},${String(y)}`);
+      let opaque = 0;
+      for (let dy = 0; dy < size; dy++) {
+        for (let dx = 0; dx < size; dx++) {
+          if (sheet.data[((y + dy) * sheet.width + x + dx) * 4 + 3]! > 0) opaque++;
+        }
+      }
+      expect(opaque, name).toBeGreaterThan((size * size) / 8);
+    }
+    expect(cells.size).toBe(Object.keys(index.icons!.items).length);
+  });
 });

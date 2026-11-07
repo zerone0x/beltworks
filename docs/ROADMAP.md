@@ -45,17 +45,20 @@ Met: `tests/e2e/overload.spec.ts` builds a boiler, a steam engine, poles and eig
 
 Power comes before production chains because assemblers and labs are electric ([DECISIONS.md](DECISIONS.md), D20).
 
-## M3 — Production chains and research
+## M3 — Production chains and research (done)
 
 - [x] Assembler (with a recipe picker) and lab
-- [ ] Item and recipe tables (~30 items) with a craftability test
+- [x] Item and recipe tables (~30 items) with a craftability test
 - [x] Tech tree UI and research progress
 - [x] Red and green science (science packs, technologies, labs)
 - [x] Belt tiers (fast, express) and underground belts
 - [x] Splitters
-- [ ] Iron chest and the other inserter types (fast, long-handed; the electric inserter comes with M2)
+- [x] Iron chest and the other inserter types (fast, long-handed; the electric inserter comes with M2)
+- [x] Benchmark scene with production and research (`m3`: assembling machines, labs, splitters, undergrounds and all four inserter types)
 
 **Done when:** you can go from nothing to automated red and green science and finish researching it.
+
+Met: `tests/e2e/science.spec.ts` builds, from a new game and with real input next to the spawn, a red science line (iron plates from a chest → inserter → assembling machine making gears → inserter → assembling machine making automation science packs, with copper plates from a second chest → inserter → lab) and a green one (electric inserters and transport belts from one chest → inserter → assembling machine making logistic science packs → inserter → belt → inserter → the same lab), all on a boiler and steam engine. Once the last chest is filled the player stands still, and automation 2 (40 units of red + green) is researched with no further input, which unlocks the assembling machine 2 ([screenshot](screenshots/m3-science.png)). The test starts from a test kit with the technologies before automation 2 researched (D46); `tests/sim/research.test.ts` checks that every technology can be researched from a new game, in an order that only uses recipes unlocked so far, and `tests/sim/recipes.test.ts` that every item can be made from raw resources. The `m3` benchmark scene runs 40 such science cells (1 170 entities) at well under 1 ms a tick. Deviations from the plan are recorded in [DECISIONS.md](DECISIONS.md) (D32–D46).
 
 ## M4 — Performance
 

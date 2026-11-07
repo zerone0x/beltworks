@@ -12,7 +12,7 @@
   "scenes": [
     {
       "name": "1k",
-      "description": "1 000 entities: 48 drill → belt → inserter → furnace → inserter → chest cells on the 4 starting ore patches, and 18 belt loops with coal cycling through 56 inserter/chest exchange units",
+      "description": "1 000 entities: 48 drill \u2192 belt \u2192 inserter \u2192 furnace \u2192 inserter \u2192 chest cells on the 4 starting ore patches, and 18 belt loops with coal cycling through 56 inserter/chest exchange units",
       "entities": 1000,
       "entityCounts": {
         "wooden-chest": 160,
@@ -175,7 +175,7 @@
     },
     {
       "name": "power",
-      "description": "Four electric districts (one per starting ore patch, each its own network; two overloaded): boilers and steam engines, a pole on every 5×5 block, electric drills into chests on the ore, and rings of electric inserters passing coal between chests",
+      "description": "Four electric districts (one per starting ore patch, each its own network; two overloaded): boilers and steam engines, a pole on every 5\u00d75 block, electric drills into chests on the ore, and rings of electric inserters passing coal between chests",
       "entities": 959,
       "entityCounts": {
         "wooden-chest": 406,
@@ -337,6 +337,121 @@
           }
         ]
       }
+    },
+    {
+      "name": "m3",
+      "description": "Science cells on steam power (ten columns of four): plates into gears into red packs in assembling machines, fed by burner, fast, long-handed and electric inserters, onto belts through undergrounds and splitters into labs researching logistics 2",
+      "entities": 1170,
+      "entityCounts": {
+        "steam-engine": 20,
+        "boiler": 10,
+        "small-electric-pole": 180,
+        "iron-chest": 160,
+        "burner-inserter": 40,
+        "assembling-machine-1": 80,
+        "fast-inserter": 40,
+        "long-handed-inserter": 40,
+        "electric-inserter": 200,
+        "transport-belt": 200,
+        "underground-belt": 80,
+        "splitter": 40,
+        "lab": 80
+      },
+      "beltItems": 0,
+      "setupTicks": 14929,
+      "warmupTicks": 600,
+      "measuredTicks": 3600,
+      "warmupRuns": 3,
+      "targetMeanMs": 1,
+      "meanMs": 0.02333550916666986,
+      "p50Ms": 0.020150000000285218,
+      "p99Ms": 0.06270200000017212,
+      "maxMs": 0.7711689999996452,
+      "ticksPerSecond": 42853.146801197785,
+      "runs": [
+        {
+          "meanMs": 0.02287001861110803,
+          "p50Ms": 0.018709999999828142,
+          "p99Ms": 0.06724100000019462,
+          "maxMs": 0.5776769999997668,
+          "ticksPerSecond": 43725.368877238136
+        },
+        {
+          "meanMs": 0.024518382222226416,
+          "p50Ms": 0.02047999999967942,
+          "p99Ms": 0.08028199999989738,
+          "maxMs": 0.6519589999998061,
+          "ticksPerSecond": 40785.725213692094
+        },
+        {
+          "meanMs": 0.02405730444444733,
+          "p50Ms": 0.02025099999991653,
+          "p99Ms": 0.06680100000039602,
+          "maxMs": 0.768420000000333,
+          "ticksPerSecond": 41567.416761473876
+        },
+        {
+          "meanMs": 0.02333550916666986,
+          "p50Ms": 0.020150000000285218,
+          "p99Ms": 0.06270200000017212,
+          "maxMs": 0.7711689999996452,
+          "ticksPerSecond": 42853.146801197785
+        },
+        {
+          "meanMs": 0.023315604722225897,
+          "p50Ms": 0.02037000000018452,
+          "p99Ms": 0.06520000000000437,
+          "maxMs": 0.7260699999997087,
+          "ticksPerSecond": 42889.73037215446
+        }
+      ],
+      "activity": {
+        "machineStates": {
+          "steam-engine": {
+            "Working": 20
+          },
+          "boiler": {
+            "Working": 10
+          },
+          "small-electric-pole": {
+            "Idle": 180
+          },
+          "iron-chest": {
+            "Idle": 160
+          },
+          "burner-inserter": {
+            "Working": 40
+          },
+          "assembling-machine-1": {
+            "NoInput": 32,
+            "Working": 48
+          },
+          "fast-inserter": {
+            "WaitingForSource": 40
+          },
+          "long-handed-inserter": {
+            "WaitingForSource": 40
+          },
+          "electric-inserter": {
+            "WaitingForSource": 200
+          },
+          "transport-belt": {
+            "Idle": 200
+          },
+          "underground-belt": {
+            "Idle": 80
+          },
+          "splitter": {
+            "Idle": 40
+          },
+          "lab": {
+            "Working": 80
+          }
+        },
+        "activeBeltLanes": 0,
+        "powerSatisfaction": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100]
+      },
+      "hash": "0xe8a6ed54"
     }
   ]
 }

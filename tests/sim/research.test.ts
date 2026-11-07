@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { ENTITIES, EntityTypeId, SAT_ONE } from '../../src/data/entities';
-import { ItemId, type ItemStack } from '../../src/data/items';
-import { HAND_RECIPES, RECIPE_IDS, RecipeId, recipePrototype } from '../../src/data/recipes';
+import { ITEM_IDS, ItemId, type ItemStack } from '../../src/data/items';
+import {
+  HAND_RECIPES,
+  RAW_ITEMS,
+  RECIPES,
+  RECIPE_IDS,
+  RecipeId,
+  recipePrototype,
+} from '../../src/data/recipes';
 import { ResourceId } from '../../src/data/resources';
 import { STARTING_KIT } from '../../src/data/start';
 import {
@@ -10,6 +17,7 @@ import {
   TECHNOLOGIES,
   TechId,
   technologyDepth,
+  recipeUnlockedBy,
   technologyPrototype,
   unlockingTechnology,
 } from '../../src/data/technologies';
@@ -215,6 +223,62 @@ describe('technology data', () => {
     }
     expect(unlockingTechnology(RecipeId.LogisticSciencePack)).toBe(TechId.LogisticSciencePack);
     expect(unlockingTechnology(999)).toBe(TechId.None);
+  });
+
+  it('can all be researched from a new game, in an order that only uses unlocked recipes (M3)', () => {
+    // From the raw resources and the recipes unlocked so far: what can be
+    // made (by hand, in a furnace or in an assembling machine), and which
+    // technologies can be researched next (prerequisites done, every pack
+    // makeable, and a lab and an assembling machine available to build).
+    const researched = new Set<number>();
+    const makeable = (): Set<number> => {
+      const have = new Set<number>(RAW_ITEMS);
+      for (let changed = true; changed;) {
+        changed = false;
+        for (const id of RECIPE_IDS) {
+          const r = RECIPES[id];
+          if (!recipeUnlockedBy((t) => researched.has(t), id)) continue;
+          if (!r.inputs.every(([item]) => have.has(item))) continue;
+          for (const [item] of r.outputs) {
+            if (have.has(item)) continue;
+            have.add(item);
+            changed = true;
+          }
+        }
+      }
+      return have;
+    };
+    const order: string[] = [];
+    for (let progress = true; progress;) {
+      progress = false;
+      const have = makeable();
+      expect(have.has(ItemId.Lab)).toBe(true);
+      for (const id of TECH_IDS) {
+        const t = TECHNOLOGIES[id];
+        if (researched.has(id) || !t.prerequisites.every((p) => researched.has(p))) continue;
+        if (!t.packs.every((pack) => have.has(pack))) continue;
+        researched.add(id);
+        order.push(t.name);
+        progress = true;
+      }
+    }
+    expect(order).toEqual([
+      'automation',
+      'logistics',
+      'electronics',
+      'fast-inserter',
+      'logistic-science-pack',
+      'automation-2',
+      'logistics-2',
+      'logistics-3',
+    ]);
+    // Green packs need their technology: a new game makes red ones only.
+    researched.clear();
+    expect(makeable().has(ItemId.LogisticSciencePack)).toBe(false);
+    expect(makeable().has(ItemId.AutomationSciencePack)).toBe(true);
+    // With everything researched, every item can be made.
+    for (const id of TECH_IDS) researched.add(id);
+    expect(ITEM_IDS.filter((item) => !makeable().has(item))).toEqual([]);
   });
 });
 

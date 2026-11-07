@@ -206,6 +206,21 @@ export class Entities {
     return this.tableOf(id)?.accepts?.(id, item) ?? false;
   }
 
+  /**
+   * Whether an inserter should pick up `item` for entity `id` right now
+   * (see `EntityTypeTable.wants`): what it wants, else what it accepts.
+   */
+  wants(id: number, item: number): boolean {
+    const table = this.tableOf(id);
+    if (table?.wants) return table.wants(id, item);
+    return table?.accepts?.(id, item) ?? false;
+  }
+
+  /** Whether what entity `id` wants depends on how full it is (its table has a `wants` hook). */
+  wantsByRoom(id: number): boolean {
+    return this.tableOf(id)?.wants !== undefined;
+  }
+
   /** Inserts up to `count` units of `item` into entity `id`; returns how many went in. */
   insert(id: number, item: number, count: number): number {
     const table = this.tableOf(id);
