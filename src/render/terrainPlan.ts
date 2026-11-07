@@ -6,6 +6,11 @@
  * ore decals, decor, and trees with their shadows. terrainArt.ts turns a plan
  * into pixels.
  *
+ * The ground shader also draws the outline of ore patches: a second splat
+ * texture holds each tile's ore, and the plan lists the tiles along the
+ * patches' edges, where the shader redraws the ground over the decals
+ * outside a noisy outline (so patches don't step along the tile grid).
+ *
  * Everything is a pure function of the chunk and its neighbours: variants
  * and offsets come from a hash of the world tile, so a chunk looks the same
  * every time it is baked, and the parts that reach into a neighbouring chunk
@@ -19,8 +24,14 @@ import type { ChunkData } from '../sim/snapshot';
 import { CHUNK_SHIFT, CHUNK_SIZE } from '../sim/world/chunk';
 import { tileHash } from './chunkBake';
 
-/** Texels of the splat texture along one edge: the chunk plus a one-tile border. */
-export const SPLAT_SIZE = CHUNK_SIZE + 2;
+/**
+ * Tiles of border around the chunk in the splat textures: the ground shader's
+ * smooth (cubic) interpolation reads two tiles out from where it draws, so
+ * neighbouring chunks blend from the same data and meet without seams.
+ */
+export const SPLAT_BORDER = 2;
+/** Texels of the splat textures along one edge: the chunk plus the border on both sides. */
+export const SPLAT_SIZE = CHUNK_SIZE + 2 * SPLAT_BORDER;
 
 /** Ore decal richness: level 1 from this many units, level 2 from the second. */
 export const RICHNESS_LEVELS = [400, 1200] as const;
@@ -47,6 +58,12 @@ export const DECOR_DENSITY: Readonly<Record<number, number>> = {
 /** Trees stand up to this much (tile fraction) off their tile's center, from the hash. */
 export const TREE_JITTER = 0.14;
 /**
+ * Ore decals sit up to this much (tile fraction) off their tile's center, so
+ * a patch doesn't show the tile grid as a regular pattern (the ground
+ * shader's outline covers what pokes out at the patch's edge).
+ */
+export const ORE_JITTER = 0.12;
+/**
  * How far around a chunk (tiles) sprites can reach in: canopies up to two
  * tiles up and their shadows about two to the right, so trees and decals
  * of the tiles this far into the neighbouring chunks are drawn too.
@@ -67,6 +84,17 @@ export interface ChunkPlan {
    * around, averaged: the shader's wet sand and shallow water).
    */
   splat: Uint8Array;
+  /**
+   * `SPLAT_SIZE`² RGBA texels, like `splat`: 255 in the channel of the tile's
+   * ore (iron, copper, coal, stone: resource id − 1), else 0.
+   */
+  ore: Uint8Array;
+  /**
+   * Tiles of the chunk (`y * CHUNK_SIZE + x`) on the edge of an ore patch:
+   * with ore and a neighbour (of 8) without, or the other way round. The
+   * ground shader draws its ore outline over these, after the decals.
+   */
+  oreEdges: number[];
   /** Ore decals and decor, drawn on the ground. */
   decals: PlannedSprite[];
   /** Trees from north to south (their shadows are drawn first, from the same list). */
@@ -138,14 +166,17 @@ export function planChunk(chunk: ChunkData, lookup: ChunkLookup): ChunkPlan {
   const y0 = chunk.cy << CHUNK_SHIFT;
 
   const splat = new Uint8Array(SPLAT_SIZE * SPLAT_SIZE * 4);
+  const ore = new Uint8Array(SPLAT_SIZE * SPLAT_SIZE * 4);
   for (let sy = 0; sy < SPLAT_SIZE; sy++) {
     for (let sx = 0; sx < SPLAT_SIZE; sx++) {
-      const { data, i } = read(sx - 1, sy - 1);
+      const { data, i } = read(sx - SPLAT_BORDER, sy - SPLAT_BORDER);
       const o = (sy * SPLAT_SIZE + sx) * 4;
       const t = data.terrain[i];
       splat[o] = t === TileId.Grass ? 255 : 0;
       splat[o + 1] = t === TileId.Sand ? 255 : 0;
       splat[o + 2] = t === TileId.Water ? 255 : 0;
+      const resource = data.resource[i]!;
+      if (resource >= 1 && resource <= 4) ore[o + resource - 1] = 255;
     }
   }
   for (let sy = 0; sy < SPLAT_SIZE; sy++) {
@@ -159,6 +190,35 @@ export function planChunk(chunk: ChunkData, lookup: ChunkLookup): ChunkPlan {
         }
       }
       splat[(sy * SPLAT_SIZE + sx) * 4 + 3] = Math.round(water / 9);
+    }
+  }
+
+  // Which tiles have ore, from PLAN_REACH + 1 tiles around the chunk (what
+  // the decor next to it asks about), read once.
+  const reach = PLAN_REACH + 1;
+  const span = CHUNK_SIZE + 2 * reach;
+  const oreGrid = new Uint8Array(span * span);
+  for (let gy = 0; gy < span; gy++) {
+    for (let gx = 0; gx < span; gx++) {
+      const { data, i } = read(gx - reach, gy - reach);
+      oreGrid[gy * span + gx] = data.resource[i] !== 0 ? 1 : 0;
+    }
+  }
+  const hasOre = (lx: number, ly: number): boolean =>
+    oreGrid[(ly + reach) * span + lx + reach] === 1;
+  /** Whether any of the 8 neighbours of a tile differs from `self` in having ore. */
+  const oreEdge = (lx: number, ly: number, self: boolean): boolean => {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if ((dx !== 0 || dy !== 0) && hasOre(lx + dx, ly + dy) !== self) return true;
+      }
+    }
+    return false;
+  };
+  const oreEdges: number[] = [];
+  for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      if (oreEdge(lx, ly, hasOre(lx, ly))) oreEdges.push(ly * CHUNK_SIZE + lx);
     }
   }
 
@@ -182,7 +242,9 @@ export function planChunk(chunk: ChunkData, lookup: ChunkLookup): ChunkPlan {
       const resource = data.resource[i]!;
       if (resource !== 0) {
         const name = oreDecal(resource, data.amount[i]!, wx, wy);
-        if (name) decals.push({ name, x: lx + 0.5, y: ly + 0.5 });
+        const h = tileHash(wx ^ 0x3e17, wy ^ 0x61a5);
+        const jitter = (bits: number): number => ((bits & 0xff) / 255 - 0.5) * 2 * ORE_JITTER;
+        if (name) decals.push({ name, x: lx + 0.5 + jitter(h), y: ly + 0.5 + jitter(h >>> 8) });
         continue;
       }
       const terrain = data.terrain[i]!;
@@ -190,8 +252,10 @@ export function planChunk(chunk: ChunkData, lookup: ChunkLookup): ChunkPlan {
       if (!decor) continue;
       const h = tileHash(wx ^ 0x1d3c, wy ^ 0x7a91);
       if (h % 1000 >= DECOR_DENSITY[terrain]!) continue;
-      // Only well inside an area of one terrain, clear of the blended edges.
+      // Only well inside an area of one terrain, clear of the blended edges
+      // and of ore patches (whose outline the shader draws over the ground).
       if (
+        oreEdge(lx, ly, false) ||
         terrainAt(lx - 1, ly) !== terrain ||
         terrainAt(lx + 1, ly) !== terrain ||
         terrainAt(lx, ly - 1) !== terrain ||
@@ -204,7 +268,7 @@ export function planChunk(chunk: ChunkData, lookup: ChunkLookup): ChunkPlan {
     }
   }
   trees.sort((a, b) => a.y - b.y || a.x - b.x);
-  return { splat, decals, trees };
+  return { splat, ore, oreEdges, decals, trees };
 }
 
 /**
@@ -250,13 +314,32 @@ export function visualChange(
  * than 1.33× (no mipmaps needed) and, below 1×, magnified by at most 1.5×.
  * That keeps the memory per screen about constant: four times the chunks at
  * half the zoom, each with a quarter of the texels. Zoomed in past 1× the
- * texture is magnified (the sprites on top stay sharp).
+ * texture is magnified; from `DETAIL_ZOOM` on a real GPU the chunks on
+ * screen get a second, sharper texture on top (`detailTexels`).
  */
 export function texelsForZoom(zoom: number, max: number = 32): number {
   if (zoom >= 0.75) return Math.min(32, max);
   if (zoom >= 0.375) return Math.min(16, max);
   return Math.min(8, max);
 }
+
+/** Texels per tile of the detail textures zoomed in (texel for pixel at 2×, like the sprites). */
+export const DETAIL_TEXELS = 64;
+/** Zoom from which the chunks on screen get detail textures (a 64-texel tile is minified at most 1.33× there). */
+export const DETAIL_ZOOM = 1.5;
+
+/**
+ * Texels per tile of the detail textures at `zoom` with at most `max` texels
+ * per tile: `DETAIL_TEXELS` from `DETAIL_ZOOM` on if `max` allows it (real
+ * GPUs; never on a software renderer), else 0 (none). A detail texture is
+ * 16 MiB, so only the chunks on screen get one (terrainLayer.ts).
+ */
+export function detailTexels(zoom: number, max: number): number {
+  return zoom >= DETAIL_ZOOM && max >= DETAIL_TEXELS ? DETAIL_TEXELS : 0;
+}
+
+/** The most texels per tile on a real GPU: 32 for the base textures, 64 for the detail ones. */
+export const GPU_MAX_TEXELS = DETAIL_TEXELS;
 
 /**
  * The most texels per tile on a software renderer (SwiftShader, llvmpipe):

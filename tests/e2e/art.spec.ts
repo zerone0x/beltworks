@@ -8,7 +8,8 @@
  * machines' recipes, then checks that the atlases loaded and those entities
  * are drawn with sprites, the terrain with its rendered look and the items
  * with rendered icons, and takes the `art-first` screenshots at 1× and 2×
- * zoom and `art-world` (the starting area, at 1× and zoomed out).
+ * zoom and `art-world` (the starting area, at 1×, 2× with the terrain's
+ * detail textures, and zoomed out to 0.5× and 0.25×).
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -17,7 +18,7 @@ import { TILE_PX } from '../../src/render/camera';
 import { Direction } from '../../src/sim/entities/direction';
 import { drillDropTile } from '../../src/sim/entities/drill';
 import { MachineState } from '../../src/sim/entities/machine';
-import { fps } from './walk';
+import { sceneFps } from './walk';
 
 /** The test kit, in hotbar order. */
 const KIT = [
@@ -117,8 +118,9 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
 }, testInfo) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  // Full terrain density even on a software renderer, for the screenshots.
-  await page.goto(`./?kit=${KIT}&texels=32`);
+  // Full terrain density even on a software renderer, for the screenshots,
+  // with the detail textures zoomed in as on a GPU (`?texels=64`).
+  await page.goto(`./?kit=${KIT}&texels=64`);
   await page.waitForFunction(() => window.__beltworks?.player() != null);
   await page.waitForFunction(() => window.__beltworks!.terrainReady(), undefined, {
     timeout: 10_000,
@@ -127,7 +129,7 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
   await expect
     .poll(async () => (await sprites(page)).models)
     .toEqual(expect.arrayContaining(MODELS));
-  // The terrain's rendered look, at full density (`?texels=32`).
+  // The terrain's rendered look, at full density (32 texels per tile at 1×).
   await expect
     .poll(() => page.evaluate(() => window.__beltworks!.terrainStats().texelsPerTile))
     .toBe(32);
@@ -245,16 +247,28 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
       contentType: 'image/png',
     });
   }
-  // The starting area: the build among the ore patches, at 1× and zoomed out.
+  // The starting area: the build among the ore patches, at 1×, 2× and zoomed out.
   for (const [zoom, file] of [
     [1, 'art-world.png'],
+    [2, 'art-world-2x.png'],
     [0.5, 'art-world-zoomed-out.png'],
+    [0.25, 'art-world-0.25x.png'],
   ] as const) {
     await page.evaluate(([z]) => window.__beltworks!.setCamera(0, -4 * 32, z), [zoom]);
     await page.waitForFunction(() => window.__beltworks!.terrainReady(), undefined, {
-      timeout: 20_000,
+      timeout: 30_000,
     });
     await page.waitForTimeout(300);
+    // Zoomed in, the chunks on screen have 64-texel detail textures (16 MiB
+    // each) over their base ones; zoomed out they are freed.
+    const stats = await page.evaluate(() => window.__beltworks!.terrainStats());
+    if (zoom >= 1.5) {
+      expect(stats.detailTexelsPerTile).toBe(64);
+      expect(stats.detailSprites).toBeGreaterThan(0);
+      expect(stats.detailSprites).toBeLessThanOrEqual(stats.bakeChunks);
+    } else {
+      expect(stats.detailSprites).toBe(0);
+    }
     const shot = testInfo.outputPath(file);
     await page.screenshot({ path: shot });
     await testInfo.attach(`the starting area at ${String(zoom)}× zoom`, {
@@ -262,7 +276,13 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
       contentType: 'image/png',
     });
   }
-  // Sprites don't slow the frame rate down to a crawl (CI renders in software, so the bar is low).
-  expect(await fps(page, 2000)).toBeGreaterThan(5);
+  // Sprites don't slow the frame rate down to a crawl: the scene keeps a good
+  // part of the frame rate of bare terrain on the same page (a ratio, since
+  // CI renders in software on runners of varying speed).
+  const rate = await sceneFps(page, [-1 * TILE_PX, -0.5 * TILE_PX, 1]);
+  expect(
+    rate.scene,
+    `${String(rate.scene)} fps, bare terrain ${String(rate.bare)}`,
+  ).toBeGreaterThanOrEqual(rate.bare * 0.35);
   expect(errors).toEqual([]);
 });

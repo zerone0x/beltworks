@@ -232,13 +232,6 @@ declare global {
 const ITEM_BY_NAME = new Map(ITEM_IDS.map((id) => [ITEMS[id].name, id]));
 
 /**
- * The starting kit asked for by a `kit` URL parameter (dev and test builds
- * only), replacing the default kit: comma-separated `name:count` pairs in
- * hotbar order, e.g. `?kit=electric-mining-drill:16,coal:20`. For end-to-end
- * tests that need more than the default kit has (docs/DECISIONS.md, D29).
- * `undefined` without the parameter; throws on an unknown item or a bad count.
- */
-/**
  * Dev and test builds: whether the terrain uses its rendered look (docs/ART.md,
  * "Terrain"), from an `?art=` URL parameter (`1` or `0`); without one, the
  * rendered look in dev builds and the flat placeholder look in test builds
@@ -258,17 +251,25 @@ export function renderedTerrainFromUrl(search: string, mode: string): boolean {
 
 /**
  * Dev and test builds: the most texels per tile the rendered terrain bakes
- * at, from a `?texels=` URL parameter (8, 16 or 32), e.g. full density for
- * screenshots on a software renderer; `undefined` without one.
+ * at, from a `?texels=` URL parameter (8, 16, 32 or 64), e.g. full density
+ * for screenshots on a software renderer (64: with the detail textures
+ * zoomed in, as on a GPU); `undefined` without one.
  */
 export function terrainTexelsFromUrl(search: string): number | undefined {
   const param = new URLSearchParams(search).get('texels');
   if (param === null) return undefined;
   const texels = Number(param);
-  if (![8, 16, 32].includes(texels)) throw new Error(`bad texels "${param}"`);
+  if (![8, 16, 32, 64].includes(texels)) throw new Error(`bad texels "${param}"`);
   return texels;
 }
 
+/**
+ * The starting kit asked for by a `kit` URL parameter (dev and test builds
+ * only), replacing the default kit: comma-separated `name:count` pairs in
+ * hotbar order, e.g. `?kit=electric-mining-drill:16,coal:20`. For end-to-end
+ * tests that need more than the default kit has (docs/DECISIONS.md, D29).
+ * `undefined` without the parameter; throws on an unknown item or a bad count.
+ */
 export function startingKitFromUrl(search: string): ItemStack[] | undefined {
   const param = new URLSearchParams(search).get('kit');
   if (param === null) return undefined;

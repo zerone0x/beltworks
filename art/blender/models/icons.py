@@ -27,12 +27,36 @@ ORE = {
 
 
 def ore_pile(ctx):
+    """
+    A pile of ore with a silhouette of its own, so ores on a belt tell apart
+    by shape as well as color: iron in angular blocks, copper in round
+    nuggets, coal in flat glossy shards, stone as one big boulder.
+    """
     item = ctx.model['item']
     main, wear, metallic, rough = ORE[item]
     mat = m.worn(f'icon_{item}', main, wear=wear, metallic=metallic, roughness=rough, amount=0.28, scale=5.0)
     rng = terrain.seeded('icon', item)
-    for x, y, r in ((-0.2, 0.08, 0.26), (0.2, 0.12, 0.24), (0.02, -0.16, 0.28), (0.04, 0.22, 0.2)):
-        terrain.rock_mesh('chunk', r, (x, y, 0.0), mat, rng, squash=0.7 if item != 'coal' else 0.6, rough=0.3)
+    if item == 'iron-ore':
+        # Blocky, crystalline chunks: beveled boxes, one stacked on two.
+        for size, loc, rot in (
+            ((0.42, 0.4, 0.34), (-0.22, 0.02, 0.17), (0.0, 0.0, 0.35)),
+            ((0.4, 0.38, 0.32), (0.22, 0.06, 0.16), (0.0, 0.0, -0.3)),
+            ((0.38, 0.36, 0.32), (0.0, 0.0, 0.46), (0.25, 0.18, 0.8)),
+        ):
+            box(size, loc, mat, bevel=0.035, rot=rot)
+    elif item == 'copper-ore':
+        # Round nuggets, smooth, in a triangle.
+        for x, y, z, r in ((-0.25, 0.04, 0.2, 0.25), (0.25, 0.06, 0.19, 0.24), (0.0, -0.04, 0.5, 0.26)):
+            terrain.blob('nugget', r, (x, y, z), mat, (x * 13.0, y * 7.0 + 3.0, z * 5.0), lumps=0.14, scale=(1.0, 1.0, 0.85), subdivisions=3)
+    elif item == 'coal':
+        # Flat shards, tilted and overlapping: a low, jagged silhouette.
+        for x, y, z, r, tilt in ((-0.26, 0.05, 0.0, 0.32, 0.25), (0.24, -0.02, 0.0, 0.3, -0.3), (0.0, 0.08, 0.14, 0.3, 0.1)):
+            shard = terrain.rock_mesh('shard', r, (x, y, z), mat, rng, squash=0.32, rough=0.5, subdivisions=1)
+            shard.rotation_euler.x = tilt
+    else:
+        # One big rounded boulder with a pebble.
+        terrain.rock_mesh('boulder', 0.5, (0.0, 0.0, 0.0), mat, rng, squash=0.75, rough=0.18)
+        terrain.rock_mesh('pebble', 0.18, (0.46, -0.3, 0.0), mat, rng, squash=0.7, rough=0.2)
 
 
 def plates(ctx):
@@ -98,35 +122,52 @@ BELT_COLORS = {
     'express-underground-belt': 0x3a8fd9,
 }
 
+#: Belt tiers (1..3), shown as that many chevrons, so they differ by shape too.
+BELT_TIERS = {
+    'transport-belt': 1,
+    'fast-transport-belt': 2,
+    'express-transport-belt': 3,
+    'underground-belt': 1,
+    'fast-underground-belt': 2,
+    'express-underground-belt': 3,
+}
+
+
+def chevrons(count, y, z, width, mat, pitch=0.24, bar=0.09, depth=0.03):
+    """`count` chevrons pointing north (+Y), centered on `y`."""
+    arm = width / 2 / math.cos(0.7)
+    for k in range(count):
+        cy = y + (k - (count - 1) / 2) * pitch
+        for s in (-1, 1):
+            box((arm, bar, depth), (s * width / 4, cy - width / 4 * math.tan(0.7), z), mat, bevel=0.0, rot=(0, 0, -s * 0.7))
+
 
 def belt(ctx):
-    color = BELT_COLORS[ctx.model['item']]
-    yellow = m.paint(f'icon_belt_{color:06x}', color, amount=0.1)
+    item = ctx.model['item']
+    color = BELT_COLORS[item]
+    paint = m.paint(f'icon_belt_{color:06x}', color, amount=0.1)
     rubber = m.plain('icon_belt', 0x2a2b2e, roughness=0.7)
-    box((0.7, 1.0, 0.1), (0, 0, 0.12), rubber, bevel=0.02)
-    for k in range(5):
-        box((0.62, 0.05, 0.02), (0, -0.4 + k * 0.2, 0.18), m.plain('icon_ridge', 0x45464a), bevel=0.0)
+    box((0.72, 1.0, 0.1), (0, 0, 0.12), rubber, bevel=0.02)
     for s in (-1, 1):
-        box((0.1, 1.04, 0.2), (s * 0.4, 0, 0.1), yellow, bevel=0.025)
-    # An arrow showing which way it runs.
-    box((0.08, 0.3, 0.02), (0, -0.05, 0.2), yellow, bevel=0.0)
-    box((0.22, 0.06, 0.02), (-0.06, 0.12, 0.2), yellow, bevel=0.0, rot=(0, 0, 0.8))
-    box((0.22, 0.06, 0.02), (0.06, 0.12, 0.2), yellow, bevel=0.0, rot=(0, 0, -0.8))
+        box((0.14, 1.04, 0.2), (s * 0.42, 0, 0.1), paint, bevel=0.025)
+    # The tier as chevrons in the tier color: one, two or three.
+    chevrons(BELT_TIERS[item], 0.1, 0.18, 0.56, paint)
 
 
 def underground(ctx):
-    """An underground belt's entrance: a short belt running into a hooded block."""
-    color = BELT_COLORS[ctx.model['item']]
+    """An underground belt's entrance: a short belt running into a hood with tier chevrons."""
+    item = ctx.model['item']
+    color = BELT_COLORS[item]
     paint = m.paint(f'icon_belt_{color:06x}', color, amount=0.1)
     rubber = m.plain('icon_belt', 0x2a2b2e, roughness=0.7)
-    frame = m.dark_iron()
-    box((0.62, 0.5, 0.1), (0, -0.25, 0.12), rubber, bevel=0.02)
+    dark = m.plain('icon_chevron_dark', 0x1c1d20, roughness=0.6)
+    box((0.62, 0.45, 0.1), (0, -0.3, 0.12), rubber, bevel=0.02)
     for s in (-1, 1):
-        box((0.1, 0.52, 0.2), (s * 0.36, -0.25, 0.1), paint, bevel=0.025)
-    # The hood: a block with a dark mouth facing the belt.
-    box((0.82, 0.55, 0.5), (0, 0.27, 0.25), paint, bevel=0.04)
-    box((0.86, 0.3, 0.08), (0, 0.4, 0.52), frame, bevel=0.02)
-    box((0.5, 0.06, 0.28), (0, -0.01, 0.19), m.plain('icon_mouth', 0x141414), bevel=0.0)
+        box((0.12, 0.47, 0.2), (s * 0.37, -0.3, 0.1), paint, bevel=0.025)
+    # The hood: a block with a dark mouth facing the belt, the tier as dark chevrons on its roof.
+    box((0.86, 0.8, 0.46), (0, 0.32, 0.23), paint, bevel=0.04)
+    box((0.5, 0.06, 0.28), (0, -0.08, 0.19), m.plain('icon_mouth', 0x141414), bevel=0.0)
+    chevrons(BELT_TIERS[item], 0.4, 0.47, 0.66, dark, pitch=0.22, bar=0.1, depth=0.02)
 
 
 def science_pack(ctx):
@@ -140,6 +181,11 @@ def science_pack(ctx):
 
 
 def inserter(ctx):
+    """
+    A chunky inserter seen from the side: the arm swings up from the base and
+    reaches out sideways to the hand, so the icon fills its square instead of
+    being a thin post (it is read at 13 pixels on belts).
+    """
     item = ctx.model['item']
     color = {
         'burner-inserter': 0xb5562f,
@@ -150,15 +196,29 @@ def inserter(ctx):
     paint = m.paint(f'icon_{item}', color, amount=0.1)
     frame = m.dark_iron()
     long = item == 'long-handed-inserter'
-    cylinder(0.36, 0.14, (0, 0, 0.07), frame, verts=24, bevel=0.02)
-    cylinder(0.26, 0.14, (0, 0, 0.2), paint, verts=24, bevel=0.02)
-    # Arm: up and forward, then a hand.
-    reach = 0.75 if long else 0.5
-    pipe([(0, 0, 0.26), (0, 0.15, 0.75), (0, 0.15 + reach, 0.6)], 0.07, paint)
-    sphere(0.09, (0, 0.15, 0.75), frame, segments=12)
-    box((0.26, 0.1, 0.16), (0, 0.2 + reach, 0.5), frame, bevel=0.02)
+    bx = -0.42 if long else -0.3
+    box((0.62, 0.62, 0.12), (bx, 0, 0.06), frame, bevel=0.03)
+    cylinder(0.25, 0.22, (bx, 0, 0.23), paint, verts=24, bevel=0.03)
+    elbow = (bx + 0.14, 0, 0.9)
+    reach = 1.05 if long else 0.62
+    hand = (bx + 0.14 + reach, 0, 0.5)
+    pipe([(bx, 0, 0.32), elbow], 0.1, paint)
+    pipe([elbow, hand], 0.08 if long else 0.1, paint)
+    sphere(0.13, elbow, frame, segments=14)
+    # The hand: a light steel gripper with two fingers (dark iron would vanish on a slot).
+    steel = m.worn('icon_steel', 0xb8bec6, metallic=0.6, roughness=0.35, amount=0.05)
+    box((0.2, 0.26, 0.18), (hand[0], 0, hand[2]), steel, bevel=0.03)
+    for s in (-1, 1):
+        box((0.08, 0.07, 0.22), (hand[0] + 0.03, s * 0.09, hand[2] - 0.17), steel, bevel=0.015)
     if item == 'burner-inserter':
-        cylinder(0.05, 0.2, (0.22, -0.1, 0.32), m.iron(), verts=10)
+        # A smokestack on the base.
+        cylinder(0.065, 0.42, (bx - 0.22, -0.2, 0.4), m.iron(), verts=12)
+    elif item == 'fast-inserter':
+        # Two light stripes across the arm.
+        for t in (0.35, 0.6):
+            p = (elbow[0] + (hand[0] - elbow[0]) * t, 0, elbow[2] + (hand[2] - elbow[2]) * t)
+            along = math.atan2(hand[0] - elbow[0], hand[2] - elbow[2])
+            cylinder(0.108, 0.05, p, m.plain('icon_stripe', 0xe8e4d8, roughness=0.5), rot=(0, along, 0), verts=16)
 
 
 def pole(ctx):
@@ -191,9 +251,9 @@ MODELS = (
         icon('transport-belt', belt, tilt=0.2),
         icon('fast-transport-belt', belt, tilt=0.2),
         icon('express-transport-belt', belt, tilt=0.2),
-        icon('underground-belt', underground),
-        icon('fast-underground-belt', underground),
-        icon('express-underground-belt', underground),
+        icon('underground-belt', underground, tilt=0.2),
+        icon('fast-underground-belt', underground, tilt=0.2),
+        icon('express-underground-belt', underground, tilt=0.2),
         icon('burner-inserter', inserter),
         icon('electric-inserter', inserter),
         icon('fast-inserter', inserter),

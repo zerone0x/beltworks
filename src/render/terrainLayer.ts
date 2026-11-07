@@ -20,7 +20,12 @@
  *   that drift further away (`FREE_MARGIN`) are freed. A chunk waits for its
  *   neighbours inside the window before its first bake, since its edges show
  *   their terrain, trees and stains; when one arrives later, or changes near
- *   the shared edge, the chunk is baked again.
+ *   the shared edge, the chunk is baked again. Zoomed in from
+ *   `DETAIL_ZOOM` on a real GPU, the chunks on screen also get a detail
+ *   texture at 64 texels per tile (16 MiB each) over their base one, baked
+ *   one per frame once no base bake is pending, and freed as soon as the
+ *   chunk leaves the view (`DETAIL_FREE_MARGIN`) or the zoom drops: the base
+ *   textures, and so panning, work exactly as without them.
  */
 
 import {
@@ -38,7 +43,7 @@ import { rectContains, type ChunkRect, type Viewport } from '../worker/protocol'
 import { TILE_PX } from './camera';
 import { CHUNK_TEXTURE_SIZE, bakeChunkPixels } from './chunkBake';
 import type { TerrainArt } from './terrainArt';
-import { planChunk, texelsForZoom, visualChange } from './terrainPlan';
+import { DETAIL_TEXELS, detailTexels, planChunk, texelsForZoom, visualChange } from './terrainPlan';
 
 /** Edge length of a chunk in world pixels. */
 export const CHUNK_PX = CHUNK_SIZE * TILE_PX;
@@ -50,6 +55,10 @@ export const RENDERED_BAKE_TEXELS = 1024 * 1024;
 export const BAKE_MARGIN = 8;
 /** ...and keep their texture until they are further away than this. */
 export const FREE_MARGIN = 24;
+/** Detail textures (zoomed in, on a GPU): chunks within this many tiles of the view get one... */
+export const DETAIL_MARGIN = 1;
+/** ...and keep it until they are further away than this. */
+export const DETAIL_FREE_MARGIN = 4;
 
 export interface TileInfo {
   terrain: number;
@@ -69,6 +78,8 @@ interface CachedChunk {
   texels: number;
   /** Whether `data` (or a neighbour it shows) changed since the last bake. */
   stale: boolean;
+  /** Rendered look zoomed in: the detail texture over the base one, or null. */
+  detail: Sprite | null;
 }
 
 export interface TerrainStats {
@@ -84,8 +95,12 @@ export interface TerrainStats {
   bakeChunks: number;
   /** Rendered look: texels per tile at the current zoom; 0 for the placeholder look. */
   texelsPerTile: number;
-  /** Bytes of chunk textures alive (GPU, and CPU pixels for the placeholder look). */
+  /** Bytes of chunk textures alive (GPU, and CPU pixels for the placeholder look), detail textures included. */
   textureBytes: number;
+  /** Rendered look zoomed in: chunks with a detail texture. */
+  detailSprites: number;
+  /** Rendered look: texels per tile of the detail textures at the current zoom (0: none). */
+  detailTexelsPerTile: number;
 }
 
 /** Whether chunk `(cx, cy)` overlaps the tiles of `view` grown by `margin` tiles. */
@@ -102,6 +117,10 @@ function nearView(view: Viewport, margin: number, cx: number, cy: number): boole
 
 export class TerrainLayer {
   readonly container = new Container({ label: 'terrain' });
+  /** The base textures, one sprite per chunk... */
+  private readonly base = new Container({ label: 'terrain-base' });
+  /** ...and the detail textures over them. */
+  private readonly details = new Container({ label: 'terrain-detail' });
   private readonly chunks = new Map<number, CachedChunk>();
   /** Placeholder look: keys of chunks to bake, in the order the worker sent them (nearest first). */
   private readonly queue = new Set<number>();
@@ -110,8 +129,13 @@ export class TerrainLayer {
   private renderer: Renderer | null = null;
   private view: Viewport | null = null;
   private texels = 32;
-  /** Most texels per tile the rendered look bakes at (lower on software renderers). */
+  private detail = 0;
+  /** Most texels per tile the rendered look bakes at: 64 allows detail textures; lower on software renderers. */
   maxTexels = 32;
+
+  constructor() {
+    this.container.addChild(this.base, this.details);
+  }
 
   /**
    * Uses the rendered look from `art` (baked with `renderer`) from now on, or
@@ -152,13 +176,23 @@ export class TerrainLayer {
         const change = visualChange(cached.data, data);
         cached.data = data;
         if (this.art) {
-          if (change.self) cached.stale = true;
+          if (change.self) {
+            cached.stale = true;
+            this.freeDetail(cached);
+          }
           if (change.edge) this.touchNeighbours(data.cx, data.cy);
         } else {
           cached.stale = true;
         }
       } else {
-        this.chunks.set(key, { data, sprite: null, pixels: null, texels: 0, stale: true });
+        this.chunks.set(key, {
+          data,
+          sprite: null,
+          pixels: null,
+          texels: 0,
+          stale: true,
+          detail: null,
+        });
         if (this.art) this.touchNeighbours(data.cx, data.cy);
       }
       this.queue.add(key);
@@ -172,18 +206,18 @@ export class TerrainLayer {
    */
   update(budget: number = BAKES_PER_FRAME, view?: Viewport, zoom?: number): void {
     if (view) this.view = view;
-    if (zoom !== undefined) this.texels = texelsForZoom(zoom, this.maxTexels);
+    if (zoom !== undefined) {
+      this.texels = texelsForZoom(zoom, this.maxTexels);
+      this.detail = detailTexels(zoom, this.maxTexels);
+    }
     if (this.art) {
       const size = CHUNK_SIZE * this.texels;
-      this.updateRendered(
-        Math.min(
-          budget,
-          Math.max(
-            1,
-            Math.floor((RENDERED_BAKE_TEXELS * (this.maxTexels / 32) ** 2) / (size * size)),
-          ),
-        ),
+      // The base bakes' budget doesn't grow with the detail textures.
+      const scale = (Math.min(this.maxTexels, 32) / 32) ** 2;
+      const baked = this.updateRendered(
+        Math.min(budget, Math.max(1, Math.floor((RENDERED_BAKE_TEXELS * scale) / (size * size)))),
       );
+      this.updateDetails(baked);
       return;
     }
     for (const key of this.queue) {
@@ -226,7 +260,13 @@ export class TerrainLayer {
     let pending = 0;
     let bake = 0;
     let bytes = 0;
+    let details = 0;
     for (const c of this.chunks.values()) {
+      if (c.detail) {
+        details++;
+        bytes += (CHUNK_SIZE * DETAIL_TEXELS) ** 2 * 4;
+      }
+      if (this.art && !c.detail && this.wantsDetail(c)) pending++;
       if (c.sprite) {
         sprites++;
         const edge = this.art ? CHUNK_SIZE * c.texels : CHUNK_TEXTURE_SIZE;
@@ -247,6 +287,8 @@ export class TerrainLayer {
       bakeChunks: this.art ? bake : windowChunks,
       texelsPerTile: this.art ? this.texels : 0,
       textureBytes: bytes,
+      detailSprites: details,
+      detailTexelsPerTile: this.art ? this.detail : 0,
     };
   }
 
@@ -272,12 +314,55 @@ export class TerrainLayer {
     for (const [key, cached] of this.chunks) {
       this.evict(key, cached);
     }
-    this.container.destroy();
+    this.container.destroy({ children: true });
   }
 
   /** Whether the rendered look wants a texture for `c` (near the view, or everywhere without one). */
   private wanted(c: CachedChunk): boolean {
     return !this.view || nearView(this.view, BAKE_MARGIN, c.data.cx, c.data.cy);
+  }
+
+  /** Whether `c` should have a detail texture now: zoomed in on a GPU, near the view, baked and current. */
+  private wantsDetail(c: CachedChunk, margin: number = DETAIL_MARGIN): boolean {
+    return (
+      this.detail > 0 &&
+      this.view !== null &&
+      nearView(this.view, margin, c.data.cx, c.data.cy) &&
+      c.sprite !== null &&
+      !this.needsBake(c)
+    );
+  }
+
+  /**
+   * Frees the detail textures no longer wanted and, unless a base bake
+   * happened this frame (`baked`), bakes one that is missing.
+   */
+  private updateDetails(baked: boolean): void {
+    let next: CachedChunk | null = null;
+    for (const c of this.chunks.values()) {
+      if (c.detail && !this.wantsDetail(c, DETAIL_FREE_MARGIN)) this.freeDetail(c);
+      else if (!c.detail && !next && this.wantsDetail(c)) next = c;
+    }
+    if (baked || !next) return;
+    const size = CHUNK_SIZE * DETAIL_TEXELS;
+    const target = RenderTexture.create({
+      width: size,
+      height: size,
+      scaleMode: 'linear',
+      antialias: false,
+      label: `chunk detail ${String(next.data.cx)},${String(next.data.cy)}`,
+    });
+    this.bakeInto(next, DETAIL_TEXELS, target);
+    const sprite = new Sprite(target);
+    sprite.position.set(next.data.cx * CHUNK_PX, next.data.cy * CHUNK_PX);
+    sprite.setSize(CHUNK_PX, CHUNK_PX);
+    this.details.addChild(sprite);
+    next.detail = sprite;
+  }
+
+  private freeDetail(cached: CachedChunk): void {
+    cached.detail?.destroy({ texture: true, textureSource: true });
+    cached.detail = null;
   }
 
   private needsBake(c: CachedChunk): boolean {
@@ -304,11 +389,13 @@ export class TerrainLayer {
         if (dx === 0 && dy === 0) continue;
         const n = this.chunks.get(chunkKey(cx + dx, cy + dy));
         if (n?.sprite) n.stale = true;
+        if (n) this.freeDetail(n);
       }
     }
   }
 
-  private updateRendered(budget: number): void {
+  /** Bakes up to `budget` base textures; whether it baked any. */
+  private updateRendered(budget: number): boolean {
     this.queue.clear();
     const view = this.view;
     const candidates: CachedChunk[] = [];
@@ -319,7 +406,7 @@ export class TerrainLayer {
       }
       if (this.wanted(c) && this.needsBake(c) && this.neighboursReady(c)) candidates.push(c);
     }
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) return false;
     // Nearest to the view's center first.
     const mx = view ? view.x + view.w / 2 : 0;
     const my = view ? view.y + view.h / 2 : 0;
@@ -328,16 +415,28 @@ export class TerrainLayer {
       Math.abs((c.data.cy << CHUNK_SHIFT) + CHUNK_SIZE / 2 - my);
     candidates.sort((a, b) => distance(a) - distance(b));
     for (const c of candidates.slice(0, budget)) this.bakeRendered(c);
+    return true;
   }
 
-  private bakeRendered(cached: CachedChunk): void {
-    const art = this.art!;
-    const texels = this.texels;
-    const size = CHUNK_SIZE * texels;
+  /** Bakes the rendered look of `cached` at `texels` per tile into `target`. */
+  private bakeInto(cached: CachedChunk, texels: number, target: RenderTexture): void {
     const plan = planChunk(cached.data, (cx, cy) => {
       const c = this.chunks.get(chunkKey(cx, cy));
       return c && c.data.cx === cx && c.data.cy === cy ? c.data : undefined;
     });
+    this.art!.bake(
+      this.renderer!,
+      plan,
+      cached.data.cx << CHUNK_SHIFT,
+      cached.data.cy << CHUNK_SHIFT,
+      texels,
+      target,
+    );
+  }
+
+  private bakeRendered(cached: CachedChunk): void {
+    const texels = this.texels;
+    const size = CHUNK_SIZE * texels;
     let target = cached.sprite?.texture as RenderTexture | undefined;
     if (!cached.sprite || cached.texels !== texels) {
       target = RenderTexture.create({
@@ -348,14 +447,7 @@ export class TerrainLayer {
         label: `chunk ${String(cached.data.cx)},${String(cached.data.cy)}`,
       });
     }
-    art.bake(
-      this.renderer!,
-      plan,
-      cached.data.cx << CHUNK_SHIFT,
-      cached.data.cy << CHUNK_SHIFT,
-      texels,
-      target!,
-    );
+    this.bakeInto(cached, texels, target!);
     if (cached.sprite && cached.sprite.texture !== target) {
       // A new resolution: swap the texture, free the old one.
       const old = cached.sprite.texture;
@@ -391,7 +483,7 @@ export class TerrainLayer {
     const sprite = new Sprite(texture);
     sprite.position.set(cached.data.cx * CHUNK_PX, cached.data.cy * CHUNK_PX);
     sprite.setSize(CHUNK_PX, CHUNK_PX);
-    this.container.addChild(sprite);
+    this.base.addChild(sprite);
     cached.sprite = sprite;
   }
 
@@ -401,6 +493,7 @@ export class TerrainLayer {
     cached.sprite = null;
     cached.pixels = null;
     cached.texels = 0;
+    this.freeDetail(cached);
   }
 
   private evict(key: number, cached: CachedChunk): void {
