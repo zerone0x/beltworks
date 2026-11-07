@@ -235,6 +235,13 @@ export class BeltLayer {
   private receivedAt = 0;
   /** Scratch point for item positions. */
   private readonly point = { x: 0, y: 0 };
+  /** Whether belt surfaces move (the animation setting); items move either way. */
+  animateSurfaces = true;
+
+  /** Shows or hides the shadows of underground hoods (the shadows setting). */
+  setShadows(on: boolean): void {
+    this.shadows.visible = on;
+  }
 
   constructor() {
     this.container.addChild(
@@ -441,8 +448,9 @@ export class BeltLayer {
   /** Redraws the belts in the cull rectangle `cull` and the items on them, for time `nowMs`. */
   draw(nowMs: number, cull: TileRect = EVERYWHERE): void {
     const alpha = Math.min(1, Math.max(0, (nowMs - this.receivedAt) / TICK_MS));
-    // Belt surface travelled since tick 0, in tiles per subtile/tick of speed.
-    const ticks = this.tick + alpha;
+    // Belt surface travelled since tick 0, in tiles per subtile/tick of speed
+    // (standing still with animations off; the items still move).
+    const ticks = this.animateSurfaces ? this.tick + alpha : 0;
     const r = this.records;
 
     if (this.visible.length < this.count) this.visible = new Int32Array(this.count);

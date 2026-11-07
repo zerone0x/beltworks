@@ -2,7 +2,7 @@
  * Player controls: WASD moves, the right mouse button removes the entity
  * under the cursor or, where there is none, hand-mines the resource or tree
  * tile (held), `E` toggles the inventory and `F` makes the camera follow the
- * player again. Build controls (placing, rotating) are in buildInput.ts.
+ * player again (the keys are the default bindings, src/ui/keybindings.ts). Build controls (placing, rotating) are in buildInput.ts.
  *
  * Input becomes commands (see src/sim/commands.ts) that are only sent when
  * they change something: one `Move` when the held keys change direction, one
@@ -14,25 +14,35 @@
  */
 
 import type { Axis, CommandInput } from '../sim/commands';
+import { actionFor, type Action } from '../ui/keybindings';
 import type { Point } from './camera';
 
-/** Movement keys by `KeyboardEvent.code`, so they sit in the same place on every layout. */
-const MOVE_KEYS: Readonly<Record<string, readonly [Axis, Axis]>> = {
-  KeyW: [0, -1],
-  KeyA: [-1, 0],
-  KeyS: [0, 1],
-  KeyD: [1, 0],
+/** Movement per walking action; keys are rebindable (src/ui/keybindings.ts). */
+const MOVE_ACTIONS: Readonly<Partial<Record<Action, readonly [Axis, Axis]>>> = {
+  moveUp: [0, -1],
+  moveLeft: [-1, 0],
+  moveDown: [0, 1],
+  moveRight: [1, 0],
 };
+
+/** The movement of key `code` (a `KeyboardEvent.code`) under the current bindings, if any. */
+function moveFor(code: string): readonly [Axis, Axis] | undefined {
+  const action = actionFor(code);
+  return action === null ? undefined : MOVE_ACTIONS[action];
+}
 const RIGHT_BUTTON = 2;
 /** `PointerEvent.buttons` bit of the right button. */
 const RIGHT_BUTTONS_BIT = 2;
 
-/** The movement direction for a set of held key codes; opposite keys cancel out. */
+/**
+ * The movement direction for a set of held key codes (WASD by default);
+ * opposite keys cancel out.
+ */
 export function moveAxes(held: Iterable<string>): [Axis, Axis] {
   let dx = 0;
   let dy = 0;
   for (const code of held) {
-    const dir = MOVE_KEYS[code];
+    const dir = moveFor(code);
     if (dir) {
       dx += dir[0];
       dy += dir[1];
@@ -186,13 +196,14 @@ export class PlayerInput {
     if (e.ctrlKey || e.metaKey || e.altKey) {
       return;
     }
-    if (e.code in MOVE_KEYS) {
+    const action = actionFor(e.code);
+    if (moveFor(e.code)) {
       e.preventDefault();
       this.held.add(e.code);
-    } else if (e.code === 'KeyE' && !e.repeat) {
+    } else if (action === 'inventory' && !e.repeat) {
       e.preventDefault();
       this.options.onToggleInventory?.();
-    } else if (e.code === 'KeyF' && !e.repeat) {
+    } else if (action === 'follow' && !e.repeat) {
       e.preventDefault();
       this.options.onFollow?.();
     }

@@ -26,6 +26,9 @@
  * Both ways, a click (or shift-click) moves the whole stack, a right click
  * half of it (rounded up), and a ctrl-click or middle click one item
  * (`transferFor` in inventory.ts).
+ * While the cursor holds a stack (D52), a click on the entity's slots puts
+ * it into the entity, and a click in the inventory copy puts it in that
+ * slot (`dropCursorInto`, `dropCursorOnSlot`).
  *
  * Everything goes through commands, so the panel never changes state itself;
  * it redraws from the `entityDetail` of each snapshot (the worker sends it
@@ -233,6 +236,16 @@ export interface EntityPanelOptions {
   inspect: (entity: number) => void;
   /** The player picked recipe `recipe` for assembling machine `entity` (`SetRecipe`). */
   setRecipe: (entity: number, recipe: number) => void;
+  /**
+   * A click on one of `entity`'s slots, before it takes anything: returns
+   * true if the cursor stack went into the entity instead (D52).
+   */
+  dropCursorInto?: (entity: number) => boolean;
+  /**
+   * A click on slot `slot` of the inventory copy, moving `transfer`, before
+   * it inserts anything: returns true if it put the cursor stack there instead.
+   */
+  dropCursorOnSlot?: (slot: number, transfer: Transfer) => boolean;
 }
 
 /** A thin horizontal bar showing a fraction. */
@@ -379,6 +392,7 @@ export class EntityPanel {
     invTitle.textContent = 'Inventory';
     Object.assign(invTitle.style, { fontWeight: '600', marginBottom: '4px' });
     this.inventoryGrid = new SlotGrid(inventorySlots, INVENTORY_COLUMNS, (i, transfer) => {
+      if (this.options.dropCursorOnSlot?.(i, transfer)) return;
       const stack = this.inventory[i];
       if (this.entityId !== 0 && stack && stack.count > 0) {
         this.options.insert(this.entityId, stack.item, transferCount(stack.count, transfer));
@@ -407,6 +421,11 @@ export class EntityPanel {
   }
 
   /** Opens the panel for entity `id` of type `type` (only types with `hasEntityGui`). */
+  /** Highlights the inventory slot the cursor takes from, or none for `null`. */
+  selectInventorySlot(slot: number | null): void {
+    this.inventoryGrid.highlight(slot);
+  }
+
   open(id: number, type: number): void {
     if (!hasEntityGui(type) || id === this.entityId) {
       return;
@@ -490,6 +509,7 @@ export class EntityPanel {
   }
 
   private takeSlot(slot: number, transfer: Transfer): void {
+    if (this.entityId !== 0 && this.options.dropCursorInto?.(this.entityId)) return;
     const stack = this.entitySlots[slot];
     if (this.entityId !== 0 && stack && stack.count > 0) {
       this.options.take(this.entityId, slot, transferCount(stack.count, transfer));

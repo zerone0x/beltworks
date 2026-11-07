@@ -127,6 +127,20 @@ export interface SetResearchCommand extends CommandBase {
   readonly tech: number;
 }
 
+/**
+ * Moves up to `count` units from slot `from` of the player's inventory to
+ * slot `to` (the cursor stack, D52): into an empty slot, onto a stack of the
+ * same item (as many as fit), or, when the whole stack moves onto a
+ * different item, swapping the two slots. Needs no reach; ignored if a slot
+ * doesn't exist or nothing can move.
+ */
+export interface MoveStackCommand extends CommandBase {
+  readonly type: 'MoveStack';
+  readonly from: number;
+  readonly to: number;
+  readonly count: number;
+}
+
 export type Command =
   | MoveCommand
   | MineStartCommand
@@ -139,7 +153,8 @@ export type Command =
   | SetRecipeCommand
   | CraftCommand
   | CancelCraftCommand
-  | SetResearchCommand;
+  | SetResearchCommand
+  | MoveStackCommand;
 export type CommandType = Command['type'];
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -209,6 +224,10 @@ export function validateCommandInput(input: unknown): string | null {
       return isUint16(c.index) ? null : 'CancelCraft needs a uint16 index';
     case 'SetResearch':
       return isUint16(c.tech) ? null : 'SetResearch needs a uint16 tech';
+    case 'MoveStack':
+      return isUint16(c.from) && isUint16(c.to) && isCount(c.count)
+        ? null
+        : 'MoveStack needs uint16 from and to slots and a count in [1, 65535]';
     default:
       return `unknown command type ${String(c.type)}`;
   }

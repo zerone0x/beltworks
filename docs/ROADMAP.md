@@ -77,7 +77,7 @@ Met: `tests/e2e/science.spec.ts` starts from a test kit (assembling machines, a 
 - [ ] Minimap and map mode
 - [ ] Sound effects and music (CC0 or original)
 - [ ] Onboarding for the first 5 minutes
-- [ ] Settings: keybindings, graphics, UI scale
+- [x] Settings: keybindings, graphics, UI scale; hotbar management and the cursor stack
 
 **Done when:** v1 is ready for a public beta.
 

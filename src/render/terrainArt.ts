@@ -309,6 +309,11 @@ export class TerrainArt {
     this.root.addChild(this.mesh, this.decals, this.cover, this.shadows, this.trees);
   }
 
+  /** Whether bakes draw the trees' shadows (the shadows setting); chunks baked before keep theirs. */
+  set treeShadows(on: boolean) {
+    this.shadows.visible = on;
+  }
+
   /** The model of a decal or tree, or `null` if the atlas lacks it. */
   model(name: string): ModelSprites | null {
     return this.models.model(name);

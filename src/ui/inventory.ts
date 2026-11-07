@@ -1,21 +1,23 @@
 /**
  * Inventory UI (plain DOM): the inventory panel, toggled with `E` (other
- * panels such as crafting can add sections to it), and the
- * hotbar strip showing the first `HOTBAR_SLOTS` slots. Both highlight the
- * slot selected for building: keys `1`–`0` or a click on a hotbar slot
- * select one there, a click in the inventory panel selects any slot. Both
- * show each slot's item as its icon (src/render/itemIcons.ts, the same as on
- * belts and in inserter hands) with its count.
+ * panels such as crafting can add sections to it), and the hotbar strip of
+ * `HOTBAR_SLOTS` slots, each showing the inventory slot of the same index
+ * or, once an item is pinned to it, that item and how many the inventory
+ * holds (`hotbarSlots`, D51). Both highlight what the cursor holds (D52):
+ * keys `1`–`0` or a click on a hotbar slot select one there, a click in the
+ * inventory panel picks up a stack. Both show each slot's item as its icon
+ * (src/render/itemIcons.ts, the same as on belts and in inserter hands)
+ * with its count.
  *
  * Slots have fixed pixel sizes and an empty slot has no text, so the hotbar
  * looks the same on every machine (it is part of the screenshot tests).
  */
 
-import { itemPrototype } from '../data/items';
+import { ITEM_IDS, ITEMS, itemPrototype } from '../data/items';
 import { ICON_PX, hasRenderedIcon, iconDataUrl, onIconsChanged } from '../render/itemIcons';
 import type { SlotData } from '../sim/snapshot';
 
-/** Slots shown in the hotbar: the first slots of the inventory. */
+/** Slots in the hotbar. */
 export const HOTBAR_SLOTS = 10;
 /** Columns in the inventory panel grid. */
 export const INVENTORY_COLUMNS = 10;
@@ -26,6 +28,8 @@ export const HOTBAR_BOTTOM_PX = 8;
 const SLOT_BORDER = '1px solid rgba(232, 226, 208, 0.25)';
 /** Drawn as an outline inside the slot, so selecting doesn't shift its contents. */
 const SELECTED_OUTLINE = '2px solid #f2d36b';
+/** Border of a hotbar slot with a pinned item. */
+const PINNED_BORDER = '1px solid rgba(120, 190, 255, 0.85)';
 
 /** Icons in slots are drawn this many CSS pixels per icon pixel. */
 const ICON_SCALE = 2;
@@ -134,6 +138,50 @@ export function slotView(slot: SlotData): SlotView {
   };
 }
 
+/**
+ * What the hotbar shows with inventory `slots` and item pins `pins` (by
+ * hotbar slot, 0 for none): a pinned slot shows its item with the total the
+ * inventory holds (empty while there is none; the hotbar shows it faintly),
+ * an unpinned one the inventory slot of the same index.
+ */
+export function hotbarSlots(slots: readonly SlotData[], pins: readonly number[]): SlotData[] {
+  return Array.from({ length: HOTBAR_SLOTS }, (_, i) => {
+    const pin = pins[i] ?? 0;
+    if (pin === 0) return slots[i] ?? { item: 0, count: 0 };
+    let count = 0;
+    for (const s of slots) if (s.item === pin) count += s.count;
+    return count > 0 ? { item: pin, count } : { item: 0, count: 0 };
+  });
+}
+
+/** No item pinned to any hotbar slot: the hotbar shows the first inventory slots. */
+export const NO_PINS: readonly number[] = Array.from({ length: HOTBAR_SLOTS }, () => 0);
+
+/**
+ * Pins `item` to hotbar slot `index` (0 unpins it), taking it off any other
+ * slot it was pinned to, so each item has at most one hotbar slot.
+ */
+export function pinItem(pins: readonly number[], index: number, item: number): number[] {
+  return Array.from({ length: HOTBAR_SLOTS }, (_, i) => {
+    if (i === index) return item;
+    const pin = pins[i] ?? 0;
+    return item !== 0 && pin === item ? 0 : pin;
+  });
+}
+
+/** Hotbar pins as item names for storing (`''` for none). */
+export function pinNames(pins: readonly number[]): string[] {
+  return Array.from({ length: HOTBAR_SLOTS }, (_, i) => itemPrototype(pins[i] ?? 0)?.name ?? '');
+}
+
+/** Hotbar pins from stored item names; unknown names (and a missing list) pin nothing. */
+export function pinsFromNames(names: readonly string[] | undefined): number[] {
+  return Array.from({ length: HOTBAR_SLOTS }, (_, i) => {
+    const name = names?.[i] ?? '';
+    return name === '' ? 0 : (ITEM_IDS.find((id) => ITEMS[id].name === name) ?? 0);
+  });
+}
+
 /** Total units of item `name` across `slots`. */
 export function countByName(slots: readonly SlotData[], name: string): number {
   let n = 0;
@@ -141,6 +189,26 @@ export function countByName(slots: readonly SlotData[], name: string): number {
     if (s.count > 0 && itemPrototype(s.item)?.name === name) n += s.count;
   }
   return n;
+}
+
+/** Where a drag between slot grids started (a left press on a slot), or `null`. */
+let dragSource: { grid: SlotGrid; index: number } | null = null;
+globalThis.window?.addEventListener('pointerup', () => {
+  // After the cells' own handlers: a drop on a cell has been handled by now.
+  setTimeout(() => {
+    dragSource = null;
+  });
+});
+
+/** Optional behaviors of a `SlotGrid` besides clicks. */
+export interface SlotGridOptions {
+  /**
+   * A left-button drag from cell `from` of grid `source` (this one or
+   * another) ended on cell `index` of this grid.
+   */
+  onDrop?: (source: SlotGrid, from: number, index: number) => void;
+  /** The pointer moved onto cell `index`, or off the grid (`null`). */
+  onHover?: (index: number | null) => void;
 }
 
 /**
@@ -160,6 +228,7 @@ export class SlotGrid {
     slots: number,
     columns: number,
     onClick?: (index: number, transfer: Transfer) => void,
+    options: SlotGridOptions = {},
   ) {
     const el = document.createElement('div');
     el.className = 'slot-grid';
@@ -214,6 +283,27 @@ export class SlotGrid {
           if (e.button === 1 || e.shiftKey) e.preventDefault();
         });
       }
+      if (options.onDrop) {
+        const { onDrop } = options;
+        root.addEventListener('pointerdown', (e) => {
+          if (e.button === 0) dragSource = { grid: this, index: i };
+        });
+        root.addEventListener('pointerup', (e) => {
+          const source = dragSource;
+          dragSource = null;
+          if (e.button !== 0 || !source || (source.grid === this && source.index === i)) return;
+          onDrop(source.grid, source.index, i);
+        });
+      }
+      if (options.onHover) {
+        const { onHover } = options;
+        root.addEventListener('pointerenter', () => {
+          onHover(i);
+        });
+        root.addEventListener('pointerleave', () => {
+          onHover(null);
+        });
+      }
       el.appendChild(root);
       this.cells.push({ root, icon, count });
       this.shown.push(null);
@@ -229,6 +319,21 @@ export class SlotGrid {
       cell.root.dataset.selected = String(on);
       cell.root.style.outline = on ? SELECTED_OUTLINE : 'none';
       cell.root.style.outlineOffset = on ? '-2px' : '0';
+    });
+  }
+
+  /** The item shown in cell `index` (0 for none), as of the latest `update`. */
+  itemAt(index: number): number {
+    return Number(this.cells[index]?.icon.dataset.item ?? 0);
+  }
+
+  /** Marks the cells whose `pinned[i]` is true as holding a pinned item (a blue border). */
+  setPinned(pinned: readonly boolean[]): void {
+    this.cells.forEach((cell, i) => {
+      const on = pinned[i] === true;
+      if ((cell.root.dataset.pinned === 'true') === on) return;
+      cell.root.dataset.pinned = String(on);
+      cell.root.style.border = on ? PINNED_BORDER : SLOT_BORDER;
     });
   }
 
@@ -264,10 +369,13 @@ export class SlotGrid {
 }
 
 export interface HotbarOptions {
-  /** A left click on hotbar slot `slot`: select it, or deselect it if it is selected. */
-  onClick: (slot: number) => void;
-  /** A right click on a hotbar slot: deselect. */
-  onRightClick: () => void;
+  /**
+   * A click on hotbar slot `slot`: a left click selects it (or deselects it),
+   * a right click deselects, a middle click (or ctrl-click) clears its pin.
+   */
+  onClick: (slot: number, transfer: Transfer) => void;
+  /** A drag from cell `from` of `source` (e.g. the inventory) ended on hotbar slot `slot`. */
+  onDrop?: (source: SlotGrid, from: number, slot: number) => void;
 }
 
 /**
@@ -279,15 +387,9 @@ export class Hotbar {
   private readonly grid: SlotGrid;
 
   constructor(parent: HTMLElement, options?: HotbarOptions) {
-    this.grid = new SlotGrid(
-      HOTBAR_SLOTS,
-      HOTBAR_SLOTS,
-      options &&
-        ((slot, transfer) => {
-          if (transfer === 'half') options.onRightClick();
-          else options.onClick(slot);
-        }),
-    );
+    this.grid = new SlotGrid(HOTBAR_SLOTS, HOTBAR_SLOTS, options?.onClick, {
+      ...(options?.onDrop && { onDrop: options.onDrop }),
+    });
     const el = document.createElement('div');
     el.id = 'hotbar';
     Object.assign(el.style, {
@@ -310,11 +412,18 @@ export class Hotbar {
     this.grid.update([]);
   }
 
-  update(slots: readonly SlotData[]): void {
-    this.grid.update(slots.slice(0, HOTBAR_SLOTS));
+  /**
+   * Shows inventory `slots` with item pins `pins` (by hotbar slot, 0 for
+   * none; see `hotbarSlots`); a pinned item the inventory has none of shows
+   * faintly.
+   */
+  update(slots: readonly SlotData[], pins: readonly number[] = []): void {
+    this.grid.setHints(pins);
+    this.grid.setPinned(Array.from({ length: HOTBAR_SLOTS }, (_, i) => (pins[i] ?? 0) !== 0));
+    this.grid.update(hotbarSlots(slots, pins));
   }
 
-  /** Highlights the slot selected for building, or none for `null` or a slot past the hotbar. */
+  /** Highlights hotbar slot `slot`, or none for `null` or a slot past the hotbar. */
   select(slot: number | null): void {
     const shown = slot !== null && slot < HOTBAR_SLOTS ? slot : null;
     this.element.dataset.selected = shown === null ? '' : String(shown);
@@ -323,20 +432,23 @@ export class Hotbar {
 }
 
 export interface InventoryPanelOptions {
-  /** A left click on slot `slot` (plain, shift or ctrl): select it for building, or deselect. */
-  onClick: (slot: number) => void;
-  /** A right click on a slot: deselect. */
-  onRightClick: () => void;
+  /** A click on slot `slot`, moving `transfer` (see `transferFor`): picks up or drops the cursor stack. */
+  onClick: (slot: number, transfer: Transfer) => void;
+  /** A drag from cell `from` of `source` ended on slot `slot`. */
+  onDrop?: (source: SlotGrid, from: number, slot: number) => void;
+  /** The pointer is over slot `slot` now (`null`: none). */
+  onHover?: (slot: number | null) => void;
 }
 
 /**
  * The inventory panel, hidden until toggled. With `options`, its slots are
- * clickable (for selecting an item to build; transfers into an entity happen
- * in the entity window's own copy of the inventory, see entityPanel.ts).
+ * clickable (for the cursor stack; transfers into an entity happen in the
+ * entity window's own copy of the inventory, see entityPanel.ts).
  */
 export class InventoryPanel {
   readonly element: HTMLElement;
-  private readonly grid: SlotGrid;
+  /** The slot grid (a drag source for the hotbar). */
+  readonly grid: SlotGrid;
   private readonly body: HTMLElement;
 
   constructor(parent: HTMLElement, slots: number, options?: InventoryPanelOptions) {
@@ -360,15 +472,10 @@ export class InventoryPanel {
     const title = document.createElement('div');
     title.textContent = 'Inventory';
     Object.assign(title.style, { fontWeight: '600', marginBottom: '6px' });
-    this.grid = new SlotGrid(
-      slots,
-      INVENTORY_COLUMNS,
-      options &&
-        ((slot, transfer) => {
-          if (transfer === 'half') options.onRightClick();
-          else options.onClick(slot);
-        }),
-    );
+    this.grid = new SlotGrid(slots, INVENTORY_COLUMNS, options?.onClick, {
+      ...(options?.onDrop && { onDrop: options.onDrop }),
+      ...(options?.onHover && { onHover: options.onHover }),
+    });
     // Sections (the inventory, then e.g. crafting) side by side.
     this.body = document.createElement('div');
     Object.assign(this.body.style, { display: 'flex', alignItems: 'flex-start', gap: '12px' });
@@ -408,7 +515,7 @@ export class InventoryPanel {
     this.grid.update(slots);
   }
 
-  /** Highlights the slot selected for building, or none for `null`. */
+  /** Highlights the slot the cursor takes from, or none for `null`. */
   select(slot: number | null): void {
     this.element.dataset.selected = slot === null ? '' : String(slot);
     this.grid.highlight(slot);

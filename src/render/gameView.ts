@@ -39,6 +39,9 @@ export interface HoveredTile extends Point {
   info: TileInfo | null;
 }
 
+/** Most texels per tile of the rendered terrain at low terrain detail. */
+const LOW_DETAIL_TEXELS = 16;
+
 const sameViewport = (a: Viewport | null, b: Viewport): boolean =>
   a !== null && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 
@@ -67,6 +70,12 @@ export class GameView {
   artSettled = false;
   /** Whether the camera stays centered on the local player. */
   following = true;
+  /**
+   * Whether decorative animation runs (the animation setting): belt
+   * surfaces, flywheels, machines' working animations and fire. Items,
+   * inserter arms and players move either way: they show the game's state.
+   */
+  animate = true;
   /** Everything positioned in world pixels; transformed by the camera. */
   private readonly world = new Container({ label: 'world' });
   private sentViewport: Viewport | null = null;
@@ -130,10 +139,23 @@ export class GameView {
    * (32 for the base textures, 64 for the detail ones zoomed in),
    * or `SOFTWARE_MAX_TEXELS` on a software renderer, where bakes are slow.
    */
-  setTerrainArt(art: TerrainArt | null, maxTexels?: number): void {
+  setTerrainArt(art: TerrainArt | null, maxTexels?: number, lowDetail = false): void {
+    const full = this.softwareRendering() ? SOFTWARE_MAX_TEXELS : GPU_MAX_TEXELS;
+    // Low detail (the terrain detail setting): a quarter of the texels at most, no detail textures.
     this.terrain.maxTexels =
-      maxTexels ?? (this.softwareRendering() ? SOFTWARE_MAX_TEXELS : GPU_MAX_TEXELS);
+      maxTexels ?? (lowDetail ? Math.min(LOW_DETAIL_TEXELS, full / 2) : full);
     this.terrain.setArt(art, art ? this.app.renderer : null);
+  }
+
+  /**
+   * Shows or hides every shadow (the shadows setting): buildings', inserter
+   * arms', wires', underground hoods' and, baked again, trees'.
+   */
+  setShadows(on: boolean): void {
+    this.entities.shadowContainer.visible = on;
+    this.power.shadowContainer.visible = on;
+    this.belts.setShadows(on);
+    this.terrain.setShadows(on);
   }
 
   /** Whether WebGL runs on a software renderer (as in headless browsers and CI). */
@@ -238,13 +260,15 @@ export class GameView {
     this.terrain.update(undefined, view, this.camera.zoom);
     // Every entity layer draws only what overlaps the screen (cull.ts).
     const cull = cullRect(view);
+    this.belts.animateSurfaces = this.animate;
     this.belts.draw(now, cull);
+    const animDt = this.animate ? dtMs : 0;
     // Arm poses first: inserters with sprites are drawn with the buildings;
     // and generators: the engines' sprites take their speed from them.
     this.inserters.draw(now, cull);
-    this.generators.draw(this.entityIndex, this.power.data, dtMs, cull);
-    this.entities.draw(this.entityIndex, dtMs, this.inserters.poses, cull);
-    this.assemblers.draw(this.entityIndex, dtMs, cull);
+    this.generators.draw(this.entityIndex, this.power.data, animDt, cull);
+    this.entities.draw(this.entityIndex, animDt, this.inserters.poses, cull);
+    this.assemblers.draw(this.entityIndex, animDt, cull);
     this.power.drawWires(cull);
     this.players.draw(this.track, now);
   }

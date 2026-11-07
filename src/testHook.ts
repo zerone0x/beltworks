@@ -6,7 +6,7 @@
  */
 
 import { isBeltType } from './data/entities';
-import { ITEM_IDS, ITEMS, MAX_STACK_SIZE, type ItemStack } from './data/items';
+import { ITEM_IDS, ITEMS, MAX_STACK_SIZE, itemPrototype, type ItemStack } from './data/items';
 import type { Ticker } from 'pixi.js';
 import {
   formatReport,
@@ -186,8 +186,15 @@ export interface BeltworksTestHook {
   powerFocus(): PowerFocusState | null;
   /** The ghost preview, or `null` when none is shown. */
   ghost(): GhostState | null;
-  /** The inventory slot selected for building (0–9 are the hotbar), or `null`. */
+  /**
+   * The inventory slot the cursor takes from (an unpinned hotbar slot is the
+   * inventory slot of the same index), or `null`.
+   */
   selectedSlot(): number | null;
+  /** Units the cursor would drop (0 when it holds nothing). */
+  cursorCount(): number;
+  /** Item names pinned to the hotbar slots (`''` for none). */
+  hotbarPins(): string[];
   /** The entity whose GUI is open, or 0. */
   openEntity(): number;
   /** The pole whose power panel is open, or 0. */
@@ -251,21 +258,23 @@ declare global {
 const ITEM_BY_NAME = new Map(ITEM_IDS.map((id) => [ITEMS[id].name, id]));
 
 /**
- * Dev and test builds: whether the terrain uses its rendered look (docs/ART.md,
- * "Terrain"), from an `?art=` URL parameter (`1` or `0`); without one, the
- * rendered look in dev builds and the flat placeholder look in test builds
- * (`mode` `test`): the end-to-end specs that aren't about the art run on the
- * cheap placeholder, since CI's software renderer bakes the rendered terrain
- * slowly. A `?texels=` parameter implies `?art=1`. Production builds always
- * render it.
+ * Dev and test builds: whether the terrain starts with its rendered look
+ * (docs/ART.md, "Terrain"), from an `?art=` URL parameter (`1` or `0`);
+ * without one, the flat placeholder look in test builds (`mode` `test`):
+ * the end-to-end specs that aren't about the art run on the cheap
+ * placeholder, since CI's software renderer bakes the rendered terrain
+ * slowly. A `?texels=` parameter implies `?art=1`. `undefined` (dev builds
+ * without a parameter) leaves it to the terrain setting, as production
+ * builds always do; changing the setting in game overrides the parameter.
  */
-export function renderedTerrainFromUrl(search: string, mode: string): boolean {
+export function renderedTerrainFromUrl(search: string, mode: string): boolean | undefined {
   const params = new URLSearchParams(search);
   const art = params.get('art');
   if (art === '1') return true;
   if (art === '0') return false;
   if (art !== null) throw new Error(`bad art "${art}"`);
-  return params.has('texels') || mode !== 'test';
+  if (params.has('texels')) return true;
+  return mode === 'test' ? false : undefined;
 }
 
 /**
@@ -378,6 +387,8 @@ export interface TestHookContext {
   ticker: Ticker;
   /** The renderer's size in CSS pixels and its resolution. */
   screen: () => { width: number; height: number; resolution: number };
+  /** Item ids pinned to the hotbar slots (0 for none). */
+  hotbarPins: () => readonly number[];
 }
 
 export function installTestHook({
@@ -393,6 +404,7 @@ export function installTestHook({
   research,
   ticker,
   screen,
+  hotbarPins,
 }: TestHookContext): void {
   let world: World | null = null;
   let lastProfile: ProfileReport | null = null;
@@ -522,6 +534,8 @@ export function installTestHook({
       };
     },
     selectedSlot: () => build.selected,
+    cursorCount: () => build.handCount(),
+    hotbarPins: () => hotbarPins().map((item) => itemPrototype(item)?.name ?? ''),
     openEntity: () => entityPanel.entity,
     openPowerPanel: () => powerPanel.pole,
     powerIcons: () => view.entities.powerIcons,

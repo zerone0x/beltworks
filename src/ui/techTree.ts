@@ -27,6 +27,7 @@ import {
 import type { CommandInput } from '../sim/commands';
 import { NO_RESEARCH, isResearchedIn, type ResearchData } from '../sim/snapshot';
 import { makeSlotIcon, setSlotIcon } from './inventory';
+import { actionFor } from './keybindings';
 
 /** How a technology stands for the force. */
 export type TechState = 'researched' | 'current' | 'available' | 'locked';
@@ -277,7 +278,13 @@ export class TechTreePanel {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         this.close();
-      } else if (e.code === 'KeyT' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (
+        actionFor(e.code) === 'techTree' &&
+        !e.repeat &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
         this.toggle();
       }
     });

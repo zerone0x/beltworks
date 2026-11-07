@@ -3,9 +3,10 @@
  *
  * - The game menu (`Esc` when no other window is open, or the corner
  *   button) saves the game under a name, lists the save slots (newest
- *   first) with Load, Export and Delete, imports a save file, and starts a
- *   new game. Deleting and starting over ask for a second click. The game
- *   keeps running behind it.
+ *   first) with Load, Export and Delete, imports a save file, starts a
+ *   new game, and opens the settings (src/ui/settingsPanel.ts) in its
+ *   place (`Esc` there goes back to the menu). Deleting and starting over
+ *   ask for a second click. The game keeps running behind it.
  * - The start screen shows on startup when there are saves: Continue (the
  *   newest one) or New game.
  *
@@ -13,6 +14,7 @@
  */
 
 import { formatPlayTime, sortSlots, type SaveSlot } from '../save/slots';
+import type { SettingsPanel } from './settingsPanel';
 
 export interface GameMenuActions {
   /** Saves the game as `name`; resolves once it is stored. */
@@ -110,8 +112,12 @@ function confirmTwice(b: HTMLButtonElement, action: () => void): void {
   });
 }
 
-/** Keeps typing in a text field from reaching the game's key handlers (WASD, hotbar). */
-function isolateKeys(input: HTMLInputElement): void {
+/**
+ * Keeps key presses in `input` (a text field, or a whole panel of buttons
+ * and fields) from reaching the game's key handlers (WASD, hotbar); Escape
+ * still gets through.
+ */
+function isolateKeys(input: HTMLElement): void {
   for (const type of ['keydown', 'keyup'] as const) {
     input.addEventListener(type, (e) => {
       if (e.key !== 'Escape') e.stopPropagation();
@@ -125,14 +131,15 @@ export class GameMenu {
   readonly button: HTMLButtonElement;
   private readonly toast: HTMLElement;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly panel: HTMLElement;
-  private readonly nameInput: HTMLInputElement;
+  /** The menu's panel (centered in the overlay). */
+  readonly panel: HTMLElement;
   private readonly slotTable: HTMLTableElement;
   private readonly status: HTMLElement;
 
   constructor(
     parent: HTMLElement,
     private readonly actions: GameMenuActions,
+    private readonly settings: SettingsPanel | null = null,
   ) {
     const overlay = document.createElement('div');
     overlay.id = 'game-menu';
@@ -160,6 +167,16 @@ export class GameMenu {
       this.actions.newGame();
     });
     top.append(resume, newGame);
+    if (settings) {
+      const open = button('Settings', 'menu-settings');
+      open.addEventListener('click', () => {
+        this.showSettings(true);
+      });
+      top.append(open);
+      settings.onBack = () => {
+        this.showSettings(false);
+      };
+    }
 
     const saveRow = document.createElement('div');
     Object.assign(saveRow.style, { display: 'flex', gap: '6px', marginTop: '6px' });
@@ -242,6 +259,12 @@ export class GameMenu {
     panel.append(title, top, heading('Save'), saveRow, status, heading('Saves'), slotTable);
     panel.append(importRow);
     overlay.append(panel);
+    isolateKeys(panel);
+    if (settings) {
+      Object.assign(settings.element.style, PANEL_STYLE, { display: 'none' });
+      isolateKeys(settings.element);
+      overlay.append(settings.element);
+    }
 
     const corner = button('Menu (Esc)', 'menu-button');
     Object.assign(corner.style, {
@@ -282,7 +305,6 @@ export class GameMenu {
     this.toast = toast;
     this.element = overlay;
     this.panel = panel;
-    this.nameInput = nameInput;
     this.slotTable = slotTable;
     this.status = status;
 
@@ -293,13 +315,21 @@ export class GameMenu {
     window.addEventListener(
       'keydown',
       (e) => {
+        if (this.isOpen && this.settings?.capturing) {
+          // The settings wait for a new key binding: the key is theirs alone.
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (!e.repeat) this.settings.captureKey(e);
+          return;
+        }
         if (e.key === 'Escape') {
           if (e.repeat) return;
-          if (this.isOpen) this.close();
+          if (this.settingsOpen) this.showSettings(false);
+          else if (this.isOpen) this.close();
           else if (!this.actions.otherWindowOpen()) this.open();
           return;
         }
-        if (this.isOpen && !(e.target instanceof Node && panel.contains(e.target))) {
+        if (this.isOpen && !(e.target instanceof Node && overlay.contains(e.target))) {
           e.stopImmediatePropagation();
         }
       },
@@ -329,8 +359,31 @@ export class GameMenu {
   }
 
   close(): void {
+    this.showSettings(false);
     this.element.style.display = 'none';
-    this.nameInput.blur();
+    // Give the keyboard back to the game (keys in the menu don't reach it).
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && this.element.contains(focused)) focused.blur();
+  }
+
+  /** Whether the settings show in place of the menu. */
+  get settingsOpen(): boolean {
+    return this.settings !== null && this.settings.element.style.display !== 'none';
+  }
+
+  /** Opens the menu showing the settings. */
+  openSettings(): void {
+    if (!this.isOpen) this.open();
+    this.showSettings(true);
+  }
+
+  /** Shows the settings (`true`) or the menu in the overlay. */
+  private showSettings(on: boolean): void {
+    if (!this.settings) return;
+    if (!on && this.settingsOpen) this.settings.hidden();
+    this.settings.element.style.display = on ? 'block' : 'none';
+    this.panel.style.display = on ? 'none' : 'block';
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   }
 
   /** Shows `message` on the status line (also used for autosaves and load errors). */
