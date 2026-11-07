@@ -263,7 +263,10 @@ test('belts, inserters and poles are drawn with their pre-rendered sprites', asy
     'belts, inserters and poles at 2× zoom',
     [-2.5, -4.5, 2],
   );
-  expect(await fps(page)).toBeGreaterThan(5);
+  // Sprites don't slow the frame rate down to a crawl. CI renders in software,
+  // so the bar is low; the scene also draws the animated steam power sprites
+  // and the rendered terrain (linearly filtered).
+  expect(await fps(page, 2000)).toBeGreaterThanOrEqual(4);
   expect(errors).toEqual([]);
 });
 
@@ -353,9 +356,9 @@ test('the four inserters side by side, with their arm shadows', async ({ page },
   for (const [i, ins] of row.entries()) {
     await place(page, String(i + 1), ins, ins.name, Direction.North);
   }
-  await place(page, '7', { x: 1, y: -9, w: 3, h: 5 }, 'steam-engine', Direction.North, false);
+  await place(page, '7', { x: 1, y: -9, w: 3, h: 5 }, 'steam-engine', Direction.North);
   const boiler = { x: 2, y: -4, w: 2, h: 3 };
-  await place(page, '6', boiler, 'boiler', Direction.North, false);
+  await place(page, '6', boiler, 'boiler', Direction.North);
   for (const pole of [tile(0, -4), tile(-4, -3), tile(-8, -3)]) {
     await place(page, '5', pole, 'small-electric-pole');
   }
