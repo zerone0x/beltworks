@@ -18,7 +18,8 @@ import { recipePrototype } from '../data/recipes';
 import { isAssemblerType } from '../sim/entities/assembler';
 import { MachineState } from '../sim/entities/machine';
 import { TILE_PX } from './camera';
-import type { EntityIndex } from './entityIndex';
+import { EVERYWHERE, overlaps, type TileRect } from './cull';
+import type { EntityIndex, EntityView } from './entityIndex';
 import { itemIconAtlas } from './itemIcons';
 import { modelDirection, type SpriteAtlas } from './sprites';
 
@@ -52,9 +53,11 @@ export class AssemblerLayer {
   private readonly icons = new Container({ label: 'assembler-icons' });
   /** Product icons, reused from frame to frame. */
   private readonly sprites: Sprite[] = [];
-  /** Animation angle per machine id, in turns (0..1). */
-  private readonly phase = new Map<number, number>();
-  private shown: { id: number; item: number; speed: number }[] = [];
+  /** Whether the lights' graphics hold anything (placeholder machines). */
+  private lit = false;
+  /** The assembling machines around the view, with their animation angle in turns (0..1). */
+  private list: { entity: EntityView; phase: number }[] = [];
+  private listed = -1;
   private atlas: SpriteAtlas | null = null;
 
   constructor() {
@@ -66,28 +69,39 @@ export class AssemblerLayer {
     this.atlas = atlas;
   }
 
-  /** The machines drawn last: product item (0 for none) and animation speed. */
+  /** The machines around the view: product item (0 for none) and animation speed. */
   get machines(): readonly { id: number; item: number; speed: number }[] {
-    return this.shown;
+    return this.list.map(({ entity }) => ({
+      id: entity.id,
+      item: assemblerIcon(entity.recipe),
+      speed: assemblerSpeed(entity.status),
+    }));
   }
 
-  /** Advances the animations by one frame of `dtMs` milliseconds and redraws. */
-  draw(index: EntityIndex, dtMs: number): void {
+  /**
+   * Advances the animations by one frame of `dtMs` milliseconds and redraws
+   * the machines in the cull rectangle `cull`.
+   */
+  draw(index: EntityIndex, dtMs: number, cull: TileRect = EVERYWHERE): void {
+    if (index.structureVersion !== this.listed) {
+      this.listed = index.structureVersion;
+      const phases = new Map(this.list.map((m) => [m.entity.id, m.phase]));
+      this.list = index.entities
+        .filter((e) => isAssemblerType(e.type))
+        .map((entity) => ({ entity, phase: phases.get(entity.id) ?? 0 }));
+    }
     const g = this.graphics;
-    g.clear();
+    if (this.lit) g.clear();
+    this.lit = false;
     const atlas = itemIconAtlas();
-    const seen = new Set<number>();
-    const shown: { id: number; item: number; speed: number }[] = [];
     let used = 0;
-    for (const e of index.entities) {
-      if (!isAssemblerType(e.type)) continue;
-      seen.add(e.id);
+    for (const m of this.list) {
+      const e = m.entity;
       const speed = assemblerSpeed(e.status);
-      const turn =
-        ((this.phase.get(e.id) ?? 0) + (speed * dtMs) / 1000 / ASSEMBLER_TURN_SECONDS) % 1;
-      this.phase.set(e.id, turn);
+      const turn = (m.phase + (speed * dtMs) / 1000 / ASSEMBLER_TURN_SECONDS) % 1;
+      m.phase = turn;
+      if (!overlaps(cull, e.x, e.y, e.w, e.h)) continue;
       const item = assemblerIcon(e.recipe);
-      shown.push({ id: e.id, item, speed });
       let cx = (e.x + e.w / 2) * TILE_PX;
       let cy = (e.y + e.h / 2) * TILE_PX;
       const model = this.atlas?.model(e.proto?.name) ?? null;
@@ -107,6 +121,7 @@ export class AssemblerLayer {
           color: lit ? (speed < 1 ? LIGHT_LOW : LIGHT_ON) : LIGHT_OFF,
           alpha: lit ? 1 - behind * 0.3 : 1,
         });
+        this.lit = true;
       }
       if (item === 0) continue;
       let sprite = this.sprites[used];
@@ -117,16 +132,13 @@ export class AssemblerLayer {
         this.icons.addChild(sprite);
       }
       sprite.scale.set(model ? SPRITE_ICON_SCALE : ICON_SCALE);
-      sprite.texture = atlas.texture(item);
+      const texture = atlas.texture(item);
+      if (sprite.texture !== texture) sprite.texture = texture;
       sprite.position.set(cx, cy);
       sprite.visible = true;
       used++;
     }
     for (let i = used; i < this.sprites.length; i++) this.sprites[i]!.visible = false;
-    for (const id of [...this.phase.keys()]) {
-      if (!seen.has(id)) this.phase.delete(id);
-    }
-    this.shown = shown;
   }
 
   destroy(): void {

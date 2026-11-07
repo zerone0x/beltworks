@@ -14,7 +14,8 @@ import { Container, Graphics } from 'pixi.js';
 import { ENTITIES, EntityTypeId } from '../data/entities';
 import type { PowerData } from '../sim/snapshot';
 import { TILE_PX } from './camera';
-import type { EntityIndex } from './entityIndex';
+import { EVERYWHERE, overlaps, type TileRect } from './cull';
+import type { EntityIndex, EntityView } from './entityIndex';
 import type { SpriteAtlas } from './sprites';
 
 /** Flywheel turns per second at full output. */
@@ -32,10 +33,15 @@ export function engineSpeed(drawn: number, maxOutput: number): number {
 export class GeneratorLayer {
   readonly container = new Container({ label: 'generators' });
   private readonly graphics = new Graphics({ label: 'flywheels' });
-  /** Flywheel angle per engine id, in turns (0..1). */
-  private readonly phase = new Map<number, number>();
-  /** Speed per engine id as of the latest snapshot. */
-  private readonly speeds = new Map<number, number>();
+  /** The steam engines around the view, with their speed (0..1) and flywheel angle (turns). */
+  private list: { entity: EntityView; speed: number; phase: number }[] = [];
+  private readonly byId = new Map<number, { speed: number }>();
+  private listed = -1;
+  /** Power delivered per engine id, as of the power data last seen. */
+  private drawnById = new Map<number, number>();
+  private power: PowerData | null = null;
+  /** Whether the flywheels' graphics hold anything (placeholder engines). */
+  private wheels = false;
   private atlas: SpriteAtlas | null = null;
 
   constructor() {
@@ -44,7 +50,7 @@ export class GeneratorLayer {
 
   /** Speed (0..1) and flywheel angle (turns) per steam engine around the view. */
   get engines(): { id: number; speed: number; phase: number }[] {
-    return [...this.speeds].map(([id, speed]) => ({ id, speed, phase: this.phase.get(id) ?? 0 }));
+    return this.list.map((e) => ({ id: e.entity.id, speed: e.speed, phase: e.phase }));
   }
 
   /** Engines get a placeholder flywheel only without a model in `atlas`. */
@@ -54,24 +60,40 @@ export class GeneratorLayer {
 
   /** How fast steam engine `id` runs (0..1) as of the latest frame, or `null` if it isn't around. */
   speed(id: number): number | null {
-    return this.speeds.get(id) ?? null;
+    return this.byId.get(id)?.speed ?? null;
   }
 
-  /** Advances and redraws every flywheel by one frame of `dtMs` milliseconds. */
-  draw(index: EntityIndex, power: PowerData, dtMs: number): void {
-    const drawnById = new Map(power.members.map((m) => [m.id, m.drawn]));
+  /**
+   * Advances every flywheel by one frame of `dtMs` milliseconds, and redraws
+   * the placeholder ones in the cull rectangle `cull`.
+   */
+  draw(index: EntityIndex, power: PowerData, dtMs: number, cull: TileRect = EVERYWHERE): void {
+    if (index.structureVersion !== this.listed) {
+      this.listed = index.structureVersion;
+      const old = new Map(this.list.map((e) => [e.entity.id, e]));
+      this.list = index.entities
+        .filter((e) => e.type === EntityTypeId.SteamEngine)
+        .map((entity) => ({ entity, speed: 0, phase: old.get(entity.id)?.phase ?? 0 }));
+      this.byId.clear();
+      for (const e of this.list) this.byId.set(e.entity.id, e);
+    }
+    if (power !== this.power) {
+      this.power = power;
+      this.drawnById = new Map(power.members.map((m) => [m.id, m.drawn]));
+    }
     const g = this.graphics;
-    g.clear();
-    const seen = new Set<number>();
-    for (const e of index.entities) {
-      if (e.type !== EntityTypeId.SteamEngine) continue;
-      seen.add(e.id);
-      const speed = engineSpeed(drawnById.get(e.id) ?? 0, ENGINE_MAX_OUTPUT);
-      this.speeds.set(e.id, speed);
+    if (this.wheels) g.clear();
+    this.wheels = false;
+    for (const engine of this.list) {
+      const e = engine.entity;
+      const speed = engineSpeed(this.drawnById.get(e.id) ?? 0, ENGINE_MAX_OUTPUT);
+      engine.speed = speed;
       const step = (speed * FLYWHEEL_TURNS_PER_SECOND * dtMs) / 1000;
-      const turn = ((this.phase.get(e.id) ?? 0) + step) % 1;
-      this.phase.set(e.id, turn);
+      const turn = (engine.phase + step) % 1;
+      engine.phase = turn;
       if (this.atlas?.model(e.proto?.name)) continue;
+      if (!overlaps(cull, e.x, e.y, e.w, e.h)) continue;
+      this.wheels = true;
       // 1.4 tiles behind the center, along the engine's long axis (it faces along it).
       const ux = [0, 1, 0, -1][e.dir]!;
       const uy = [-1, 0, 1, 0][e.dir]!;
@@ -86,12 +108,6 @@ export class GeneratorLayer {
           .stroke({ width: 3, color: WHEEL_SPOKE });
       }
       g.circle(cx, cy, 4).fill({ color: speed > 0 ? WHEEL_HUB : WHEEL_RIM });
-    }
-    for (const id of [...this.phase.keys()]) {
-      if (!seen.has(id)) {
-        this.phase.delete(id);
-        this.speeds.delete(id);
-      }
     }
   }
 

@@ -26,7 +26,7 @@ import { HelpPanel } from './ui/help';
 import { Hotbar, InventoryPanel } from './ui/inventory';
 import { PowerHistory } from './ui/powerHistory';
 import { PowerPanel } from './ui/powerPanel';
-import { SaveController, chooseStart } from './ui/saves';
+import { SaveController, chooseStart, type StartChoice } from './ui/saves';
 import { TechTreePanel } from './ui/techTree';
 import { SaveStore } from './save/store';
 import { SimClient } from './worker/client';
@@ -43,14 +43,17 @@ async function main(): Promise<void> {
   // `?research=` researched technologies.
   const testHook =
     import.meta.env.DEV || import.meta.env.MODE === 'test' ? await import('./testHook') : null;
-  // A save to continue (the start screen, or the menu's Load before it reloaded the page), or a new game.
+  // A save to continue (the start screen, or the menu's Load before it reloaded the page), or a new game;
+  // a `?scene=` render scene (render profile) is always a fresh game: no start screen, no autosaves.
+  const renderScene = testHook?.renderSceneFromUrl(window.location.search);
   const store = await SaveStore.open();
-  const start = await chooseStart(store);
+  const start: StartChoice = renderScene ? {} : await chooseStart(store);
   const client = new SimClient(
     WORLD_SEED,
     testHook?.startingKitFromUrl(window.location.search),
     testHook?.researchedFromUrl(window.location.search),
     start.save,
+    renderScene,
   );
   const overlay = new DebugOverlay(document.body);
   /** The local player's inventory as of the latest snapshot. */
@@ -140,7 +143,7 @@ async function main(): Promise<void> {
       menu?.notify(`Loaded “${start.slot.name}”.`);
     }
   };
-  saves.startAutosave();
+  if (!renderScene) saves.startAutosave();
   client.onStats = (stats) => {
     overlay.update(stats);
   };
@@ -286,6 +289,12 @@ async function main(): Promise<void> {
       seed: WORLD_SEED,
       inventory: () => inventory,
       research: () => research,
+      ticker: app.ticker,
+      screen: () => ({
+        width: app.screen.width,
+        height: app.screen.height,
+        resolution: app.renderer.resolution,
+      }),
     });
   }
 }

@@ -43,7 +43,14 @@ import { rectContains, type ChunkRect, type Viewport } from '../worker/protocol'
 import { TILE_PX } from './camera';
 import { CHUNK_TEXTURE_SIZE, bakeChunkPixels } from './chunkBake';
 import type { TerrainArt } from './terrainArt';
-import { DETAIL_TEXELS, detailTexels, planChunk, texelsForZoom, visualChange } from './terrainPlan';
+import {
+  DETAIL_TEXELS,
+  detailTexels,
+  planChunk,
+  texelsForZoom,
+  visualChange,
+  type ChunkPlan,
+} from './terrainPlan';
 
 /** Edge length of a chunk in world pixels. */
 export const CHUNK_PX = CHUNK_SIZE * TILE_PX;
@@ -51,6 +58,14 @@ export const CHUNK_PX = CHUNK_SIZE * TILE_PX;
 export const BAKES_PER_FRAME = 4;
 /** Rendered terrain: texels baked per frame, at most: one chunk at 1× (1024²), more at lower zoom (scaled down with `maxTexels`). */
 export const RENDERED_BAKE_TEXELS = 1024 * 1024;
+/**
+ * Rendered terrain: while the view moves, the share of `RENDERED_BAKE_TEXELS`
+ * baked per frame, in bands of tile rows (a quarter of a chunk at 1×: about
+ * 60 ms instead of 250 ms per frame on a software renderer).
+ */
+export const BACKGROUND_BAKE_SHARE = 1 / 4;
+/** Rendered terrain: the view counts as moving until it stood still this long (ms). */
+export const SETTLE_MS = 500;
 /** Rendered terrain: chunks within this many tiles of the view get baked... */
 export const BAKE_MARGIN = 8;
 /** ...and keep their texture until they are further away than this. */
@@ -66,6 +81,19 @@ export interface TileInfo {
   amount: number;
   /** 1 where a tree stands, else 0. */
   tree: number;
+}
+
+/** A rendered bake in progress, done in bands of tile rows over several frames. */
+interface BakeJob {
+  chunk: CachedChunk;
+  texels: number;
+  target: RenderTexture;
+  /** Whether `target` is a new texture (shown once complete), not the chunk's own (re-baked in place). */
+  fresh: boolean;
+  /** Made at the first band, from the chunk's data then (a change starts the bake over). */
+  plan: ChunkPlan | null;
+  /** Tile rows baked so far. */
+  rows: number;
 }
 
 interface CachedChunk {
@@ -130,8 +158,16 @@ export class TerrainLayer {
   private view: Viewport | null = null;
   private texels = 32;
   private detail = 0;
+  private zoom = 1;
+  /** When the view last moved or zoomed (`performance.now()` ms). */
+  private movedAt = -Infinity;
+  /** The bakes in progress (rendered look): a base texture and a detail texture. */
+  private baseJob: BakeJob | null = null;
+  private detailJob: BakeJob | null = null;
   /** Most texels per tile the rendered look bakes at: 64 allows detail textures; lower on software renderers. */
   maxTexels = 32;
+  /** Chunk textures (base and detail) baked so far, for the render profile. */
+  bakeCount = 0;
 
   constructor() {
     this.container.addChild(this.base, this.details);
@@ -177,7 +213,7 @@ export class TerrainLayer {
         cached.data = data;
         if (this.art) {
           if (change.self) {
-            cached.stale = true;
+            this.markStale(cached);
             this.freeDetail(cached);
           }
           if (change.edge) this.touchNeighbours(data.cx, data.cy);
@@ -204,20 +240,38 @@ export class TerrainLayer {
    * and the zoom (the rendered look bakes what is near them, at a resolution
    * for that zoom).
    */
-  update(budget: number = BAKES_PER_FRAME, view?: Viewport, zoom?: number): void {
+  update(
+    budget: number = BAKES_PER_FRAME,
+    view?: Viewport,
+    zoom?: number,
+    nowMs: number = performance.now(),
+  ): void {
+    // The first view isn't a move.
+    const old = this.view;
+    if (
+      view &&
+      old &&
+      (old.x !== view.x || old.y !== view.y || old.w !== view.w || old.h !== view.h)
+    ) {
+      this.movedAt = nowMs;
+    }
     if (view) this.view = view;
     if (zoom !== undefined) {
+      if (old && zoom !== this.zoom) this.movedAt = nowMs;
+      this.zoom = zoom;
       this.texels = texelsForZoom(zoom, this.maxTexels);
       this.detail = detailTexels(zoom, this.maxTexels);
     }
     if (this.art) {
-      const size = CHUNK_SIZE * this.texels;
       // The base bakes' budget doesn't grow with the detail textures.
       const scale = (Math.min(this.maxTexels, 32) / 32) ** 2;
-      const baked = this.updateRendered(
-        Math.min(budget, Math.max(1, Math.floor((RENDERED_BAKE_TEXELS * scale) / (size * size)))),
-      );
-      this.updateDetails(baked);
+      const texels = RENDERED_BAKE_TEXELS * scale;
+      // While the view moves, a long frame shows as a stutter: spread the
+      // bakes over frames. Standing still, bake as fast as before.
+      const moving = nowMs - this.movedAt < SETTLE_MS;
+      const background = moving ? texels * BACKGROUND_BAKE_SHARE : texels;
+      const baked = this.updateRendered(budget, texels, background);
+      this.updateDetails(baked, moving ? background : Infinity);
       return;
     }
     for (const key of this.queue) {
@@ -335,38 +389,68 @@ export class TerrainLayer {
 
   /**
    * Frees the detail textures no longer wanted and, unless a base bake
-   * happened this frame (`baked`), bakes one that is missing.
+   * happened this frame (`baked`), bakes up to `budget` texels of one that
+   * is missing (in bands: it shows once complete).
    */
-  private updateDetails(baked: boolean): void {
+  private updateDetails(baked: boolean, budget: number): void {
     let next: CachedChunk | null = null;
     for (const c of this.chunks.values()) {
       if (c.detail && !this.wantsDetail(c, DETAIL_FREE_MARGIN)) this.freeDetail(c);
       else if (!c.detail && !next && this.wantsDetail(c)) next = c;
     }
-    if (baked || !next) return;
-    const size = CHUNK_SIZE * DETAIL_TEXELS;
-    const target = RenderTexture.create({
-      width: size,
-      height: size,
-      scaleMode: 'linear',
-      antialias: false,
-      label: `chunk detail ${String(next.data.cx)},${String(next.data.cy)}`,
-    });
-    this.bakeInto(next, DETAIL_TEXELS, target);
-    const sprite = new Sprite(target);
-    sprite.position.set(next.data.cx * CHUNK_PX, next.data.cy * CHUNK_PX);
+    let job = this.detailJob;
+    if (job && (job.chunk.detail || !this.wantsDetail(job.chunk, DETAIL_FREE_MARGIN))) {
+      this.cancel(job);
+      job = null;
+    }
+    if (baked || (!job && !next)) return;
+    if (!job) {
+      const size = CHUNK_SIZE * DETAIL_TEXELS;
+      const target = RenderTexture.create({
+        width: size,
+        height: size,
+        scaleMode: 'linear',
+        antialias: false,
+        label: `chunk detail ${String(next!.data.cx)},${String(next!.data.cy)}`,
+      });
+      job = { chunk: next!, texels: DETAIL_TEXELS, target, fresh: true, plan: null, rows: 0 };
+      this.detailJob = job;
+    }
+    if (!this.bakeRows(job, budget)) return;
+    this.detailJob = null;
+    const sprite = new Sprite(job.target);
+    sprite.position.set(job.chunk.data.cx * CHUNK_PX, job.chunk.data.cy * CHUNK_PX);
     sprite.setSize(CHUNK_PX, CHUNK_PX);
     this.details.addChild(sprite);
-    next.detail = sprite;
+    job.chunk.detail = sprite;
   }
 
   private freeDetail(cached: CachedChunk): void {
     cached.detail?.destroy({ texture: true, textureSource: true });
     cached.detail = null;
+    if (this.detailJob?.chunk === cached) this.cancel(this.detailJob);
+  }
+
+  /** Drops a bake in progress (and its texture, if it was a new one). */
+  private cancel(job: BakeJob): void {
+    if (job.fresh) job.target.destroy(true);
+    if (this.baseJob === job) this.baseJob = null;
+    if (this.detailJob === job) this.detailJob = null;
+  }
+
+  /** Marks `c` for a new bake; a bake of it in progress starts over with its new data. */
+  private markStale(c: CachedChunk): void {
+    const job = this.baseJob;
+    if (job?.chunk === c) {
+      job.plan = null;
+      job.rows = 0;
+    } else {
+      c.stale = true;
+    }
   }
 
   private needsBake(c: CachedChunk): boolean {
-    return c.stale || c.texels !== this.texels || !c.sprite;
+    return c.stale || c.texels !== this.texels || !c.sprite || this.baseJob?.chunk === c;
   }
 
   /** Whether every neighbour of `c` that belongs to the window has arrived. */
@@ -388,81 +472,164 @@ export class TerrainLayer {
       for (let dx = -1; dx <= 1; dx++) {
         if (dx === 0 && dy === 0) continue;
         const n = this.chunks.get(chunkKey(cx + dx, cy + dy));
-        if (n?.sprite) n.stale = true;
+        if (n && (n.sprite || this.baseJob?.chunk === n)) this.markStale(n);
         if (n) this.freeDetail(n);
       }
     }
   }
 
-  /** Bakes up to `budget` base textures; whether it baked any. */
-  private updateRendered(budget: number): boolean {
+  /**
+   * Bakes base textures; whether it baked any. While the view stands still
+   * (`background` is all of `texels`), chunks on screen without a texture
+   * (holes) are baked whole, up to `maxChunks` and `texels` texels per frame
+   * (at least one chunk). The rest (chunks around the view, new resolutions,
+   * changes of chunks already shown), and while the view moves the holes
+   * too (first), are baked in bands of tile rows, `background` texels per
+   * frame, so a new chunk coming near the view while panning or zooming
+   * costs a few small steps instead of one long frame (software renderers
+   * take about a quarter of a second per chunk).
+   */
+  private updateRendered(maxChunks: number, texels: number, background: number): boolean {
     this.queue.clear();
     const view = this.view;
+    const job = this.baseJob;
+    if (
+      job &&
+      (job.texels !== this.texels ||
+        this.chunks.get(chunkKey(job.chunk.data.cx, job.chunk.data.cy)) !== job.chunk)
+    ) {
+      this.cancel(job);
+    }
     const candidates: CachedChunk[] = [];
     for (const c of this.chunks.values()) {
       if (view && c.sprite && !nearView(view, FREE_MARGIN, c.data.cx, c.data.cy)) {
         this.freeTexture(c);
         continue;
       }
+      if (c === this.baseJob?.chunk) continue;
       if (this.wanted(c) && this.needsBake(c) && this.neighboursReady(c)) candidates.push(c);
     }
-    if (candidates.length === 0) return false;
-    // Nearest to the view's center first.
+    if (candidates.length === 0 && !this.baseJob) return false;
     const mx = view ? view.x + view.w / 2 : 0;
     const my = view ? view.y + view.h / 2 : 0;
     const distance = (c: CachedChunk) =>
       Math.abs((c.data.cx << CHUNK_SHIFT) + CHUNK_SIZE / 2 - mx) +
       Math.abs((c.data.cy << CHUNK_SHIFT) + CHUNK_SIZE / 2 - my);
-    candidates.sort((a, b) => distance(a) - distance(b));
-    for (const c of candidates.slice(0, budget)) this.bakeRendered(c);
+    const hole = (c: CachedChunk) =>
+      !c.sprite && (!view || nearView(view, 0, c.data.cx, c.data.cy));
+    // Holes first, then nearest to the view's center.
+    candidates.sort((a, b) => Number(hole(b)) - Number(hole(a)) || distance(a) - distance(b));
+    const holes = candidates.filter(hole);
+    if (this.baseJob && hole(this.baseJob.chunk)) holes.unshift(this.baseJob.chunk);
+    if (holes.length > 0 && background >= texels) {
+      const size = CHUNK_SIZE * this.texels;
+      const count = Math.min(maxChunks, Math.max(1, Math.floor(texels / (size * size))));
+      for (const c of holes.slice(0, count)) {
+        const whole = this.baseJob?.chunk === c ? this.baseJob : this.startBase(c, false);
+        this.bakeRows(whole, Infinity);
+        this.finishBase(whole);
+      }
+      return true;
+    }
+    let budget = background;
+    let finished = 0;
+    while (budget > 0 && finished < maxChunks) {
+      const next =
+        this.baseJob ?? (candidates.length > 0 ? this.startBase(candidates.shift()!) : null);
+      if (!next) break;
+      const before = next.rows;
+      const done = this.bakeRows(next, budget);
+      budget -= (next.rows - before) * CHUNK_SIZE * next.texels * next.texels;
+      if (!done) break;
+      this.finishBase(next);
+      finished++;
+    }
     return true;
   }
 
-  /** Bakes the rendered look of `cached` at `texels` per tile into `target`. */
-  private bakeInto(cached: CachedChunk, texels: number, target: RenderTexture): void {
-    const plan = planChunk(cached.data, (cx, cy) => {
-      const c = this.chunks.get(chunkKey(cx, cy));
-      return c && c.data.cx === cx && c.data.cy === cy ? c.data : undefined;
-    });
-    this.art!.bake(
-      this.renderer!,
-      plan,
-      cached.data.cx << CHUNK_SHIFT,
-      cached.data.cy << CHUNK_SHIFT,
-      texels,
-      target,
-    );
+  /** Tile rows of `job` that fit in `budget` texels (at least one). */
+  private rowsFor(job: BakeJob, budget: number): number {
+    return Math.max(1, Math.floor(budget / (CHUNK_SIZE * job.texels * job.texels)));
   }
 
-  private bakeRendered(cached: CachedChunk): void {
+  /**
+   * Starts a base bake of `c` at the current resolution: into its texture,
+   * or a new one; as the bake in progress (`baseJob`) unless `track` is
+   * false (a bake done whole within the frame).
+   */
+  private startBase(c: CachedChunk, track = true): BakeJob {
     const texels = this.texels;
-    const size = CHUNK_SIZE * texels;
-    let target = cached.sprite?.texture as RenderTexture | undefined;
-    if (!cached.sprite || cached.texels !== texels) {
-      target = RenderTexture.create({
+    let job: BakeJob;
+    if (c.sprite && c.texels === texels) {
+      job = {
+        chunk: c,
+        texels,
+        target: c.sprite.texture as RenderTexture,
+        fresh: false,
+        plan: null,
+        rows: 0,
+      };
+    } else {
+      const size = CHUNK_SIZE * texels;
+      const target = RenderTexture.create({
         width: size,
         height: size,
         scaleMode: 'linear',
         antialias: false,
-        label: `chunk ${String(cached.data.cx)},${String(cached.data.cy)}`,
+        label: `chunk ${String(c.data.cx)},${String(c.data.cy)}`,
       });
+      job = { chunk: c, texels, target, fresh: true, plan: null, rows: 0 };
     }
-    this.bakeInto(cached, texels, target!);
-    if (cached.sprite && cached.sprite.texture !== target) {
-      // A new resolution: swap the texture, free the old one.
-      const old = cached.sprite.texture;
-      cached.sprite.texture = target!;
-      cached.sprite.setSize(CHUNK_PX, CHUNK_PX);
-      old.destroy(true);
-    } else if (!cached.sprite) {
-      this.addSprite(cached, target!);
+    // Its data is now what gets baked: changes from here on start it over.
+    c.stale = false;
+    if (track) this.baseJob = job;
+    return job;
+  }
+
+  /** Bakes up to `budget` texels' worth of tile rows of `job`; whether it is complete. */
+  private bakeRows(job: BakeJob, budget: number): boolean {
+    const cached = job.chunk;
+    job.plan ??= planChunk(cached.data, (cx, cy) => {
+      const c = this.chunks.get(chunkKey(cx, cy));
+      return c && c.data.cx === cx && c.data.cy === cy ? c.data : undefined;
+    });
+    const to = Math.min(CHUNK_SIZE, job.rows + this.rowsFor(job, budget));
+    this.art!.bake(
+      this.renderer!,
+      job.plan,
+      cached.data.cx << CHUNK_SHIFT,
+      cached.data.cy << CHUNK_SHIFT,
+      job.texels,
+      job.target,
+      job.rows,
+      to,
+    );
+    job.rows = to;
+    return to >= CHUNK_SIZE;
+  }
+
+  /** Shows a complete base bake: swaps in (or adds) its texture. */
+  private finishBase(job: BakeJob): void {
+    const cached = job.chunk;
+    if (this.baseJob === job) this.baseJob = null;
+    if (job.fresh) {
+      if (cached.sprite) {
+        // A new resolution: swap the texture, free the old one.
+        const old = cached.sprite.texture;
+        cached.sprite.texture = job.target;
+        cached.sprite.setSize(CHUNK_PX, CHUNK_PX);
+        old.destroy(true);
+      } else {
+        this.addSprite(cached, job.target);
+      }
     }
-    cached.texels = texels;
-    cached.stale = false;
+    cached.texels = job.texels;
+    this.bakeCount++;
   }
 
   private bakePlaceholder(cached: CachedChunk): void {
     cached.pixels = bakeChunkPixels(cached.data, cached.pixels ?? undefined);
+    this.bakeCount++;
     cached.stale = false;
     if (cached.sprite) {
       // Same buffer, new contents: re-upload it.
@@ -488,6 +655,7 @@ export class TerrainLayer {
   }
 
   private freeTexture(cached: CachedChunk): void {
+    if (this.baseJob?.chunk === cached) this.cancel(this.baseJob);
     // Destroying the texture with its source frees the GPU memory too.
     cached.sprite?.destroy({ texture: true, textureSource: true });
     cached.sprite = null;

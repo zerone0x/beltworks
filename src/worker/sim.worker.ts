@@ -23,6 +23,7 @@ import {
 } from '../sim/snapshot';
 import { Sim } from '../sim/tick';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
+import { BENCH_SCENES, RenderScene, isGridScene, isRenderScene } from './renderScene';
 import { FixedStepClock } from './loop';
 import {
   LOCAL_PLAYER_ID,
@@ -53,6 +54,8 @@ let viewport: Viewport | null = null;
 /** The entity whose GUI is open on the main thread, or 0. */
 let inspected = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
+/** Dev and test builds only: the scripted render scene sent instead of the simulation's entities. */
+let scene: RenderScene | null = null;
 
 // Stats accumulated since the last `stats` message.
 let statTicks = 0;
@@ -116,10 +119,15 @@ function sendSnapshot(ticksRun: number): void {
   const research = encodeResearch(sim.state, LOCAL_PLAYER_ID);
   const batch = streamer.collect();
   const chunks = batch && batch.chunks.length > 0 ? encodeChunks(batch.chunks) : null;
-  const entities = encodeEntities(sim.state, batch?.window ?? null);
-  const belts = encodeBelts(sim.state, batch?.window ?? null);
-  const inserters = encodeInserters(sim.state, batch?.window ?? null);
-  const power = encodePower(sim.state, batch?.window ?? null);
+  const window = batch?.window ?? null;
+  const entities = scene
+    ? scene.encodeEntities(window, sim.tick)
+    : encodeEntities(sim.state, window);
+  const belts = scene ? scene.encodeBelts(window, sim.tick) : encodeBelts(sim.state, window);
+  const inserters = scene
+    ? scene.encodeInserters(window, sim.tick)
+    : encodeInserters(sim.state, window);
+  const power = scene ? scene.encodePower(window) : encodePower(sim.state, window);
   const detail = inspected !== 0 ? encodeEntityDetail(sim.state, LOCAL_PLAYER_ID, inspected) : null;
   const network = inspected !== 0 ? encodeNetworkDetail(sim.state, inspected) : null;
   const transfer: Transferable[] = [
@@ -159,9 +167,43 @@ function sendSnapshot(ticksRun: number): void {
   );
 }
 
+/** Runs `next` from now on, from its current tick. */
+function start(next: Sim): void {
+  sim = next;
+  // A fresh streamer resends every chunk in the window, replacing the main
+  // thread's copies from the previous world.
+  streamer = new ChunkStreamer(next.state.world);
+  if (viewport) {
+    streamer.setViewport(viewport);
+  }
+  clock.reset();
+  clock.advance(scaledNow());
+  statTicks = statStepMs = statDropped = 0;
+  inspected = 0;
+  schedule();
+}
+
 async function handle(msg: MainToWorker): Promise<void> {
   switch (msg.type) {
     case 'init': {
+      scene = null;
+      const name = msg.renderScene;
+      if (name !== undefined) {
+        // Production builds never send it, and reject it (a compile-time check).
+        if (!(import.meta.env.DEV || import.meta.env.MODE === 'test')) {
+          throw new Error('render scenes are only available in dev and test builds');
+        }
+        if (!isRenderScene(name)) {
+          throw new Error(`unknown render scene: ${String(name)}`);
+        }
+        if (!isGridScene(name) && BENCH_SCENES.includes(name)) {
+          // A benchmark scene, built through commands like the benchmark does.
+          const { SCENES } = await import('../../tools/bench/scenes/index');
+          start(SCENES.find((s) => s.name === name)!.build().sim);
+          return;
+        }
+        scene = new RenderScene(name);
+      }
       const startingKit = validateKit(msg.startingKit);
       const researched = validateResearched(msg.researched);
       // Continue from a save; if it can't be read, start a new game and say why.
@@ -174,27 +216,17 @@ async function handle(msg: MainToWorker): Promise<void> {
           loadError = err instanceof Error ? err.message : String(err);
         }
       }
-      sim =
+      start(
         loaded ??
-        new Sim({
-          seed: msg.seed,
-          ...(startingKit && { startingKit }),
-          ...(researched && { researched }),
-        });
+          new Sim({
+            seed: msg.seed,
+            ...(startingKit && { startingKit }),
+            ...(researched && { researched }),
+          }),
+      );
       if (msg.save) {
         post({ type: 'loaded', meta: loaded && saveMetaOf(loaded), error: loadError });
       }
-      // A fresh streamer resends every chunk in the window, replacing the main
-      // thread's copies from the previous world.
-      streamer = new ChunkStreamer(sim.state.world);
-      if (viewport) {
-        streamer.setViewport(viewport);
-      }
-      clock.reset();
-      clock.advance(scaledNow());
-      statTicks = statStepMs = statDropped = 0;
-      inspected = 0;
-      schedule();
       break;
     }
     case 'commands':
@@ -306,8 +338,9 @@ function validateResearched(techs: unknown): number[] | undefined {
 
 /**
  * Messages are handled one at a time, in order: loading a save is
- * asynchronous (decompression), and commands sent meanwhile must reach the
- * loaded game, not the one before it.
+ * asynchronous (decompression), and so is building a benchmark render scene
+ * (a dynamic import); commands sent meanwhile must reach the new game, not
+ * the one before it.
  */
 let inbox: Promise<void> = Promise.resolve();
 

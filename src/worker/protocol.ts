@@ -85,6 +85,15 @@ export interface InitMessage {
    * the worker starts a new game from `seed` (and the kit) and says why.
    */
   save?: ArrayBuffer;
+  /**
+   * A render scene (src/worker/renderScene.ts), for the render profile: a
+   * benchmark scene (tools/bench/scenes/), built through commands in place
+   * of the new game (the seed and kit are then ignored), or a grid scene
+   * whose entities, belts, inserters and power grid replace the
+   * simulation's in every snapshot. Only dev and test builds send it (a
+   * `?scene=` URL parameter, see src/testHook.ts) or accept it.
+   */
+  renderScene?: string;
 }
 
 export interface CommandsMessage {

@@ -27,6 +27,19 @@ export function beltPoint(
   lateral: number,
   t: number,
 ): { x: number; y: number } {
+  const out = { x: 0, y: 0 };
+  beltPointInto(out, dir, shape, lateral, t);
+  return out;
+}
+
+/** `beltPoint`, written into `out` (no allocation: items on belts call it every frame). */
+export function beltPointInto(
+  out: { x: number; y: number },
+  dir: number,
+  shape: number,
+  lateral: number,
+  t: number,
+): void {
   let u: number;
   let v: number;
   // Facing north first: in at the bottom (or a side), out at the top.
@@ -52,7 +65,8 @@ export function beltPoint(
     v = u;
     u = nu;
   }
-  return { x: u, y: v };
+  out.x = u;
+  out.y = v;
 }
 
 /** Progress along the belt (0 at the input edge) of an item `offset` subtiles from the belt's end edge. */

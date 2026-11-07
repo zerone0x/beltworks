@@ -21,6 +21,7 @@ import { AssemblerLayer } from './assemblerLayer';
 import { BeltLayer } from './beltLayer';
 import { Camera, TILE_PX, type Point } from './camera';
 import { CameraInput } from './cameraInput';
+import { cullRect } from './cull';
 import { EntityIndex } from './entityIndex';
 import { EntityLayer, GhostLayer, type Ghost } from './entityLayer';
 import { GeneratorLayer } from './generatorLayer';
@@ -136,14 +137,19 @@ export class GameView {
   }
 
   /** Whether WebGL runs on a software renderer (as in headless browsers and CI). */
-  private softwareRendering(): boolean {
+  softwareRendering(): boolean {
+    return isSoftwareRenderer(this.rendererName());
+  }
+
+  /** The WebGL renderer's name (the GPU, or e.g. SwiftShader), `''` if unknown. */
+  rendererName(): string {
     const gl = (this.app.renderer as { gl?: WebGL2RenderingContext }).gl;
-    if (!gl) return false;
+    if (!gl) return '';
     const info = gl.getExtension('WEBGL_debug_renderer_info');
     const name: unknown = info
       ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL)
       : gl.getParameter(gl.RENDERER);
-    return typeof name === 'string' && isSoftwareRenderer(name);
+    return typeof name === 'string' ? name : '';
   }
 
   /** Names of the sprite models in use (empty without an atlas). */
@@ -228,15 +234,18 @@ export class GameView {
       }
     }
     this.applyCamera();
-    this.terrain.update(undefined, this.camera.visibleTiles(), this.camera.zoom);
-    this.belts.draw(now);
+    const view = this.camera.visibleTiles();
+    this.terrain.update(undefined, view, this.camera.zoom);
+    // Every entity layer draws only what overlaps the screen (cull.ts).
+    const cull = cullRect(view);
+    this.belts.draw(now, cull);
     // Arm poses first: inserters with sprites are drawn with the buildings;
     // and generators: the engines' sprites take their speed from them.
-    this.inserters.draw(now);
-    this.generators.draw(this.entityIndex, this.power.data, dtMs);
-    this.entities.draw(this.entityIndex, dtMs, this.inserters.poses);
-    this.assemblers.draw(this.entityIndex, dtMs);
-    this.power.drawWires();
+    this.inserters.draw(now, cull);
+    this.generators.draw(this.entityIndex, this.power.data, dtMs, cull);
+    this.entities.draw(this.entityIndex, dtMs, this.inserters.poses, cull);
+    this.assemblers.draw(this.entityIndex, dtMs, cull);
+    this.power.drawWires(cull);
     this.players.draw(this.track, now);
   }
 

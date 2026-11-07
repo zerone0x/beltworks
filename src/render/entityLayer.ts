@@ -31,6 +31,7 @@ import { inserterDropTile, inserterPickupTile } from '../sim/entities/inserter';
 import { MachineState } from '../sim/entities/machine';
 import { footprintSize } from '../sim/entities/store';
 import { TILE_PX } from './camera';
+import { EVERYWHERE, overlaps, sameRect, type TileRect } from './cull';
 import type { EntityIndex } from './entityIndex';
 import { UNDERGROUND_TIER, beltSprites } from './beltSprites';
 import {
@@ -273,6 +274,7 @@ export class EntityLayer {
   private readonly graphics = new Graphics({ label: 'buildings' });
   private readonly icons = new Graphics({ label: 'power-icons' });
   private drawn = -1;
+  private cull: TileRect | null = null;
   private iconCount = 0;
 
   constructor() {
@@ -291,30 +293,38 @@ export class EntityLayer {
     this.drawn = -1;
   }
 
-  /** Power icons drawn by the latest `draw`. */
+  /** Entities with a power icon as of the latest `draw` (drawn if in the cull rectangle). */
   get powerIcons(): number {
     return this.iconCount;
   }
 
   /**
-   * Redraws the placeholder shapes if the entities changed since the last
-   * call, and draws the sprites (animated by `dtMs` milliseconds).
+   * Redraws the placeholder shapes and power icons in the cull rectangle
+   * `cull` if the entities or the rectangle changed since the last call, and
+   * draws the sprites (animated by `dtMs` milliseconds).
    */
-  draw(index: EntityIndex, dtMs: number = 0, poses: InserterPoses | null = null): void {
-    this.sprites.draw(index, dtMs, poses);
-    if (index.version === this.drawn) {
+  draw(
+    index: EntityIndex,
+    dtMs: number = 0,
+    poses: InserterPoses | null = null,
+    cull: TileRect = EVERYWHERE,
+  ): void {
+    this.sprites.draw(index, dtMs, poses, cull);
+    if (index.version === this.drawn && this.cull && sameRect(this.cull, cull)) {
       return;
     }
     this.drawn = index.version;
+    this.cull = cull;
     const g = this.graphics;
     g.clear();
     this.icons.clear();
     this.iconCount = 0;
     for (const e of index.entities) {
       const icon = powerIconColor(e.status);
+      if (icon !== null) this.iconCount++;
+      if (!overlaps(cull, e.x, e.y, e.w, e.h)) continue;
       if (icon !== null) {
         drawPowerIcon(this.icons, (e.x + e.w / 2) * TILE_PX, (e.y + e.h / 2) * TILE_PX, icon);
-        this.iconCount++;
       }
       if (isBeltType(e.type)) continue;
       if (this.sprites.modelFor(e.proto?.name)) continue;

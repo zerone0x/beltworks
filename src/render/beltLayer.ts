@@ -21,6 +21,12 @@
  * in the tier color; curves are drawn as arcs with bars sweeping around them,
  * and underground belts get a flat hood over their closed half.
  *
+ * Only the belts in the cull rectangle (cull.ts) are drawn, with pooled
+ * sprites. Items are particles (one `ParticleContainer` per icon texture
+ * source, in practice one), read from the snapshot into flat arrays without
+ * an object per item, so tens of thousands of them cost one draw call and a
+ * pass over the visible ones per frame.
+ *
  * Either way the items under a hood are hidden; items under the ground
  * aren't in the snapshot at all. While an underground belt is held, the
  * overlay shows the tiles its partner can be on and the partner it would get
@@ -31,7 +37,17 @@
  * show as their icons (src/render/itemIcons.ts).
  */
 
-import { Container, Graphics, Sprite, Texture, TilingSprite } from 'pixi.js';
+import {
+  Container,
+  Graphics,
+  Particle,
+  ParticleContainer,
+  Rectangle,
+  Sprite,
+  Texture,
+  TilingSprite,
+  type TextureSource,
+} from 'pixi.js';
 import { ENTITIES, EntityTypeId, entityPrototype, type EntityPrototype } from '../data/entities';
 import { BELT_SPEED, BeltShape } from '../sim/belts/belts';
 import { BELT_LENGTH } from '../sim/belts/line';
@@ -44,11 +60,12 @@ import {
   type UndergroundInfo,
 } from '../sim/belts/underground';
 import type { Direction } from '../sim/entities/direction';
-import { decodeBelts, type BeltData } from '../sim/snapshot';
+import { BELT_ITEM_STRIDE, BELT_RECORD_HEADER, decodeBelts, type BeltData } from '../sim/snapshot';
 import { TICKS_PER_SECOND } from '../worker/protocol';
-import { beltPoint, laneLateral, progressOf } from './beltPath';
+import { beltPoint, beltPointInto, laneLateral, progressOf } from './beltPath';
 import { beltSprites, surfaceFrame, type BeltSprites } from './beltSprites';
 import { TILE_PX } from './camera';
+import { EVERYWHERE, overlaps, type TileRect } from './cull';
 import { placeSprite } from './entitySprites';
 import { itemIconAtlas } from './itemIcons';
 import { SHADOW_ALPHA, modelDirection, type SpriteAtlas } from './sprites';
@@ -121,6 +138,33 @@ function makeBeltTexture(rail: number): Texture {
   return texture;
 }
 
+/** Per-belt fields of the parsed snapshot, in draw order. */
+const BELT_FIELDS = ['x', 'y', 'dir', 'shape', 'type', 'mode'] as const;
+/** Per-item fields of the parsed snapshot, belt by belt, each belt's items from back to front. */
+const ITEM_FIELDS = ['itemLane', 'itemOffset', 'itemMoved', 'itemId'] as const;
+
+type BeltRecords = Record<
+  (typeof BELT_FIELDS)[number] | (typeof ITEM_FIELDS)[number],
+  Int32Array
+> & {
+  /** Belt `i`'s items are `itemStart[i]` up to `itemStart[i + 1]`. */
+  itemStart: Int32Array;
+};
+
+/**
+ * The items of one texture source (in practice the whole rendered icon
+ * atlas): one particle container, so they cost one draw call and a buffer
+ * upload of their positions and texture coordinates per frame.
+ */
+interface ItemBatch {
+  container: ParticleContainer;
+  /** Particles, reused from frame to frame; the first `used` are this frame's. */
+  pool: Particle[];
+  used: number;
+  /** Particles whose static data (size, color) was uploaded. */
+  uploaded: number;
+}
+
 export class BeltLayer {
   /** The belts themselves (ground layer). */
   readonly container = new Container({ label: 'belts' });
@@ -145,15 +189,41 @@ export class BeltLayer {
   /** `beltSprites` by type, shape and mode, for the current atlas. */
   private readonly sets = new Map<number, BeltSprites | null>();
   private spriteCount = 0;
+  /** Placeholder straight belts (tiling sprites), below the placeholder hoods. */
+  private readonly straightContainer = new Container({ label: 'belt-straight' });
   private readonly straight: TilingSprite[] = [];
   private readonly curves = new Graphics({ label: 'belt-curves' });
   private readonly hoods = new Graphics({ label: 'underground-hoods' });
   private readonly overlay = new Graphics({ label: 'underground-reach' });
-  /** Item icon sprites, reused from frame to frame. */
-  private readonly items: Sprite[] = [];
+  /** Whether the placeholder graphics hold anything. */
+  private placeholders = false;
+  /** Item particles by texture source. */
+  private readonly batches = new Map<TextureSource, ItemBatch>();
+  /** Item textures by item id, looked up once per frame. */
+  private itemTextures: (Texture | undefined)[] = [];
   /** Belt textures by rail color (one per tier). */
   private readonly textures = new Map<number, Texture>();
-  private belts: BeltData[] = [];
+  /** The latest snapshot's belt buffer, decoded into `BeltData` only when asked (`data`). */
+  private buffer: ArrayBuffer = new Int32Array(1).buffer;
+  private decoded: BeltData[] | null = null;
+  /** The latest snapshot's belts, parsed into flat arrays in draw order. */
+  private readonly records: BeltRecords = {
+    x: new Int32Array(0),
+    y: new Int32Array(0),
+    dir: new Int32Array(0),
+    shape: new Int32Array(0),
+    type: new Int32Array(0),
+    mode: new Int32Array(0),
+    itemStart: new Int32Array(1),
+    itemLane: new Int32Array(0),
+    itemOffset: new Int32Array(0),
+    itemMoved: new Int32Array(0),
+    itemId: new Int32Array(0),
+  };
+  private count = 0;
+  private itemTotal = 0;
+  /** Belts drawn by the latest `draw` (indices into `records`). */
+  private visible = new Int32Array(0);
   /** Puts the belts of each snapshot in draw order (north to south). */
   private readonly drawOrder = new BeltDrawOrder();
   /** Undergrounds of the latest snapshot by tile, built when first needed. */
@@ -163,9 +233,18 @@ export class BeltLayer {
   ghostInfo: UndergroundGhost | null = null;
   private tick = 0;
   private receivedAt = 0;
+  /** Scratch point for item positions. */
+  private readonly point = { x: 0, y: 0 };
 
   constructor() {
-    this.container.addChild(this.shadows, this.curves, this.surfaces, this.frames);
+    this.container.addChild(
+      this.shadows,
+      this.curves,
+      this.surfaces,
+      this.frames,
+      this.straightContainer,
+      this.hoods,
+    );
     this.overlayContainer.addChild(this.overlay);
   }
 
@@ -176,9 +255,14 @@ export class BeltLayer {
     this.overlayKey = '';
   }
 
-  /** Belts drawn with sprites by the latest `draw`. */
+  /** Belts drawn with sprites by the latest `draw` (those in the cull rectangle). */
   get spriteBelts(): number {
     return this.spriteCount;
+  }
+
+  /** Items on the latest snapshot's belts. */
+  get itemCount(): number {
+    return this.itemTotal;
   }
 
   /** The sprites of a belt of entity type `type`, shape `shape` and underground mode `mode`. */
@@ -194,20 +278,94 @@ export class BeltLayer {
 
   /** Takes the belts of a snapshot of tick `tick`, received at `nowMs`. */
   apply(buffer: ArrayBuffer, tick: number, nowMs: number): void {
-    this.belts = this.drawOrder.sort(decodeBelts(buffer));
+    this.buffer = buffer;
+    this.decoded = null;
     this.undergrounds = null;
     this.tick = tick;
     this.receivedAt = nowMs;
+    this.parse(new Int32Array(buffer));
+  }
+
+  /**
+   * Reads a belt buffer (`encodeBelts`) straight into flat arrays, belts in
+   * draw order (`BeltDrawOrder`) and each belt's items from its back to its
+   * front: no object per item, so 50 000 items cost a few copies per snapshot.
+   */
+  private parse(v: Int32Array): void {
+    const declared = Math.max(0, v[0] ?? 0);
+    const starts: number[] = [];
+    const positions: number[] = [];
+    let items = 0;
+    let o = 1;
+    for (let b = 0; b < declared && o + BELT_RECORD_HEADER <= v.length; b++) {
+      const n = Math.max(
+        0,
+        Math.min(v[o + 4]!, Math.floor((v.length - o - BELT_RECORD_HEADER) / BELT_ITEM_STRIDE)),
+      );
+      starts.push(o);
+      positions.push(v[o]!, v[o + 1]!);
+      items += n;
+      o += BELT_RECORD_HEADER + n * BELT_ITEM_STRIDE;
+    }
+    const count = starts.length;
+    const order = this.drawOrder.indices(Int32Array.from(positions));
+    const r = this.records;
+    if (r.x.length < count) {
+      const size = Math.max(count, r.x.length * 2);
+      for (const key of BELT_FIELDS) r[key] = new Int32Array(size);
+      r.itemStart = new Int32Array(size + 1);
+    }
+    if (r.itemLane.length < items) {
+      const size = Math.max(items, r.itemLane.length * 2);
+      for (const key of ITEM_FIELDS) r[key] = new Int32Array(size);
+    }
+    let m = 0;
+    for (let i = 0; i < count; i++) {
+      const s = starts[order[i]!]!;
+      r.x[i] = v[s]!;
+      r.y[i] = v[s + 1]!;
+      r.dir[i] = v[s + 2]!;
+      r.shape[i] = v[s + 3]!;
+      r.type[i] = v[s + 5]!;
+      r.mode[i] = v[s + 6]!;
+      r.itemStart[i] = m;
+      const n = Math.max(
+        0,
+        Math.min(v[s + 4]!, Math.floor((v.length - s - BELT_RECORD_HEADER) / BELT_ITEM_STRIDE)),
+      );
+      const first = m;
+      for (let k = 0, p = s + BELT_RECORD_HEADER; k < n; k++, p += BELT_ITEM_STRIDE) {
+        // Insertion sort by offset, largest first: each lane from its back to its front.
+        const offset = v[p + 1]!;
+        let j = m++;
+        while (j > first && r.itemOffset[j - 1]! < offset) {
+          r.itemLane[j] = r.itemLane[j - 1]!;
+          r.itemOffset[j] = r.itemOffset[j - 1]!;
+          r.itemMoved[j] = r.itemMoved[j - 1]!;
+          r.itemId[j] = r.itemId[j - 1]!;
+          j--;
+        }
+        r.itemLane[j] = v[p]!;
+        r.itemOffset[j] = offset;
+        r.itemMoved[j] = v[p + 2]!;
+        r.itemId[j] = v[p + 3]!;
+      }
+    }
+    r.itemStart[count] = m;
+    this.count = count;
+    this.itemTotal = m;
   }
 
   /** The underground belt on tile `(x, y)` in the latest snapshot, as the pairing sees it. */
   private readonly lookup = (x: number, y: number): UndergroundInfo | null => {
     if (!this.undergrounds) {
       this.undergrounds = new Map();
-      for (const b of this.belts) {
-        if (b.mode !== UndergroundMode.Entrance && b.mode !== UndergroundMode.Exit) continue;
-        const info = { speed: tierOf(b.type).speed, dir: b.dir as Direction, mode: b.mode };
-        this.undergrounds.set(`${String(b.x)},${String(b.y)}`, info);
+      const r = this.records;
+      for (let i = 0; i < this.count; i++) {
+        const mode = r.mode[i]!;
+        if (mode !== UndergroundMode.Entrance && mode !== UndergroundMode.Exit) continue;
+        const info = { speed: tierOf(r.type[i]!).speed, dir: r.dir[i] as Direction, mode };
+        this.undergrounds.set(`${String(r.x[i])},${String(r.y[i])}`, info);
       }
     }
     return this.undergrounds.get(`${String(x)},${String(y)}`) ?? null;
@@ -274,42 +432,57 @@ export class BeltLayer {
     }
   }
 
-  /** The belts of the latest snapshot. */
+  /** The belts of the latest snapshot, in draw order. */
   get data(): readonly BeltData[] {
-    return this.belts;
+    this.decoded ??= this.drawOrder.sort(decodeBelts(this.buffer));
+    return this.decoded;
   }
 
-  /** Redraws belts and items for time `nowMs`. */
-  draw(nowMs: number): void {
+  /** Redraws the belts in the cull rectangle `cull` and the items on them, for time `nowMs`. */
+  draw(nowMs: number, cull: TileRect = EVERYWHERE): void {
     const alpha = Math.min(1, Math.max(0, (nowMs - this.receivedAt) / TICK_MS));
     // Belt surface travelled since tick 0, in tiles per subtile/tick of speed.
     const ticks = this.tick + alpha;
+    const r = this.records;
 
+    if (this.visible.length < this.count) this.visible = new Int32Array(this.count);
+    let shownBelts = 0;
     let used = 0;
     let sprites = 0;
     let hoodSprites = 0;
     const curves = this.curves;
     const hoods = this.hoods;
-    curves.clear();
-    hoods.clear();
-    for (const belt of this.belts) {
-      const { speed, rail } = tierOf(belt.type);
-      const set = this.spritesFor(belt.type, belt.shape, belt.mode);
+    if (this.placeholders) {
+      curves.clear();
+      hoods.clear();
+      this.placeholders = false;
+    }
+    for (let i = 0; i < this.count; i++) {
+      const bx = r.x[i]!;
+      const by = r.y[i]!;
+      if (!overlaps(cull, bx, by)) continue;
+      this.visible[shownBelts++] = i;
+      const type = r.type[i]!;
+      const dir = r.dir[i]!;
+      const shape = r.shape[i]!;
+      const mode = r.mode[i]!;
+      const { speed, rail } = tierOf(type);
+      const set = this.spritesFor(type, shape, mode);
       if (set) {
-        const cx = (belt.x + 0.5) * TILE_PX;
-        const cy = (belt.y + 0.5) * TILE_PX;
+        const cx = (bx + 0.5) * TILE_PX;
+        const cy = (by + 0.5) * TILE_PX;
         const slot = this.slot(sprites++);
-        const frames = set.surface.frames[modelDirection(set.surfaceModel, belt.dir)]!;
+        const frames = set.surface.frames[modelDirection(set.surfaceModel, dir)]!;
         const scale = set.surfaceModel.scale;
         const travel = (ticks * speed) / BELT_LENGTH;
         placeSprite(slot.surface, frames[surfaceFrame(frames.length, travel)]!, scale, cx, cy);
-        const dir = modelDirection(set.frame, belt.dir);
-        placeSprite(slot.frame, set.frame.layers[0]!.frames[dir]![0]!, scale, cx, cy);
+        const d = modelDirection(set.frame, dir);
+        placeSprite(slot.frame, set.frame.layers[0]!.frames[d]![0]!, scale, cx, cy);
         // A splitter's gantry stands over both halves: its center is half a
         // tile right of its left half's (looking the way items move).
         const cover = set.hood ?? set.splitter;
         if (cover) {
-          const right = (belt.dir + 1) & 3;
+          const right = (dir + 1) & 3;
           const off = set.splitter ? TILE_PX / 2 : 0;
           const hx = cx + off * DX[right]!;
           const hy = cy + off * DY[right]!;
@@ -322,14 +495,14 @@ export class BeltLayer {
           }
           hoodSprites++;
           hood.sprite.visible = hood.shadow.visible = true;
-          const hd = modelDirection(cover, belt.dir);
+          const hd = modelDirection(cover, dir);
           placeSprite(hood.sprite, cover.layers[0]!.frames[hd]![0]!, scale, hx, hy);
           placeSprite(hood.shadow, cover.shadow[hd]!, scale, hx, hy);
         }
         continue;
       }
       const phase = (ticks * speed * TILE_PX) / BELT_LENGTH;
-      if (belt.shape === BeltShape.Straight) {
+      if (shape === BeltShape.Straight) {
         let texture = this.textures.get(rail);
         if (!texture) {
           texture = makeBeltTexture(rail);
@@ -340,22 +513,25 @@ export class BeltLayer {
           sprite = new TilingSprite({ texture, width: TILE_PX, height: TILE_PX });
           sprite.anchor.set(0.5);
           this.straight.push(sprite);
-          this.container.addChild(sprite);
+          this.straightContainer.addChild(sprite);
         }
         used++;
         sprite.texture = texture;
         sprite.visible = true;
-        sprite.position.set((belt.x + 0.5) * TILE_PX, (belt.y + 0.5) * TILE_PX);
-        sprite.rotation = ((belt.dir & 3) * Math.PI) / 2;
+        sprite.position.set((bx + 0.5) * TILE_PX, (by + 0.5) * TILE_PX);
+        sprite.rotation = ((dir & 3) * Math.PI) / 2;
         // The surface moves towards the belt's front (up in the texture).
         sprite.tilePosition.y = -(phase % TILE_PX);
-        if (belt.mode === UndergroundMode.Entrance || belt.mode === UndergroundMode.Exit) {
-          drawHood(hoods, belt.x, belt.y, belt.dir, belt.mode, rail, 1);
-        } else if (belt.mode === SPLITTER_HALF_MODE) {
-          drawSplitter(hoods, belt.x, belt.y, belt.dir, rail);
+        if (mode === UndergroundMode.Entrance || mode === UndergroundMode.Exit) {
+          drawHood(hoods, bx, by, dir, mode, rail, 1);
+          this.placeholders = true;
+        } else if (mode === SPLITTER_HALF_MODE) {
+          drawSplitter(hoods, bx, by, dir, rail);
+          this.placeholders = true;
         }
       } else {
-        drawCurve(curves, belt, phase / TILE_PX, rail);
+        drawCurve(curves, bx, by, dir, shape, phase / TILE_PX, rail);
+        this.placeholders = true;
       }
     }
     for (let i = used; i < this.straight.length; i++) this.straight[i]!.visible = false;
@@ -367,43 +543,91 @@ export class BeltLayer {
       this.hoodSprites[i]!.sprite.visible = this.hoodSprites[i]!.shadow.visible = false;
     }
     this.spriteCount = sprites;
-    // Hoods above every belt sprite.
-    this.container.addChild(hoods);
+    this.drawItems(shownBelts, alpha);
+  }
 
-    // Item icons (src/render/itemIcons.ts) at one texel per world pixel,
-    // about 0.4 tile: bigger than the quarter-tile spacing of packed items,
-    // so each lane is drawn from its back to its front and the front item of
-    // a queue shows whole.
+  /**
+   * The items on the first `shown` belts of `visible`, `moved × (1 − α)`
+   * behind where they are. Item icons (src/render/itemIcons.ts) are drawn at
+   * one texel per world pixel, about 0.4 tile: bigger than the quarter-tile
+   * spacing of packed items, so each lane goes from its back to its front
+   * and the front item of a queue shows whole.
+   */
+  private drawItems(shown: number, alpha: number): void {
+    const r = this.records;
     const atlas = itemIconAtlas();
-    let shown = 0;
-    for (const belt of this.belts) {
-      const order = belt.items
-        .map((_, i) => i)
-        .sort((a, b) => belt.items[b]!.offset - belt.items[a]!.offset);
-      for (const i of order) {
-        const it = belt.items[i]!;
-        const offset = it.offset + it.moved * (1 - alpha);
-        if (hidden(belt.mode, offset)) continue;
-        const p = beltPoint(
-          belt.dir,
-          belt.shape,
-          laneLateral(it.lane),
+    const textures = this.itemTextures;
+    textures.length = 0;
+    for (const batch of this.batches.values()) batch.used = 0;
+    let batch: ItemBatch | null = null;
+    const point = this.point;
+    for (let v = 0; v < shown; v++) {
+      const i = this.visible[v]!;
+      const end = r.itemStart[i + 1]!;
+      const bx = r.x[i]!;
+      const by = r.y[i]!;
+      const dir = r.dir[i]!;
+      const shape = r.shape[i]!;
+      const mode = r.mode[i]!;
+      for (let j = r.itemStart[i]!; j < end; j++) {
+        const offset = r.itemOffset[j]! + r.itemMoved[j]! * (1 - alpha);
+        if (hidden(mode, offset)) continue;
+        const item = r.itemId[j]!;
+        const texture = (textures[item] ??= atlas.texture(item));
+        if (!batch || batch.container.texture.source !== texture.source) {
+          batch = this.batch(texture);
+        }
+        beltPointInto(
+          point,
+          dir,
+          shape,
+          laneLateral(r.itemLane[j]!),
           progressOf(offset, BELT_LENGTH),
         );
-        let sprite = this.items[shown];
-        if (!sprite) {
-          sprite = new Sprite();
-          sprite.anchor.set(0.5);
-          this.items.push(sprite);
-          this.itemContainer.addChild(sprite);
+        let particle = batch.pool[batch.used];
+        if (!particle) {
+          particle = new Particle({ texture, anchorX: 0.5, anchorY: 0.5 });
+          batch.pool.push(particle);
         }
-        shown++;
-        sprite.visible = true;
-        sprite.texture = atlas.texture(it.item);
-        sprite.position.set((belt.x + p.x) * TILE_PX, (belt.y + p.y) * TILE_PX);
+        particle.texture = texture;
+        particle.x = (bx + point.x) * TILE_PX;
+        particle.y = (by + point.y) * TILE_PX;
+        batch.container.particleChildren[batch.used++] = particle;
       }
     }
-    for (let i = shown; i < this.items.length; i++) this.items[i]!.visible = false;
+    for (const b of this.batches.values()) {
+      b.container.particleChildren.length = b.used;
+      // Every icon has the same size and color: the static data only needs
+      // uploading for particles that never had it.
+      if (b.used > b.uploaded) {
+        b.uploaded = b.used;
+        b.container.update();
+      }
+    }
+  }
+
+  /** The particle batch of `texture`'s source, made on first use. */
+  private batch(texture: Texture): ItemBatch {
+    let batch = this.batches.get(texture.source);
+    if (!batch) {
+      const container = new ParticleContainer({
+        texture,
+        dynamicProperties: {
+          position: true,
+          uvs: true,
+          vertex: false,
+          rotation: false,
+          color: false,
+        },
+        roundPixels: false,
+      });
+      // It doesn't measure its particles; it is never culled or filtered.
+      container.boundsArea = new Rectangle(-1e9, -1e9, 2e9, 2e9);
+      batch = { container, pool: [], used: 0, uploaded: 0 };
+      this.batches.set(texture.source, batch);
+      this.itemContainer.addChild(container);
+    }
+    return batch;
   }
 
   /** The sprites of the `i`-th belt drawn with sprites (made on first use), shown. */
@@ -442,23 +666,28 @@ export class BeltDrawOrder {
   private positions = new Int32Array(0);
   private order: number[] = [];
 
-  sort(belts: BeltData[]): BeltData[] {
-    const n = belts.length;
-    let same = this.positions.length === 2 * n;
-    for (let i = 0; same && i < n; i++) {
-      same = this.positions[2 * i] === belts[i]!.x && this.positions[2 * i + 1] === belts[i]!.y;
-    }
+  /** The draw order (indices) of belts at `positions` (`[x0, y0, x1, y1, ...]`). */
+  indices(positions: Int32Array): readonly number[] {
+    const n = positions.length >> 1;
+    let same = this.positions.length === positions.length;
+    for (let i = 0; same && i < positions.length; i++) same = this.positions[i] === positions[i];
     if (!same) {
-      this.positions = new Int32Array(2 * n);
-      belts.forEach((b, i) => {
-        this.positions[2 * i] = b.x;
-        this.positions[2 * i + 1] = b.y;
-      });
-      this.order = belts
-        .map((_, i) => i)
-        .sort((a, b) => belts[a]!.y - belts[b]!.y || belts[a]!.x - belts[b]!.x);
+      this.positions = positions.slice();
+      this.order = Array.from({ length: n }, (_, i) => i).sort(
+        (a, b) =>
+          positions[2 * a + 1]! - positions[2 * b + 1]! || positions[2 * a]! - positions[2 * b]!,
+      );
     }
-    return this.order.map((i) => belts[i]!);
+    return this.order;
+  }
+
+  sort(belts: BeltData[]): BeltData[] {
+    const positions = new Int32Array(2 * belts.length);
+    belts.forEach((b, i) => {
+      positions[2 * i] = b.x;
+      positions[2 * i + 1] = b.y;
+    });
+    return this.indices(positions).map((i) => belts[i]!);
   }
 }
 
@@ -541,10 +770,18 @@ function drawHood(
 }
 
 /** A curved belt: base, rails along both arcs, and bars that sweep around at the belt's speed. */
-function drawCurve(g: Graphics, belt: BeltData, phaseTiles: number, rail: number): void {
+function drawCurve(
+  g: Graphics,
+  x: number,
+  y: number,
+  dir: number,
+  shape: number,
+  phaseTiles: number,
+  rail: number,
+): void {
   const at = (lateral: number, t: number): [number, number] => {
-    const p = beltPoint(belt.dir, belt.shape, lateral, t);
-    return [(belt.x + p.x) * TILE_PX, (belt.y + p.y) * TILE_PX];
+    const p = beltPoint(dir, shape, lateral, t);
+    return [(x + p.x) * TILE_PX, (y + p.y) * TILE_PX];
   };
   const STEPS = 8;
   const band: number[] = [];

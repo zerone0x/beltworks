@@ -7,6 +7,11 @@
  * Shadows are drawn at full strength into one container that is faded as a
  * whole (an alpha filter), so overlapping shadows don't get darker.
  *
+ * Only the entities overlapping the cull rectangle (cull.ts) have sprites in
+ * the scene: the sprites are pooled and handed out again, in draw order,
+ * whenever the rectangle or the entities change. Entities are only re-sorted
+ * when they come, go, move or turn, not when their states change.
+ *
  * Animations run on a clock per entity that advances while it works (at half
  * speed on low power), so a machine that stops freezes its rotor in place;
  * layers marked `advance: 'always'` (flickering fire) run on the frame clock. A
@@ -27,6 +32,7 @@
 
 import { AlphaFilter, Container, Sprite } from 'pixi.js';
 import { TILE_PX } from './camera';
+import { EVERYWHERE, overlaps, sameRect, type TileRect } from './cull';
 import type { EntityIndex, EntityView } from './entityIndex';
 import { itemIconAtlas } from './itemIcons';
 import {
@@ -52,8 +58,13 @@ interface Placed {
   /** Footprint center in world pixels. */
   cx: number;
   cy: number;
+  /** The model's arm layer (inserters), or `null`. */
+  armLayer: ModelLayer | null;
+  /** Seconds its working animations have run. */
+  clock: number;
+  /** Its sprites while it is in the cull rectangle (empty otherwise). */
   layers: { layer: ModelLayer; sprite: Sprite }[];
-  /** An inserter's arm, its shadow and the item in its hand. */
+  /** An inserter's arm, its shadow and the item in its hand, while in the cull rectangle. */
   arm: { layer: ModelLayer; sprite: Sprite; shadow: Sprite; held: Sprite } | null;
 }
 
@@ -174,16 +185,19 @@ export class EntitySpriteLayer {
   /** Sprites; goes above the placeholder shapes. */
   readonly container = new Container({ label: 'entity-sprites' });
   private atlas: SpriteAtlas | null = null;
+  /** Sprite pools, assigned to the entities in the cull rectangle in draw order. */
   private readonly sprites: Sprite[] = [];
   private readonly shadows: Sprite[] = [];
   /** Inserter arms' shadows, in the shadow layer. */
   private readonly armShadows: Sprite[] = [];
+  /** Every entity drawn with sprites, in draw order. */
   private placed: Placed[] = [];
-  /** Seconds each entity's working animations have run, by entity id. */
-  private readonly clocks = new Map<number, number>();
+  /** The part of `placed` in the cull rectangle: the ones with sprites. */
+  private shown: Placed[] = [];
   /** Seconds of frames drawn, for animations that always run. */
   private seconds = 0;
   private drawn = -1;
+  private cull: TileRect | null = null;
   private animatedCount = 0;
   /**
    * The animation speed of an entity whose animations don't simply follow
@@ -207,27 +221,52 @@ export class EntitySpriteLayer {
     return this.atlas?.model(name) ?? null;
   }
 
-  /** Entities drawn with sprites, how many of them animate right now, and how many have an arm. */
-  get stats(): { entities: number; animated: number; arms: number } {
+  /**
+   * Entities drawn with sprites (around the view, on screen or not), how
+   * many of them animate right now, how many have an arm, and how many are
+   * in the cull rectangle (the ones with sprites in the scene).
+   */
+  get stats(): { entities: number; animated: number; arms: number; visible: number } {
     return {
       entities: this.placed.length,
       animated: this.animatedCount,
-      arms: this.placed.filter((p) => p.arm).length,
+      arms: this.placed.filter((p) => p.armLayer).length,
+      visible: this.shown.length,
     };
   }
 
   /**
-   * Re-sorts and re-assigns sprites when the entities changed; animates
-   * every frame, inserter arms at their `poses`.
+   * Re-sorts when entities came, went, moved or turned; gives sprites to
+   * the ones in the cull rectangle `cull` when it or they changed; animates
+   * those every frame, inserter arms at their `poses`.
    */
-  draw(index: EntityIndex, dtMs: number, poses: InserterPoses | null = null): void {
-    if (index.version !== this.drawn) {
-      this.drawn = index.version;
-      this.rebuild(index);
+  draw(
+    index: EntityIndex,
+    dtMs: number,
+    poses: InserterPoses | null = null,
+    cull: TileRect = EVERYWHERE,
+  ): void {
+    if (index.structureVersion !== this.drawn) {
+      this.drawn = index.structureVersion;
+      this.sort(index);
+      this.cull = null;
+    }
+    if (!this.cull || !sameRect(this.cull, cull)) {
+      this.cull = cull;
+      this.assign(cull);
     }
     this.seconds += dtMs / 1000;
+    // Every entity's clock runs, on screen or not; only those on screen are drawn.
     let animated = 0;
     for (const p of this.placed) {
+      const speed = this.speedOf?.(p.entity) ?? animationSpeed(p.entity.status);
+      if (speed > 0) {
+        p.clock += (speed * dtMs) / 1000;
+        animated++;
+      }
+    }
+    this.animatedCount = animated;
+    for (const p of this.shown) {
       const { entity, model } = p;
       if (p.arm) {
         const pose = poses?.(entity.x, entity.y) ?? { angle: restAngle(entity.dir), held: 0 };
@@ -235,12 +274,6 @@ export class EntitySpriteLayer {
         placeArmShadow(model, p.arm.sprite, p.arm.shadow);
       }
       const working = isWorking(entity.status);
-      const speed = this.speedOf?.(entity) ?? animationSpeed(entity.status);
-      const clock = (this.clocks.get(entity.id) ?? 0) + (speed * dtMs) / 1000;
-      if (speed > 0) {
-        this.clocks.set(entity.id, clock);
-        animated++;
-      }
       for (const { layer, sprite } of p.layers) {
         const shown = layerShown(layer, working);
         sprite.visible = shown;
@@ -252,53 +285,69 @@ export class EntitySpriteLayer {
           layer.advance === 'always'
             ? this.seconds + (entity.id % 97) * 0.173
             : layer.advance === 'working'
-              ? clock
+              ? p.clock
               : 0;
         placeSprite(sprite, frames[frameAt(frames.length, layer.fps, t)]!, model.scale, p.cx, p.cy);
       }
     }
-    this.animatedCount = animated;
   }
 
-  private rebuild(index: EntityIndex): void {
+  /** Lists the entities that have a model, in draw order, keeping their animation clocks. */
+  private sort(index: EntityIndex): void {
     const atlas = this.atlas;
+    const clocks = new Map(this.placed.map((p) => [p.entity.id, p.clock]));
     const entities = atlas
       ? index.entities
           .filter((e) => e.proto?.beltSpeed === undefined && atlas.model(e.proto?.name) !== null)
           .sort(drawOrder)
       : [];
-    const seen = new Set<number>();
-    this.placed = [];
+    this.placed = entities.map((entity) => {
+      const model = atlas!.model(entity.proto?.name)!;
+      return {
+        entity,
+        model,
+        dir: modelDirection(model, entity.dir),
+        cx: (entity.x + entity.w / 2) * TILE_PX,
+        cy: (entity.y + entity.h / 2) * TILE_PX,
+        armLayer: modelLayer(model, 'arm'),
+        clock: clocks.get(entity.id) ?? 0,
+        layers: [],
+        arm: null,
+      };
+    });
+  }
+
+  /** Gives pooled sprites, in draw order, to the entities overlapping `cull`; the rest get none. */
+  private assign(cull: TileRect): void {
     let used = 0;
+    let shadows = 0;
     let arms = 0;
     this.container.removeChildren();
     this.shadowContainer.removeChildren();
-    entities.forEach((entity, i) => {
-      const model = atlas!.model(entity.proto?.name)!;
-      seen.add(entity.id);
-      const dir = modelDirection(model, entity.dir);
-      const cx = (entity.x + entity.w / 2) * TILE_PX;
-      const cy = (entity.y + entity.h / 2) * TILE_PX;
-      const shadow = (this.shadows[i] ??= new Sprite());
+    this.shown = [];
+    for (const p of this.placed) {
+      const { entity, model, dir, cx, cy } = p;
+      p.layers = [];
+      p.arm = null;
+      if (!overlaps(cull, entity.x, entity.y, entity.w, entity.h)) continue;
+      this.shown.push(p);
+      const shadow = (this.shadows[shadows++] ??= new Sprite());
       placeSprite(shadow, model.shadow[dir]!, model.scale, cx, cy);
       this.shadowContainer.addChild(shadow);
-      const armLayer = modelLayer(model, 'arm');
-      const layers = model.layers
-        .filter((layer) => layer !== armLayer)
-        .map((layer) => {
-          const sprite = this.sprite(used++);
-          placeSprite(sprite, layer.frames[dir]![0]!, model.scale, cx, cy);
-          this.container.addChild(sprite);
-          return { layer, sprite };
-        });
-      let arm: Placed['arm'] = null;
-      if (armLayer) {
+      for (const layer of model.layers) {
+        if (layer === p.armLayer) continue;
+        const sprite = this.sprite(used++);
+        placeSprite(sprite, layer.frames[dir]![0]!, model.scale, cx, cy);
+        this.container.addChild(sprite);
+        p.layers.push({ layer, sprite });
+      }
+      if (p.armLayer) {
         const armShadow = (this.armShadows[arms++] ??= new Sprite({
           tint: 0x000000,
           alpha: ARM_SHADOW_ALPHA,
         }));
-        arm = {
-          layer: armLayer,
+        const arm = {
+          layer: p.armLayer,
           sprite: this.sprite(used++),
           shadow: armShadow,
           held: this.sprite(used++),
@@ -308,13 +357,10 @@ export class EntitySpriteLayer {
         this.container.addChild(arm.sprite, arm.held);
         this.shadowContainer.addChild(armShadow);
         const pose = { angle: restAngle(entity.dir), held: 0 };
-        placeArm(model, armLayer, dir, arm.sprite, arm.held, cx, cy, pose);
+        placeArm(model, p.armLayer, dir, arm.sprite, arm.held, cx, cy, pose);
         placeArmShadow(model, arm.sprite, armShadow);
+        p.arm = arm;
       }
-      this.placed.push({ entity, model, dir, cx, cy, layers, arm });
-    });
-    for (const id of [...this.clocks.keys()]) {
-      if (!seen.has(id)) this.clocks.delete(id);
     }
   }
 
