@@ -18,6 +18,7 @@ import {
   checkAsleep,
   checkCross,
   checkLanes,
+  checkNoMissedWake,
   checkTopology,
   countSteps,
   feed,
@@ -567,12 +568,15 @@ describe('random building with belts, undergrounds and splitters', () => {
           if (w.table.takeAt(line, rng.nextInt(2), from, w.table.beltEnd(id)) !== 0) refunded++;
         }
         checkCross(w.table, { overfullRings: true });
+        // No lane is asleep that could move (#79), after the edit and every tick.
+        checkNoMissedWake(w.table, `seed ${String(seed)} round ${String(round)}`);
         // Flows: items fed at the start of lines nothing feeds and taken off the
         // end of lines that hand on nowhere, so splitters split and merge.
         const flowing = round % 3 !== 0;
         for (let n = rng.nextInt(20); n > 0; n--) {
           w.step();
           checkCross(w.table, { overfullRings: true });
+          checkNoMissedWake(w.table, `seed ${String(seed)} round ${String(round)}`);
           if (!flowing) continue;
           for (const line of Array.from(w.table.lines())) {
             for (const lane of LANES) {

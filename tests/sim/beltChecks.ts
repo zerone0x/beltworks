@@ -352,3 +352,69 @@ export function countSteps(w: World, ticks: number) {
   }
   return perTick;
 }
+
+/** The belt table's private stepping, for `asleepButMovable`. */
+interface Stepper {
+  tick: number;
+  step(lane: LineLane): boolean;
+  stepHalf(lane: LineLane): boolean;
+}
+
+/**
+ * The asleep lanes with items that would do something if the belt system
+ * stepped them on the next tick: move, close up, hand an item on, stay
+ * awake (wait or yield), or wake another lane. Checked between ticks,
+ * where whatever would let such a lane go has already happened and should
+ * have woken it (#79). Each asleep lane is stepped once on its own, from
+ * the state at the end of the tick, the way the belt system steps it; one
+ * that does nothing changes nothing but caches (a splitter's merge spacing,
+ * which its step refreshes, is put back). Returns a description of each
+ * lane that did something (the table is no longer usable after one did).
+ *
+ * This is not the same as waking every lane and stepping a tick: there, a
+ * lane asleep behind an awake lane that starts moving in that tick moves
+ * too, where the belt system wakes it as the lane in front moves and steps
+ * it from the next tick (docs/DECISIONS.md, D35).
+ */
+export function asleepButMovable(table: BeltTable): string[] {
+  const out: string[] = [];
+  const t = table as unknown as Stepper;
+  const asleep: LineLane[] = [];
+  for (const line of table.lines()) {
+    for (const lane of line.lanes) if (!lane.active && lane.count > 0) asleep.push(lane);
+  }
+  const state = (lane: LineLane) => `${String(lane.count)}:${Array.from(lane.gaps()).join(',')}`;
+  // As on the next tick (whether a lane moved "this tick or the last").
+  t.tick++;
+  try {
+    for (const lane of asleep) {
+      const { line } = lane;
+      const before = state(lane);
+      const halves = line.sibling ? [...line.lanes, ...line.sibling.lanes] : [];
+      const spacings = halves.map((l) => l.spacing);
+      const awake = table.activeLanes;
+      const stays = line.splitter !== 0 ? t.stepHalf(lane) : t.step(lane);
+      const after = state(lane);
+      const woke = table.activeLanes - awake;
+      if (after !== before || stays || woke > 0) {
+        const o = line.out;
+        out.push(
+          `${line.splitter !== 0 ? 'half' : 'line'} ${String(line.id)} lane ${String(lane.index)}: ` +
+            `${before} -> ${after}${stays ? ', stays awake' : ''}` +
+            `${woke > 0 ? `, wakes ${String(woke)}` : ''} (out ${o ? String(o.id) : '-'}, ` +
+            `outLane ${String(line.outLane)}, length ${String(line.length)})`,
+        );
+      } else {
+        halves.forEach((l, i) => l.setSpacing(spacings[i]!));
+      }
+    }
+  } finally {
+    t.tick--;
+  }
+  return out;
+}
+
+/** No asleep lane could move, close up, or hand an item on (`asleepButMovable`). */
+export function checkNoMissedWake(table: BeltTable, where = ''): void {
+  expect(asleepButMovable(table), `asleep lanes that could go ${where}`).toEqual([]);
+}
