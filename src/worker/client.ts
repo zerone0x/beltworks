@@ -14,6 +14,7 @@ import type {
   Viewport,
   WorkerToMain,
 } from './protocol';
+import { SnapshotMeter, sharedNow } from './snapshotMeter';
 
 export interface SimStats {
   tick: number;
@@ -41,6 +42,8 @@ export class SimClient {
   >();
 
   latestSnapshot: SnapshotMessage | null = null;
+  /** What snapshots cost (the render profile reads it). */
+  readonly meter = new SnapshotMeter();
   onStats: ((stats: SimStats) => void) | null = null;
   onSnapshot: ((snapshot: SnapshotMessage) => void) | null = null;
   /** The answer to a `save` given to the constructor: loaded, or why not (a new game runs). */
@@ -134,10 +137,15 @@ export class SimClient {
 
   private receive(msg: WorkerToMain): void {
     switch (msg.type) {
-      case 'snapshot':
+      case 'snapshot': {
+        const received = sharedNow();
+        const start = performance.now();
         this.latestSnapshot = msg;
         this.onSnapshot?.(msg);
+        const applyMs = performance.now() - start;
+        this.meter.record(msg.encodeMs, msg.bytes, received - msg.sentAt, applyMs, msg.ticksRun);
         break;
+      }
       case 'stats':
         if (!this.paused) this.onStats?.(this.measure(msg));
         break;

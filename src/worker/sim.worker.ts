@@ -25,6 +25,7 @@ import { Sim } from '../sim/tick';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
 import { BENCH_SCENES, RenderScene, isGridScene, isRenderScene } from './renderScene';
 import { FixedStepClock } from './loop';
+import { sharedNow } from './snapshotMeter';
 import {
   LOCAL_PLAYER_ID,
   MAX_CATCH_UP_TICKS,
@@ -115,6 +116,7 @@ function sendSnapshot(ticksRun: number): void {
   if (!sim || !streamer) {
     return;
   }
+  const encodeStart = performance.now();
   const players = encodePlayers(sim.state);
   const inventory = encodeInventory(sim.state, LOCAL_PLAYER_ID);
   const craftQueue = encodeCraftQueue(sim.state, LOCAL_PLAYER_ID);
@@ -145,6 +147,8 @@ function sendSnapshot(ticksRun: number): void {
   if (chunks) transfer.push(chunks);
   if (detail) transfer.push(detail.buffer);
   if (network) transfer.push(network.buffer);
+  let bytes = 0;
+  for (const b of transfer) bytes += (b as ArrayBuffer).byteLength;
   post(
     {
       type: 'snapshot',
@@ -164,6 +168,9 @@ function sendSnapshot(ticksRun: number): void {
       inspected,
       entityDetail: detail?.buffer ?? null,
       networkDetail: network?.buffer ?? null,
+      encodeMs: performance.now() - encodeStart,
+      bytes,
+      sentAt: sharedNow(),
     },
     transfer,
   );

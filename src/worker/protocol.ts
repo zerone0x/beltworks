@@ -232,6 +232,12 @@ export interface SnapshotMessage {
    * `null` otherwise.
    */
   networkDetail: ArrayBuffer | null;
+  /** The worker's time to encode this snapshot, ms (for `SnapshotMeter`). */
+  encodeMs: number;
+  /** Bytes of the buffers this snapshot transferred. */
+  bytes: number;
+  /** When the worker posted it (`sharedNow` in src/worker/snapshotMeter.ts). */
+  sentAt: number;
 }
 
 export interface StatsMessage {

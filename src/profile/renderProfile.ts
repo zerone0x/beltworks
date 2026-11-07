@@ -15,7 +15,9 @@
  *   the JavaScript cost of rendering even where vsync caps `interval`.
  *
  * Each stage reports p50, p95, p99 and max of both, the mean frame rate,
- * the frames over 50 ms (hitches), and the terrain bakes that happened.
+ * the frames over 50 ms (hitches), and the terrain bakes that happened,
+ * and what the snapshots cost meanwhile (`SnapshotMeter`): the worker's
+ * encoding, their size, the transfer to the main thread and applying them.
  *
  * A stage can force map mode on or off (`map`; by default it follows the
  * zoom, below 0.25×) and show the minimap (`minimap`), so the same view can
@@ -27,6 +29,10 @@ import { TILE_PX } from '../render/camera';
 import type { GameView } from '../render/gameView';
 import type { Minimap } from '../ui/minimap';
 import { chunkWindow } from '../worker/chunkStream';
+import type { SnapshotCost, SnapshotMeter } from '../worker/snapshotMeter';
+import { percentiles, type Percentiles } from './percentiles';
+
+export { percentiles, type Percentiles } from './percentiles';
 
 /** One step of the profile: where the camera is, and how fast it pans (screen pixels per second). */
 export interface ProfileStage {
@@ -76,13 +82,6 @@ export const DEFAULT_STAGES: readonly ProfileStage[] = [
   { name: 'jump terrain 1x', x: 400, y: TERRAIN_Y, zoom: 1, noWait: true },
 ];
 
-export interface Percentiles {
-  p50: number;
-  p95: number;
-  p99: number;
-  max: number;
-  mean: number;
-}
 
 export interface StageResult {
   name: string;
@@ -111,6 +110,8 @@ export interface StageResult {
   entities: number;
   belts: number;
   beltItems: number;
+  /** What the snapshots received during the stage cost (when the profile has a meter). */
+  snapshots?: SnapshotCost;
 }
 
 export interface ProfileReport {
@@ -143,15 +144,6 @@ export interface ProfileOptions {
   readyTimeoutMs?: number;
 }
 
-/** p50, p95, p99, max and mean of `values` (zeros for none). */
-export function percentiles(values: readonly number[]): Percentiles {
-  if (values.length === 0) return { p50: 0, p95: 0, p99: 0, max: 0, mean: 0 };
-  const sorted = [...values].sort((a, b) => a - b);
-  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
-  const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length;
-  return { p50: at(0.5), p95: at(0.95), p99: at(0.99), max: sorted[sorted.length - 1]!, mean };
-}
-
 /** The report as a Markdown table. */
 export function formatReport(report: ProfileReport): string {
   const f = (v: number) => v.toFixed(1);
@@ -165,6 +157,24 @@ export function formatReport(report: ProfileReport): string {
     lines.push(
       `| ${s.name} | ${s.view}${s.minimap ? ' + minimap' : ''} | ${f(s.fps)} | ${f(s.interval.p50)} / ${f(s.interval.p95)} / ${f(s.interval.p99)} / ${f(s.interval.max)} | ${f(s.work.p50)} / ${f(s.work.p95)} / ${f(s.work.p99)} / ${f(s.work.max)} | ${s.minimap ? `${s.minimapMs.p50.toFixed(2)} / ${s.minimapMs.max.toFixed(2)}` : '–'} | ${String(s.hitches)} | ${String(s.bakes)} | ${String(s.entities)} / ${String(s.belts)} / ${String(s.beltItems)} |`,
     );
+  }
+  const metered = report.stages.filter((s) => s.snapshots);
+  if (metered.length > 0) {
+    lines.push(
+      '',
+      'Snapshots (worker encode, size, worker → main latency, main-thread decode + apply):',
+      '',
+      '| Stage | snapshots/s | UPS | catch-ups | encode p50 / p95 / max (ms) | KiB p50 / max | latency p50 / p95 (ms) | apply p50 / p95 / max (ms) |',
+      '|---|---:|---:|---:|---|---|---|---|',
+    );
+    const g = (v: number) => v.toFixed(2);
+    const k = (v: number) => (v / 1024).toFixed(1);
+    for (const s of metered) {
+      const c = s.snapshots!;
+      lines.push(
+        `| ${s.name} | ${f(c.rate)} | ${f(c.ups)} | ${String(c.catchUps)} | ${g(c.encode.p50)} / ${g(c.encode.p95)} / ${g(c.encode.max)} | ${k(c.bytes.p50)} / ${k(c.bytes.max)} | ${g(c.latency.p50)} / ${g(c.latency.p95)} | ${g(c.apply.p50)} / ${g(c.apply.p95)} / ${g(c.apply.max)} |`,
+      );
+    }
   }
   return lines.join('\n');
 }
@@ -183,6 +193,7 @@ export async function runRenderProfile(
   renderer: { name: string; software: boolean; width: number; height: number; resolution: number },
   options: ProfileOptions = {},
   minimap?: Pick<Minimap, 'isOpen' | 'setOpen' | 'update'>,
+  meter?: SnapshotMeter,
 ): Promise<ProfileReport> {
   const stages = (options.stages ?? DEFAULT_STAGES).map((s) => {
     if (typeof s !== 'string') return s;
@@ -276,12 +287,14 @@ export async function runRenderProfile(
         };
       }
       const t0 = performance.now();
+      meter?.reset();
       const done = () => {
         const t = performance.now() - t0;
         return t >= 10 * duration || (t >= duration && recording!.intervals.length >= minFrames);
       };
       while (!done()) await nextFrame();
       const elapsed = performance.now() - t0;
+      const snapshots = meter?.summary();
       const { intervals, work } = recording;
       pan = null;
       const belts = view.belts.data;
@@ -303,6 +316,7 @@ export async function runRenderProfile(
         entities: view.entityIndex.entities.length,
         belts: belts.length,
         beltItems: belts.reduce((n, b) => n + b.items.length, 0),
+        ...(snapshots && { snapshots }),
       });
       recording = null;
     }
