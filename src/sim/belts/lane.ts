@@ -189,6 +189,46 @@ export class Lane {
   }
 
   /**
+   * The distance from the end in `[lo, hi]` closest to `near` where an item
+   * fits (`spacing`, by default the lane's, from the items on both sides of
+   * it), the one closer to the end on a tie; -1 if there is none. Walks the
+   * items from the end up to `hi` (like `insert`), stopping early once the
+   * free stretches only get further from `near`.
+   */
+  fitBetween(lo: number, hi: number, near: number, spacing = this.spacing): number {
+    if (lo < 0) lo = 0;
+    if (lo > hi) return -1;
+    let best = -1;
+    let bestDist = Number.MAX_SAFE_INTEGER;
+    // The free stretch between the item in front (`prev`) and the next one.
+    let prev = Number.MIN_SAFE_INTEGER;
+    let d = 0;
+    for (let i = 0; i <= this.count; i++) {
+      let next = Number.MAX_SAFE_INTEGER;
+      if (i < this.count) {
+        d += this.gap(i);
+        next = d;
+      }
+      const a = Math.max(lo, prev + spacing);
+      const b = Math.min(hi, next - spacing);
+      if (a <= b) {
+        const p = near < a ? a : near > b ? b : near;
+        const dist = Math.abs(p - near);
+        if (dist < bestDist) {
+          best = p;
+          bestDist = dist;
+        }
+        // Every stretch further back starts further from `near` than this one.
+        if (a >= near) break;
+      }
+      // The next stretch starts `spacing` behind `next`.
+      if (next >= hi - spacing + 1) break;
+      prev = next;
+    }
+    return best;
+  }
+
+  /**
    * Puts `item` (marked with `mark`) at distance `pos` from the end if it
    * fits (`spacing`, by default the lane's, from its neighbours); returns
    * whether it did.

@@ -28,9 +28,11 @@
  *   that tile);
  * - dropping: the target's `insert` hook (a chest stores it, a furnace puts
  *   ores into its input and fuel into its fuel slot when the input doesn't
- *   take it, a drill or inserter only takes fuel), or the middle of the
- *   belt's far lane (`BeltTable.insertAt`, see `farLane`; on a splitter, of
- *   the half on that tile).
+ *   take it, a drill or inserter only takes fuel), or the belt's far lane
+ *   (see `farLane`) anywhere on that tile where it fits, as close to the
+ *   middle of the tile as it can (`BeltTable.dropOnTile`: any free slot on
+ *   a busy belt as it passes; on a splitter, the half on that tile; on an
+ *   underground belt, its open half).
  * Only items the target can take right now are picked up (`insertable` > 0:
  * an assembling machine below its input limit for that ingredient, a
  * furnace's fuel slot with room for coal, ...; a belt target takes anything
@@ -91,7 +93,7 @@ import {
 } from '../../data/entities';
 import { fuelValue, type ItemStack, type RealItemId } from '../../data/items';
 import { beltTable } from '../belts/belts';
-import { BELT_LENGTH, BeltLane } from '../belts/line';
+import { BeltLane } from '../belts/line';
 import { fnv1a32 } from '../hash';
 import type { SaveReader, SaveWriter } from '../save/codec';
 import { NOT_GRANTED } from '../power/consumer';
@@ -508,9 +510,8 @@ export abstract class InserterTableBase implements EntityTypeTable {
     let ok = false;
     const belts = beltTable(entities);
     if (target !== 0 && belts && isBeltType(store.type(target))) {
-      const lane = farLane(dir, store.dir(target));
-      const pos = belts.beltOffset(target) + BELT_LENGTH / 2;
-      ok = belts.insertAt(belts.beltLineAt(target, to.x, to.y), lane, pos, item);
+      // Anywhere on the far lane of the tile it reaches where the item fits.
+      ok = belts.dropOnTile(target, to.x, to.y, farLane(dir, store.dir(target)), item);
     } else if (target !== 0) {
       ok = entities.insert(target, item, 1) === 1;
     }
