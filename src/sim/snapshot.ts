@@ -21,13 +21,14 @@ import { reaches } from './entities/build';
 import { inserterTableOf } from './entities/inserter';
 import { MachineState } from './entities/machine';
 import type { ChunkRange } from './entities/occupancy';
-import { powerGrid } from './power/grid';
+import { powerGrid, type MemberStats, type NetworkStats } from './power/grid';
 import { poweredEnergy } from './power/solver';
 import { labTable } from './research/lab';
 import { forceOf, isRecipeUnlocked } from './research/unlocks';
-import { SnapshotWriter } from './snapshotWriter';
+import { ScratchSet, SnapshotWriter } from './snapshotWriter';
 import type { SimState } from './state';
 import { CHUNK_AREA } from './world/chunk';
+import { SUBTILE_BITS } from './fixed';
 
 /** Int32 fields per player in {@link encodePlayers}. */
 export const PLAYER_STRIDE = 6;
@@ -192,10 +193,11 @@ export function encodeEntities(
   }
   const { entities } = state;
   const { store, occupancy } = entities;
-  const ids = occupancy.originsIn(range, scratchIds());
+  const count = occupancy.originsInto(range, idScratch);
   const grid = powerGrid(entities);
-  w.reserve(ids.length * ENTITY_STRIDE);
-  for (const id of ids) {
+  w.reserve(count * ENTITY_STRIDE);
+  for (let i = 0; i < count; i++) {
+    const id = idScratch[i]!;
     const type = store.type(id);
     const table = entities.table(type);
     let status = table?.status?.(id) ?? MachineState.Idle;
@@ -220,12 +222,12 @@ export function encodeEntities(
   return finish(w, writer);
 }
 
-/** Scratch list of entity ids for the encoders (emptied on every call; one encoder at a time). */
+/**
+ * Scratch list of entity ids for the encoders (`Occupancy.originsInto`):
+ * overwritten on every call and never shortened, so it stops allocating once
+ * it has grown to the view (one encoder at a time).
+ */
 const idScratch: number[] = [];
-function scratchIds(): number[] {
-  idScratch.length = 0;
-  return idScratch;
-}
 
 /** Int32 fields per belt in the header block of {@link encodeBelts}. */
 export const BELT_STRIDE = 6;
@@ -271,13 +273,18 @@ export function beltLayout(v: Int32Array): { count: number; counts: number; item
 /** Words before the first belt record in {@link encodeBelts}. */
 export const BELT_HEADER = 1;
 
+/** Scratch tile for the encoders. */
+const tileScratch = { x: 0, y: 0 };
+
 /** Scratch for `encodeBelts`, grown as needed and reused. */
 const beltScratch = {
   /** Per belt record: its line's id and its index on that line. */
   line: new Int32Array(256),
   index: new Int32Array(256),
-  /** Per line touched: where its belts start in `slot`. */
-  base: new Map<number, number>(),
+  /** The lines touched, in the order first met. */
+  lines: new ScratchSet(),
+  /** Per line touched (its index in `lines`): where its belts start in `slot`. */
+  base: new Int32Array(64),
   /** Per belt of a touched line (at its line's base + its index): its record, or -1. */
   slot: new Int32Array(256),
   /** Per item found, in walk order: its record, offset and packed fields. */
@@ -293,6 +300,29 @@ function grown(a: Int32Array<ArrayBuffer>, n: number): Int32Array<ArrayBuffer> {
   let size = a.length * 2;
   while (size < n) size *= 2;
   return new Int32Array(size);
+}
+
+/** `a`, or a bigger copy of its first `keep` entries if it is shorter than `n`. */
+function grownCopy(
+  a: Int32Array<ArrayBuffer>,
+  n: number,
+  keep = a.length,
+): Int32Array<ArrayBuffer> {
+  if (a.length >= n) return a;
+  const next = grown(a, n);
+  next.set(a.subarray(0, keep));
+  return next;
+}
+
+/** Notes in `beltScratch` that record `r` is belt `index` of line `lineId`. */
+function recordBelt(r: number, lineId: number, index: number): void {
+  const sc = beltScratch;
+  if (r === sc.line.length) {
+    sc.line = grownCopy(sc.line, r + 1);
+    sc.index = grownCopy(sc.index, r + 1);
+  }
+  sc.line[r] = lineId;
+  sc.index[r] = index;
 }
 
 /**
@@ -324,41 +354,28 @@ export function encodeBelts(
     return finish(w, writer);
   }
   const { store, occupancy } = state.entities;
-  const ids = occupancy.originsIn(range, scratchIds());
+  const count = occupancy.originsInto(range, idScratch);
   const sc = beltScratch;
   // The header block, and which line and index each record's items are on.
   const countAt = w.skip(1);
   let records = 0;
-  const record = (lineId: number, index: number) => {
-    if (records === sc.line.length) {
-      const line = new Int32Array(records * 2);
-      line.set(sc.line);
-      sc.line = line;
-      const idx = new Int32Array(records * 2);
-      idx.set(sc.index);
-      sc.index = idx;
-    }
-    sc.line[records] = lineId;
-    sc.index[records] = index;
-    records++;
-  };
-  for (const id of ids) {
+  for (let i = 0; i < count; i++) {
+    const id = idScratch[i]!;
     if (!table.isBelt(id)) continue;
     const x = store.x(id);
     const y = store.y(id);
     const dir = store.dir(id);
     const type = store.type(id);
     if (table.isSplitter(id)) {
-      const halves = table.halfLines(id);
       for (let half = 0; half < 2; half++) {
-        const tile = splitterHalfTile(x, y, dir, half);
+        const tile = splitterHalfTile(x, y, dir, half, tileScratch);
         w.push(tile.x);
         w.push(tile.y);
         w.push(dir);
         w.push(BeltShape.Straight);
         w.push(type);
         w.push(SPLITTER_HALF_MODE + half);
-        record(halves[half]!.id, 0);
+        recordBelt(records++, table.halfLine(id, half).id, 0);
       }
       continue;
     }
@@ -368,54 +385,60 @@ export function encodeBelts(
     w.push(table.shape(id));
     w.push(type);
     w.push(table.mode(id));
-    record(table.beltLine(id), table.beltIndex(id));
+    recordBelt(records++, table.beltLine(id), table.beltIndex(id));
   }
   w.set(countAt, records);
   // Map each touched line's belts to their records.
-  sc.base.clear();
+  const lines = sc.lines;
+  lines.clear();
   let slots = 0;
   for (let r = 0; r < records; r++) {
     const lineId = sc.line[r]!;
-    if (!sc.base.has(lineId)) {
-      sc.base.set(lineId, slots);
+    let j = lines.indexOf(lineId);
+    if (j < 0) {
+      j = lines.add(lineId);
+      if (j === sc.base.length) sc.base = grownCopy(sc.base, j + 1);
+      sc.base[j] = slots;
       slots += table.line(lineId)!.belts.length;
     }
+    // From here on, the record's line as its index in `lines`.
+    sc.line[r] = j;
   }
   sc.slot = grown(sc.slot, slots);
   sc.slot.fill(-1, 0, slots);
   for (let r = 0; r < records; r++) {
-    sc.slot[sc.base.get(sc.line[r]!)! + sc.index[r]!] = r;
+    sc.slot[sc.base[sc.line[r]!]! + sc.index[r]!] = r;
   }
   // Walk each touched line once, picking out the items on belts in range.
   sc.counts = grown(sc.counts, records + 1);
   const counts = sc.counts;
   counts.fill(0, 0, records + 1);
   let found = 0;
-  for (const [lineId, base] of sc.base) {
-    const line = table.line(lineId)!;
+  for (let j = 0; j < lines.size; j++) {
+    const base = sc.base[j]!;
+    const line = table.line(lines.values[j]!)!;
     const last = line.belts.length - 1;
-    for (const l of line.lanes) {
+    for (let lane = 0; lane < line.lanes.length; lane++) {
+      const l = line.lanes[lane]!;
       const n = l.count;
       if (n === 0) continue;
       if (found + n > sc.itemSlot.length) {
         const size = Math.max(found + n, sc.itemSlot.length * 2);
-        for (const key of ['itemSlot', 'itemOffset', 'itemPacked'] as const) {
-          const next = new Int32Array(size);
-          next.set(sc[key].subarray(0, found));
-          sc[key] = next;
-        }
+        sc.itemSlot = grownCopy(sc.itemSlot, size, found);
+        sc.itemOffset = grownCopy(sc.itemOffset, size, found);
+        sc.itemPacked = grownCopy(sc.itemPacked, size, found);
       }
-      const lane = l.index;
       let d = 0;
       for (let i = 0; i < n; i++) {
         d += l.gap(i);
-        // `line.beltIndexAt(d)`.
-        const k = Math.max(0, Math.min(last, Math.floor(d / BELT_LENGTH)));
+        // `line.beltIndexAt(d)`; `BELT_LENGTH` is `1 << SUBTILE_BITS`, and the
+        // shift leaves no float to box.
+        const k = Math.max(0, Math.min(last, d >> SUBTILE_BITS));
         const r = sc.slot[base + k]!;
         if (r < 0) continue;
         sc.itemSlot[found] = r;
         sc.itemOffset[found] = d - k * BELT_LENGTH;
-        sc.itemPacked[found] = packBeltItem(lane, l.moved(i), l.item(i));
+        sc.itemPacked[found] = packBeltItem(l.index, l.moved(i), l.item(i));
         counts[r]!++;
         found++;
       }
@@ -534,18 +557,20 @@ export function encodeInserters(
   }
   const { entities } = state;
   const { store, occupancy } = entities;
+  const origins = occupancy.originsInto(range, idScratch);
   let count = 0;
-  for (const id of occupancy.originsIn(range, scratchIds())) {
+  for (let i = 0; i < origins; i++) {
+    const id = idScratch[i]!;
     const type = store.type(id);
     const table = inserterTableOf(entities, type);
     if (!table) continue;
-    const { held, arm } = table.hand(id);
+    const hand = table.hand(id, handScratch);
     w.reserve(INSERTER_STRIDE);
     w.push(store.x(id));
     w.push(store.y(id));
     w.push(store.dir(id));
-    w.push(arm);
-    w.push(held);
+    w.push(hand.arm);
+    w.push(hand.held);
     w.push(table.lastSwing(id, entities));
     w.push(table.armEnd);
     w.push(type);
@@ -554,6 +579,9 @@ export function encodeInserters(
   w.set(countAt, count);
   return finish(w, writer);
 }
+
+/** Scratch hand for `encodeInserters`. */
+const handScratch = { held: 0, arm: 0 };
 
 /** An inserter as decoded on the main thread. */
 export interface InserterData {
@@ -624,21 +652,18 @@ export function encodePower(
     return finish(w, writer);
   }
   const { store, occupancy } = state.entities;
-  const origins = occupancy.originsIn(range, scratchIds());
+  const origins = occupancy.originsInto(range, idScratch);
   const poles = powerScratch.poles;
-  const inRange = powerScratch.inRange;
   const nets = powerScratch.nets;
-  poles.length = 0;
-  inRange.clear();
+  poles.clear();
   nets.clear();
-  for (const id of origins) {
-    if (grid.isPole(id)) {
-      poles.push(id);
-      inRange.add(id);
-    }
+  for (let i = 0; i < origins; i++) {
+    const id = idScratch[i]!;
+    if (grid.isPole(id)) poles.add(id);
   }
-  w.push(poles.length);
-  for (const id of poles) {
+  w.push(poles.size);
+  for (let i = 0; i < poles.size; i++) {
+    const id = poles.values[i]!;
     const net = grid.networkOfPole(id);
     nets.add(net);
     w.push(id);
@@ -649,9 +674,12 @@ export function encodePower(
   }
   const wireCountAt = w.skip(1);
   let wires = 0;
-  for (const id of poles) {
-    for (const n of grid.neighbours(id)) {
-      if (n > id && inRange.has(n)) {
+  for (let i = 0; i < poles.size; i++) {
+    const id = poles.values[i]!;
+    const neighbours = grid.neighboursView(id);
+    for (let k = 0; k < neighbours.length; k++) {
+      const n = neighbours[k]!;
+      if (n > id && poles.has(n)) {
         w.push(id);
         w.push(n);
         wires++;
@@ -659,10 +687,12 @@ export function encodePower(
     }
   }
   w.set(wireCountAt, wires);
-  const sorted = [...nets].sort((a, b) => a - b);
-  w.push(sorted.length);
-  for (const net of sorted) {
-    const n = grid.network(net)!;
+  nets.sort();
+  w.push(nets.size);
+  const n = powerScratch.network;
+  for (let i = 0; i < nets.size; i++) {
+    const net = nets.values[i]!;
+    grid.network(net, n);
     w.push(net);
     w.push(n.poles);
     w.push(n.demand | 0);
@@ -671,9 +701,10 @@ export function encodePower(
   }
   const memberCountAt = w.skip(1);
   let members = 0;
-  for (const id of origins) {
-    const m = grid.member(id);
-    if (!m) continue;
+  const m = powerScratch.member;
+  for (let i = 0; i < origins; i++) {
+    const id = idScratch[i]!;
+    if (!grid.member(id, m)) continue;
     w.push(id);
     w.push(m.network);
     w.push(m.demand | 0);
@@ -685,8 +716,20 @@ export function encodePower(
   return finish(w, writer);
 }
 
-/** Scratch for `encodePower`, emptied on every call. */
-const powerScratch = { poles: [] as number[], inRange: new Set<number>(), nets: new Set<number>() };
+/** Scratch for `encodePower`, refilled on every call. */
+const powerScratch = {
+  poles: new ScratchSet(),
+  nets: new ScratchSet(),
+  network: {
+    id: 0,
+    poles: 0,
+    demand: 0,
+    supply: 0,
+    satisfaction: 0,
+    load: 0,
+  } satisfies NetworkStats,
+  member: { pole: 0, network: 0, demand: 0, maxOutput: 0, drawn: 0 } satisfies MemberStats,
+};
 
 /** A pole as decoded on the main thread. */
 export interface PoleData {
@@ -915,7 +958,8 @@ export function encodeResearch(
   w.reserve(2 + TECH_IDS.length * RESEARCH_TECH_STRIDE);
   w.push(state.research.currentOf(force));
   w.push(TECH_IDS.length);
-  for (const tech of TECH_IDS) {
+  for (let i = 0; i < TECH_IDS.length; i++) {
+    const tech = TECH_IDS[i]!;
     w.push(tech);
     w.push(state.research.unitsDone(force, tech));
     w.push(labs?.unitsInProgress(tech) ?? 0);

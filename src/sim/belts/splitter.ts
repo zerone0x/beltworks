@@ -18,19 +18,25 @@ import { DIRECTION_DX, DIRECTION_DY, type Direction } from '../entities/directio
  */
 export const SPLITTER_HALF_MODE = 3;
 
-/** The tile of half `half` (0: left, 1: right) of a splitter at `(x, y)` facing `dir`. */
+/**
+ * The tile of half `half` (0: left, 1: right) of a splitter at `(x, y)` facing
+ * `dir`, written into `out` when given (hot paths reuse one).
+ */
 export function splitterHalfTile(
   x: number,
   y: number,
   dir: Direction,
   half: number,
+  out: { x: number; y: number } = { x: 0, y: 0 },
 ): { x: number; y: number } {
   // The left half: the top-left tile, except facing south (top-right) or west (bottom-left).
   const lx = dir === 2 ? x + 1 : x;
   const ly = dir === 3 ? y + 1 : y;
   // The right half is one step clockwise of the direction from it.
   const r = (dir + 1) & 3;
-  return { x: lx + half * DIRECTION_DX[r]!, y: ly + half * DIRECTION_DY[r]! };
+  out.x = lx + half * DIRECTION_DX[r]!;
+  out.y = ly + half * DIRECTION_DY[r]!;
+  return out;
 }
 
 /** Which half of a splitter at `(x, y)` facing `dir` covers tile `(tx, ty)`: 0 or 1. */

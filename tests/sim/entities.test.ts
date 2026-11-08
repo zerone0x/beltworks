@@ -234,6 +234,23 @@ describe('SparseSet', () => {
 });
 
 describe('Occupancy', () => {
+  it('writes origins into a reused array in place, without shortening it', () => {
+    const occ = new Occupancy();
+    occ.fill(1, 0, 0, 1, 1);
+    occ.fill(2, 40, 0, 1, 1);
+    occ.fill(3, 1, 0, 1, 1);
+    const both = { cx0: 0, cy0: 0, cx1: 1, cy1: 0 };
+    expect(occ.originsIn(both, [9])).toEqual([9, 1, 3, 2]);
+    const out = [7, 7, 7, 7, 7];
+    expect(occ.originsInto(both, out)).toBe(3);
+    expect(out).toEqual([1, 3, 2, 7, 7]);
+    // Fewer this time: the stale tail stays, the array keeps its length.
+    expect(occ.originsInto({ cx0: 1, cy0: 0, cx1: 1, cy1: 0 }, out)).toBe(1);
+    expect(out).toEqual([2, 3, 2, 7, 7]);
+    expect(occ.originsInto(both, out, 4)).toBe(7);
+    expect(out).toEqual([2, 3, 2, 7, 1, 3, 2]);
+  });
+
   it('covers footprints across chunk borders and at negative coordinates', () => {
     const occ = new Occupancy();
     // A 2×2 footprint on the corner where four chunks meet: tiles -1..0 × -1..0.

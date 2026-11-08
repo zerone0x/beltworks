@@ -289,9 +289,14 @@ export abstract class InserterTableBase implements EntityTypeTable {
    * ticks from the pickup end, so in ticks for burner inserters), for
    * snapshots.
    */
-  hand(id: number): { held: number; arm: number } {
+  hand(
+    id: number,
+    out: { held: number; arm: number } = { held: 0, arm: 0 },
+  ): { held: number; arm: number } {
     const row = this.row(id);
-    return { held: this.held[row]!, arm: this.arm[row]! };
+    out.held = this.held[row]!;
+    out.arm = this.arm[row]!;
+    return out;
   }
 
   /**

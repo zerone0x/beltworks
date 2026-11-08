@@ -7,7 +7,15 @@
  * `postMessage` does), and rebuilds the whole sections the way `SimClient`
  * does. Each step is timed per tick; the render layers that read the
  * sections are measured in the browser by the render profile instead.
+ *
+ * Each encoder's heap allocation is measured too: the growth of V8's used
+ * heap across the call as the median over the ticks, less the median growth
+ * across the same measuring steps around nothing (a garbage collection inside the call makes the growth negative, and
+ * that tick is left out). Once the writers have grown, the encoders should
+ * allocate nothing.
  */
+
+import { getHeapStatistics } from 'node:v8';
 
 import {
   BELT_ITEM_STRIDE,
@@ -47,6 +55,8 @@ export interface SnapshotResult {
   encode: TickStats;
   /** Mean ms per tick of each section's encoder. */
   sections: Record<DeltaSection, number>;
+  /** Median bytes each section's encoder allocated per tick (see the file comment). */
+  allocated: Record<DeltaSection, number>;
   /** Comparing with the previous tick and copying out what goes (`SnapshotEncoder`). */
   delta: TickStats;
   /** `structuredClone` with the buffers transferred. */
@@ -106,15 +116,28 @@ export function measureSnapshots(
   let sentBytes = 0;
   let entities = 0;
   let beltItems = 0;
-  const timed = <T>(section: DeltaSection, fn: () => T): T => {
+  const heap = Object.fromEntries(
+    DELTA_SECTIONS.map((s) => [s, new Float64Array(ticks)]),
+  ) as Record<DeltaSection, Float64Array>;
+  // What the measuring itself adds: the same steps around nothing, every tick.
+  const heapBase = new Float64Array(ticks);
+  let tick = 0;
+  const timed = <T>(section: DeltaSection | null, fn: () => T): T => {
+    const h = usedHeap();
     const t = performance.now();
     const out = fn();
-    sections[section] += performance.now() - t;
+    const ms = performance.now() - t;
+    const grew = usedHeap() - h;
+    (section ? heap[section] : heapBase)[tick] = grew < 0 ? NaN : grew;
+    if (section) sections[section] += ms;
     return out;
   };
+  const nothing = () => null;
   (globalThis as { gc?: () => void }).gc?.();
   for (let i = 0; i < ticks; i++) {
     sim.step();
+    tick = i;
+    timed(null, nothing);
     const t0 = performance.now();
     const next = {
       players: timed('players', () => encodePlayers(sim.state, w.players)),
@@ -163,6 +186,9 @@ export function measureSnapshots(
     beltItems,
     encode: tickStats(encode),
     sections,
+    allocated: Object.fromEntries(
+      DELTA_SECTIONS.map((s) => [s, Math.max(0, median(heap[s]) - median(heapBase))]),
+    ) as Record<DeltaSection, number>,
     delta: tickStats(delta),
     transfer: tickStats(transfer),
     decode: tickStats(decode),
@@ -171,6 +197,17 @@ export function measureSnapshots(
     sentBytes: sentBytes / ticks,
     updates,
   };
+}
+
+/** V8's used heap, bytes. */
+function usedHeap(): number {
+  return getHeapStatistics().used_heap_size;
+}
+
+/** The median of the numbers in `values` that aren't NaN (0 for none). */
+export function median(values: Float64Array): number {
+  const kept = values.filter((v) => !Number.isNaN(v)).sort();
+  return kept.length === 0 ? 0 : kept[kept.length >> 1]!;
 }
 
 /** The results as Markdown tables. */
@@ -189,7 +226,9 @@ export function snapshotMarkdown(results: readonly SnapshotResult[]): string {
   }
   lines.push(
     '',
-    '| Scene | ' + DELTA_SECTIONS.map((s) => `${s} (ms; whole / patch / same)`).join(' | ') + ' |',
+    '| Scene | ' +
+      DELTA_SECTIONS.map((s) => `${s} (ms; bytes allocated; whole / patch / same)`).join(' | ') +
+      ' |',
   );
   lines.push('|---|' + DELTA_SECTIONS.map(() => '---').join('|') + '|');
   for (const r of results) {
@@ -197,7 +236,7 @@ export function snapshotMarkdown(results: readonly SnapshotResult[]): string {
       `| ${r.name} | ` +
         DELTA_SECTIONS.map((s) => {
           const u = r.updates[s];
-          return `${f(r.sections[s])}; ${String(u.whole)} / ${String(u.patch)} / ${String(u.same)}`;
+          return `${f(r.sections[s])}; ${String(r.allocated[s])} B; ${String(u.whole)} / ${String(u.patch)} / ${String(u.same)}`;
         }).join(' | ') +
         ' |',
     );

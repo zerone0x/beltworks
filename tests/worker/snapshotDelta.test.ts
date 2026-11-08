@@ -7,7 +7,7 @@ import {
   encodePower,
   encodeResearch,
 } from '../../src/sim/snapshot';
-import { SnapshotWriter } from '../../src/sim/snapshotWriter';
+import { ScratchSet, SnapshotWriter } from '../../src/sim/snapshotWriter';
 import { DELTA_SECTIONS, type SnapshotWireMessage } from '../../src/worker/protocol';
 import {
   SectionDecoder,
@@ -227,5 +227,29 @@ describe('SnapshotWriter', () => {
     // The view shares the writer's memory; `take` doesn't.
     expect(view.buffer).toBe(w.view().buffer);
     expect(copy[0]).toBe(100);
+  });
+});
+
+describe('ScratchSet', () => {
+  it('adds, finds, sorts and empties without forgetting stale entries wrongly', () => {
+    const set = new ScratchSet();
+    for (let i = 0; i < 100; i++) expect(set.add(1000 - i * 7)).toBe(i);
+    expect(set.add(1000)).toBe(0);
+    expect(set.size).toBe(100);
+    expect(set.has(993)).toBe(true);
+    expect(set.has(994)).toBe(false);
+    set.sort();
+    const sorted = Array.from(set.values.subarray(0, set.size));
+    expect(sorted).toEqual([...sorted].sort((a, b) => a - b));
+    expect(set.indexOf(307)).toBe(0);
+    expect(set.indexOf(1000)).toBe(99);
+    // Emptied, the old values are gone even though the map still has them.
+    set.clear();
+    expect(set.size).toBe(0);
+    expect(set.has(1000)).toBe(false);
+    expect(set.add(5)).toBe(0);
+    expect(set.add(1000)).toBe(1);
+    expect(set.has(307)).toBe(false);
+    expect(Array.from(set.values.subarray(0, set.size))).toEqual([5, 1000]);
   });
 });

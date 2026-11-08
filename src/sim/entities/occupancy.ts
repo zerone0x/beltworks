@@ -93,13 +93,28 @@ export class Occupancy {
    * row by row of chunks, and returns `out`.
    */
   originsIn(range: ChunkRange, out: number[] = []): number[] {
+    out.length = this.originsInto(range, out, out.length);
+    return out;
+  }
+
+  /**
+   * Writes every entity whose origin lies in the chunks of `range`, row by
+   * row of chunks, into `out` from index `from` on, and returns where the
+   * last one ended. `out` is overwritten in place and never shortened, so a
+   * reused array that is long enough allocates nothing (the snapshot
+   * encoders pass one every tick; entries past the result are stale).
+   */
+  originsInto(range: ChunkRange, out: number[], from = 0): number {
+    let n = from;
     for (let cy = range.cy0; cy <= range.cy1; cy++) {
       for (let cx = range.cx0; cx <= range.cx1; cx++) {
         const chunk = this.peek(cx, cy);
-        if (chunk) out.push(...chunk.origins);
+        if (!chunk) continue;
+        const origins = chunk.origins;
+        for (let i = 0; i < origins.length; i++) out[n++] = origins[i]!;
       }
     }
-    return out;
+    return n;
   }
 
   /** Folds the covered tiles (chunks sorted by coordinates) into a running FNV-1a hash. */

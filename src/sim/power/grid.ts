@@ -66,6 +66,8 @@ const NO_CONTENTS: readonly ItemStack[] = [];
 
 /** Adds two joule counts, saturating at the uint32 limit of the columns. */
 const addJoules = (a: number, b: number): number => Math.min(U32_MAX, a + b);
+/** What `neighboursView` returns for an id that isn't a pole. */
+const NO_NEIGHBOURS: readonly number[] = [];
 
 /** What the grid knows about one network after the latest tick. */
 export interface NetworkStats {
@@ -255,8 +257,16 @@ export class PowerGrid implements EntityTypeTable {
 
   /** The poles wired to pole `id`, ascending (a copy; empty if it isn't a pole). */
   neighbours(id: number): number[] {
+    return this.neighboursView(id).slice();
+  }
+
+  /**
+   * {@link neighbours} without the copy, for hot paths that only read it
+   * (snapshot encoding): the grid's own list, valid until the grid changes.
+   */
+  neighboursView(id: number): readonly number[] {
     const row = this.poles.indexOf(id);
-    return row < 0 ? [] : this.neighbourLists[row]!.slice();
+    return row < 0 ? NO_NEIGHBOURS : this.neighbourLists[row]!;
   }
 
   /** Network ids, in row order (a copy). */
@@ -264,18 +274,21 @@ export class PowerGrid implements EntityTypeTable {
     return Array.from(this.nets.dense);
   }
 
-  /** Network `net` as of the latest tick, or `undefined` if there is none. */
-  network(net: number): NetworkStats | undefined {
+  /**
+   * Network `net` as of the latest tick, or `undefined` if there is none.
+   * Written into `out` when given (hot paths reuse one), else a new object.
+   */
+  network(net: number, out?: NetworkStats): NetworkStats | undefined {
     const r = this.nets.indexOf(net);
     if (r < 0) return undefined;
-    return {
-      id: net,
-      poles: this.netPoles[r]!,
-      demand: this.netDemand[r]!,
-      supply: this.netSupply[r]!,
-      satisfaction: this.netSat[r]!,
-      load: this.netLoad[r]!,
-    };
+    const s = out ?? { id: 0, poles: 0, demand: 0, supply: 0, satisfaction: 0, load: 0 };
+    s.id = net;
+    s.poles = this.netPoles[r]!;
+    s.demand = this.netDemand[r]!;
+    s.supply = this.netSupply[r]!;
+    s.satisfaction = this.netSat[r]!;
+    s.load = this.netLoad[r]!;
+    return s;
   }
 
   /** The network electric entity `id` belongs to, or 0 (not connected, or not electric). */
@@ -296,18 +309,21 @@ export class PowerGrid implements EntityTypeTable {
     return r < 0 ? 0 : this.netSat[r]!;
   }
 
-  /** Electric entity `id` as of the latest tick, or `undefined` if it isn't one. */
-  member(id: number): MemberStats | undefined {
+  /**
+   * Electric entity `id` as of the latest tick, or `undefined` if it isn't
+   * one. Written into `out` when given (hot paths reuse one), else a new object.
+   */
+  member(id: number, out?: MemberStats): MemberStats | undefined {
     const i = this.members.indexOf(id);
     if (i < 0) return undefined;
     this.refreshNetworks();
-    return {
-      pole: this.memPole[i]!,
-      network: this.memNet[i]!,
-      demand: this.memDemand[i]!,
-      maxOutput: this.memOutput[i]!,
-      drawn: this.memDrawn[i]!,
-    };
+    const s = out ?? { pole: 0, network: 0, demand: 0, maxOutput: 0, drawn: 0 };
+    s.pole = this.memPole[i]!;
+    s.network = this.memNet[i]!;
+    s.demand = this.memDemand[i]!;
+    s.maxOutput = this.memOutput[i]!;
+    s.drawn = this.memDrawn[i]!;
+    return s;
   }
 
   /**
