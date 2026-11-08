@@ -25,6 +25,7 @@ import { World } from '../../src/sim/world/world';
 import { fastForward } from './timeScale';
 import { walkNear } from './walk';
 import { closeWindows } from './windows';
+import { turnGhost } from './ghost';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -215,10 +216,7 @@ test('drills slow down on an overloaded network and recover with a second genera
     const at = await tileScreen(page, s.x + (s.w - 1) / 2, s.y + (s.h - 1) / 2);
     await page.mouse.move(at.x, at.y);
     await expect.poll(async () => (await ghost(page))?.name).toBe(name);
-    while ((await ghost(page))?.dir !== s.dir) {
-      await page.keyboard.press('r');
-      await page.waitForTimeout(50);
-    }
+    await turnGhost(page, s.dir);
     await expect.poll(() => ghost(page)).toMatchObject({ x: s.x, y: s.y, valid: true });
     await page.mouse.click(at.x, at.y);
     await expect.poll(async () => (await entityAt(page, s.x, s.y))?.name).toBe(name);

@@ -11,7 +11,7 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { TILE_PX } from '../../src/render/camera';
 import { MINIMAP_TILES } from '../../src/ui/minimap';
-import { closeWindows } from './windows';
+import { closeMenu } from './windows';
 
 const hook = <T>(page: Page, fn: () => T) => page.evaluate(fn);
 const camera = (page: Page) => hook(page, () => window.__beltworks!.camera());
@@ -139,7 +139,7 @@ test('minimap: its key is rebindable in the settings, and it follows the UI scal
   await page.keyboard.press('n');
   await expect(key).toHaveText('N');
   await page.locator('#setting-ui-scale').selectOption('1.5');
-  await closeWindows(page);
+  await closeMenu(page);
   await expect(page.locator('#game-menu')).toBeHidden();
 
   // M does nothing now; N toggles it, and the help lists N for it.

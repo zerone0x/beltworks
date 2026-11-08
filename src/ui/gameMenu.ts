@@ -6,7 +6,8 @@
  *   first) with Load, Export and Delete, imports a save file, starts a
  *   new game, and opens the settings (src/ui/settingsPanel.ts) in its
  *   place (`Esc` there goes back to the menu). Deleting and starting over
- *   ask for a second click. The game keeps running behind it.
+ *   ask for a second click. The game pauses while it is open (`onToggle`;
+ *   main.ts pauses the worker, single-player only).
  * - The start screen shows on startup when there are saves: Continue (the
  *   newest one) or New game.
  *
@@ -135,6 +136,8 @@ export class GameMenu {
   readonly panel: HTMLElement;
   private readonly slotTable: HTMLTableElement;
   private readonly status: HTMLElement;
+  /** Called when the menu opens (`true`) or closes (`false`): main.ts pauses the game behind it. */
+  onToggle: ((open: boolean) => void) | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -353,14 +356,18 @@ export class GameMenu {
   }
 
   open(): void {
+    const was = this.isOpen;
     this.element.style.display = 'flex';
     this.setStatus('');
     void this.refresh();
+    if (!was) this.onToggle?.(true);
   }
 
   close(): void {
+    const was = this.isOpen;
     this.showSettings(false);
     this.element.style.display = 'none';
+    if (was) this.onToggle?.(false);
     // Give the keyboard back to the game (keys in the menu don't reach it).
     const focused = document.activeElement;
     if (focused instanceof HTMLElement && this.element.contains(focused)) focused.blur();

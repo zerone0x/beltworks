@@ -15,6 +15,7 @@ import { startingPatches } from '../../src/sim/world/generate';
 import { World } from '../../src/sim/world/world';
 import { walkNear } from './walk';
 import { closeWindows } from './windows';
+import { turnGhost } from './ghost';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -132,10 +133,7 @@ test('a fuelled drill on iron ore feeds a furnace, which makes plates on its own
   await expect
     .poll(async () => (await ghost(page))?.name)
     .toBe(ENTITIES[EntityTypeId.BurnerMiningDrill].name);
-  while ((await ghost(page))?.dir !== Direction.East) {
-    await page.keyboard.press('r');
-    await page.waitForTimeout(50);
-  }
+  await turnGhost(page, Direction.East);
   await expect
     .poll(() => ghost(page))
     .toMatchObject({ x: d.x, y: d.y, dir: Direction.East, valid: true });

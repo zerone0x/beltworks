@@ -1,6 +1,8 @@
+import { gzipSync } from 'node:zlib';
 import { expect, test, type Page } from '@playwright/test';
 import { ItemId } from '../../src/data/items';
 import { STARTING_KIT } from '../../src/data/start';
+import { DAMAGED_SAVE_MESSAGE } from '../../src/save/compress';
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -91,5 +93,58 @@ test('build, save, reload the page and continue: the factory is intact', async (
   await expect(autosave).toHaveText('Sure?');
   await autosave.click();
   await expect(page.locator('#menu-slots .save-slot-name')).toHaveText(['my base']);
+  expect(errors).toEqual([]);
+});
+
+test('the game pauses behind the menu and resumes when it closes', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('./');
+  await ready(page);
+  const tick = () => page.evaluate(() => window.__beltworks!.latestTick());
+  const running = await tick();
+  await expect.poll(tick).toBeGreaterThan(running);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#game-menu')).toBeVisible();
+  // A snapshot already on its way may still land: wait until the counter
+  // stops, then check that it stays stopped while the menu is open.
+  await expect
+    .poll(async () => {
+      const before = await tick();
+      await page.waitForTimeout(250);
+      return (await tick()) - before;
+    })
+    .toBe(0);
+  const paused = await tick();
+  await page.waitForTimeout(1000);
+  expect(await tick()).toBe(paused);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#game-menu')).toBeHidden();
+  await expect.poll(tick).toBeGreaterThan(paused);
+  expect(errors).toEqual([]);
+});
+
+test('a save file damaged inside its gzip stream is refused with a clear message', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('./');
+  await ready(page);
+  // A gzipped file (bytes that don't compress to almost nothing) damaged
+  // past its 10-byte header, so it still looks like one.
+  const packed = gzipSync(
+    Buffer.from(Array.from({ length: 4096 }, (_, i) => (i * 2654435761) >>> 24)),
+  );
+  for (let i = 12; i < 32; i++) packed[i] = packed[i]! ^ 0xff;
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#game-menu')).toBeVisible();
+  await page.locator('#menu-import-file').setInputFiles({
+    name: 'bad.bwsave',
+    mimeType: 'application/octet-stream',
+    buffer: packed,
+  });
+  await expect(page.locator('#menu-status')).toHaveText(`bad.bwsave: ${DAMAGED_SAVE_MESSAGE}`);
+  await expect(page.locator('#menu-slots .save-slot')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

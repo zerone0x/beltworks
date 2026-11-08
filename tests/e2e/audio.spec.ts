@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { ItemId } from '../../src/data/items';
 import { STARTING_KIT } from '../../src/data/start';
-import { closeWindows } from './windows';
+import { closeMenu } from './windows';
 
 // Checks how the audio is wired, not what comes out of the speakers (D55).
 test('audio starts on the first click, plays a placement, and mutes while the tab is hidden', async ({
@@ -74,7 +74,7 @@ test('the volume sliders in the settings reach the audio engine at once', async 
   await expect.poll(async () => (await gains()).sfx).toBeCloseTo(0.04, 6);
   await page.locator('#setting-volume-music').fill('0');
   await expect.poll(async () => (await gains()).music).toBe(0);
-  await closeWindows(page);
+  await closeMenu(page);
 
   // Stored with the settings: a reload starts at the same volumes.
   await page.reload();

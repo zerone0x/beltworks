@@ -9,6 +9,7 @@ import { expect, type Page, type TestInfo } from '@playwright/test';
 import { TILE_PX } from '../../src/render/camera';
 import { Direction } from '../../src/sim/entities/direction';
 import { closeWindows } from './windows';
+import { turnGhost } from './ghost';
 
 export interface Rect {
   x: number;
@@ -66,10 +67,7 @@ export async function place(
   const at = await tileScreen(page, r.x + (r.w - 1) / 2, r.y + (r.h - 1) / 2);
   await page.mouse.move(at.x, at.y);
   await expect.poll(async () => (await ghost(page))?.name).toBe(name);
-  while ((await ghost(page))?.dir !== dir) {
-    await page.keyboard.press('r');
-    await page.waitForTimeout(50);
-  }
+  await turnGhost(page, dir);
   await expect.poll(() => ghost(page)).toMatchObject({ x: r.x, y: r.y, dir, valid: true });
   expect((await sprites(page)).ghost).toBe(sprite);
   await page.mouse.click(at.x, at.y);

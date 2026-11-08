@@ -54,6 +54,8 @@ let viewport: Viewport | null = null;
 /** The entity whose GUI is open on the main thread, or 0. */
 let inspected = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
+/** Whether the main thread paused the game (`setPaused`): no ticks run, no wake-ups are scheduled. */
+let paused = false;
 /** Dev and test builds only: the scripted render scene sent instead of the simulation's entities. */
 let scene: RenderScene | null = null;
 
@@ -70,7 +72,7 @@ function post(msg: WorkerToMain, transfer: Transferable[] = []): void {
 
 function wake(): void {
   timer = null;
-  if (!sim) {
+  if (!sim || paused) {
     return;
   }
   const { ticks, dropped } = clock.advance(scaledNow());
@@ -101,7 +103,7 @@ function wake(): void {
 }
 
 function schedule(): void {
-  if (timer === null) {
+  if (timer === null && !paused) {
     // Sped up, wake at most once per normal step and run the ticks due in one
     // batch, so the main thread still gets one snapshot per 1/60 s.
     const ms = clock.msUntilNextTick() / timeScale;
@@ -276,7 +278,34 @@ async function handle(msg: MainToWorker): Promise<void> {
     case 'save':
       saveGame(msg.id);
       break;
+    case 'setPaused':
+      if (typeof msg.paused !== 'boolean') {
+        throw new Error(`invalid pause flag: ${String(msg.paused)}`);
+      }
+      setPaused(msg.paused);
+      break;
   }
+}
+
+/**
+ * Stops or restarts the tick loop. Pausing only stops running ticks (the
+ * simulation itself is untouched, so determinism holds); resuming restarts
+ * the clock, so the time spent paused is neither caught up nor counted as
+ * dropped ticks.
+ */
+function setPaused(next: boolean): void {
+  if (next === paused) return;
+  paused = next;
+  if (paused) {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    return;
+  }
+  clock.reset();
+  clock.advance(scaledNow());
+  if (sim) schedule();
 }
 
 /**

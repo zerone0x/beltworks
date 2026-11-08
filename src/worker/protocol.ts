@@ -1,8 +1,8 @@
 /**
  * Messages between the main thread and the simulation worker.
  *
- * Main → worker: `init`, `commands`, `setViewport`, `inspect`, `save`, and in
- * dev and test builds `setTimeScale`.
+ * Main → worker: `init`, `commands`, `setViewport`, `inspect`, `save`,
+ * `setPaused`, and in dev and test builds `setTimeScale`.
  * Worker → main: `snapshot`, `stats`, `saved`, `loaded`, `error`.
  *
  * Commands include the build commands `Place`, `Remove` and `Rotate` and the
@@ -139,13 +139,27 @@ export interface SaveRequestMessage {
   id: number;
 }
 
+/**
+ * Pauses or resumes the simulation (the game menu is open in single-player).
+ * Paused, the worker runs no ticks and sends no snapshots or stats; nothing
+ * in the simulation changes, so pausing can't affect determinism. Commands
+ * and saves are still handled: commands wait for the next tick, which runs
+ * once resumed. Resuming starts from the current tick without catching up
+ * on the time spent paused.
+ */
+export interface SetPausedMessage {
+  type: 'setPaused';
+  paused: boolean;
+}
+
 export type MainToWorker =
   | InitMessage
   | CommandsMessage
   | SetViewportMessage
   | InspectMessage
   | SetTimeScaleMessage
-  | SaveRequestMessage;
+  | SaveRequestMessage
+  | SetPausedMessage;
 
 /**
  * Render state after the latest tick. Sent once per worker wake-up that ran at

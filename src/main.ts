@@ -256,6 +256,10 @@ async function main(): Promise<void> {
     },
     settingsPanel,
   );
+  // Single-player: the game pauses behind the menu (the simulation just runs no ticks).
+  menu.onToggle = (open) => {
+    client.setPaused(open);
+  };
   // The UI scale setting scales each part of the interface around where it is anchored.
   const hotbarWidth = barWidth(HOTBAR_SLOTS);
   uiScale.register(hotbar.element, '50% 100%');
