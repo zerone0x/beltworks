@@ -35,6 +35,7 @@ export const ACTIONS = [
   { id: 'pipette', label: 'Pipette / put away the cursor', key: 'KeyQ' },
   { id: 'follow', label: 'Camera follows the player', key: 'KeyF' },
   { id: 'help', label: 'Controls help', key: 'KeyH' },
+  { id: 'minimap', label: 'Minimap', key: 'KeyM' },
   { id: 'panUp', label: 'Pan up', key: 'ArrowUp' },
   { id: 'panLeft', label: 'Pan left', key: 'ArrowLeft' },
   { id: 'panDown', label: 'Pan down', key: 'ArrowDown' },
@@ -141,13 +142,25 @@ export function rebind(
  * Bindings from stored data (anything, e.g. parsed JSON): the default key
  * for any action missing or invalid; if what is left binds one key twice,
  * the defaults altogether.
+ *
+ * An action missing from the stored bindings (one added since they were
+ * saved, like `minimap`) whose default key a stored action has taken gets
+ * that action's default key instead, as if the stored action had been
+ * rebound after it existed (`rebind` swaps), so a new action never resets
+ * a player's bindings.
  */
 export function parseBindings(raw: unknown): Bindings {
   const stored = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
   const out = { ...DEFAULT_BINDINGS } as Record<Action, string>;
+  const missing: Action[] = [];
   for (const action of ACTION_IDS) {
     const key = stored[action];
     if (typeof key === 'string' && isBindable(key)) out[action] = key;
+    else missing.push(action);
+  }
+  for (const action of missing) {
+    const holder = ACTION_IDS.find((a) => a !== action && out[a] === out[action]);
+    if (holder !== undefined && !missing.includes(holder)) out[action] = DEFAULT_BINDINGS[holder];
   }
   return conflicts(out).length > 0 ? DEFAULT_BINDINGS : out;
 }

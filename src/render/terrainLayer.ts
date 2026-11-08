@@ -210,8 +210,11 @@ export class TerrainLayer {
     return this.art !== null;
   }
 
-  /** Applies the chunk part of a snapshot: drop what left the window, cache what arrived. */
-  applySnapshot(window: ChunkRect | null, buffer: ArrayBuffer | null): void {
+  /**
+   * Applies the chunk part of a snapshot: drop what left the window, cache
+   * what arrived. Returns the chunks that arrived (for the map, mapStore.ts).
+   */
+  applySnapshot(window: ChunkRect | null, buffer: ArrayBuffer | null): readonly ChunkData[] {
     if (window !== null) {
       this.current = window;
       for (const [key, cached] of this.chunks) {
@@ -221,9 +224,10 @@ export class TerrainLayer {
       }
     }
     if (buffer === null) {
-      return;
+      return [];
     }
-    for (const data of decodeChunks(buffer)) {
+    const arrived = decodeChunks(buffer);
+    for (const data of arrived) {
       const key = chunkKey(data.cx, data.cy);
       const cached = this.chunks.get(key);
       if (cached) {
@@ -251,6 +255,7 @@ export class TerrainLayer {
       }
       this.queue.add(key);
     }
+    return arrived;
   }
 
   /**

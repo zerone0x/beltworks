@@ -74,7 +74,7 @@ Met: `tests/e2e/science.spec.ts` starts from a test kit (assembling machines, a 
 
 - [x] Save and load (IndexedDB), autosave, save-version migrations
 - [ ] Blueprints: box-select copy, paste, string import and export
-- [ ] Minimap and map mode
+- [x] Minimap and map mode (#87)
 - [ ] Sound effects and music (CC0 or original)
 - [ ] Onboarding for the first 5 minutes
 - [x] Settings: keybindings, graphics, UI scale; hotbar management and the cursor stack

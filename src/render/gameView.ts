@@ -5,6 +5,11 @@
  * By default the camera follows the local player. Panning by hand frees it;
  * `follow()` (the `F` key) locks it onto the player again.
  *
+ * Zoomed out past `MAP_ZOOM` the view fades into map mode (mapLayer.ts):
+ * flat colours per tile from the map store, which the minimap shares, and
+ * once the fade is done the terrain and entity layers are hidden and not
+ * drawn at all.
+ *
  * The renderer never changes simulation state; it only reads snapshots.
  */
 
@@ -26,6 +31,8 @@ import { EntityIndex } from './entityIndex';
 import { EntityLayer, GhostLayer, type Ghost } from './entityLayer';
 import { GeneratorLayer } from './generatorLayer';
 import { InserterLayer } from './inserterLayer';
+import { MapLayer, stepMapBlend, wantsMapMode } from './mapLayer';
+import { MapStore } from './mapStore';
 import { PlayerLayer } from './playerLayer';
 import { PlayerTrack } from './playerTrack';
 import { PowerLayer, powerFocus } from './powerLayer';
@@ -63,6 +70,12 @@ export class GameView {
   /** Wires between poles, and the supply area / reach overlay of the pole in focus. */
   readonly power = new PowerLayer();
   readonly ghost = new GhostLayer();
+  /** The map's colours per chunk (map mode and the minimap), from the snapshots. */
+  readonly mapStore = new MapStore();
+  /** Map mode: flat colours zoomed out. */
+  readonly map = new MapLayer();
+  /** Forces map mode on or off whatever the zoom (the render profile compares both); `null` follows the zoom. */
+  mapModeOverride: boolean | null = null;
   /** Interpolated player positions from the snapshots. */
   readonly track = new PlayerTrack();
   readonly input: CameraInput;
@@ -80,6 +93,10 @@ export class GameView {
   private readonly world = new Container({ label: 'world' });
   private sentViewport: Viewport | null = null;
   private atlas: SpriteAtlas | null = null;
+  /** Map mode's opacity: 0 the sprite view, 1 map mode, in between while fading. */
+  private blend = 0;
+  /** What map mode replaces: hidden (and not drawn) once it is opaque. */
+  private readonly spriteLayers: Container[];
 
   /**
    * @param onViewport Called with the tiles on screen whenever they change;
@@ -102,11 +119,26 @@ export class GameView {
       this.inserters.container,
       this.power.container,
       this.entities.iconContainer,
+      this.map.container,
       this.players.container,
       this.power.overlayContainer,
       this.belts.overlayContainer,
       this.ghost.container,
     );
+    this.spriteLayers = [
+      this.terrain.container,
+      this.belts.container,
+      this.belts.itemContainer,
+      this.belts.coverContainer,
+      this.entities.shadowContainer,
+      this.power.shadowContainer,
+      this.entities.container,
+      this.assemblers.container,
+      this.generators.container,
+      this.inserters.container,
+      this.power.container,
+      this.entities.iconContainer,
+    ];
     app.stage.addChild(this.world);
     this.input = new CameraInput(this.camera, app.canvas);
     this.input.onPan = () => {
@@ -181,9 +213,11 @@ export class GameView {
 
   /** Feeds a snapshot from the worker into the layers. */
   applySnapshot(snapshot: SnapshotMessage): void {
-    this.terrain.applySnapshot(snapshot.chunkWindow, snapshot.chunks);
+    const arrived = this.terrain.applySnapshot(snapshot.chunkWindow, snapshot.chunks);
+    this.mapStore.applyChunks(snapshot.chunkWindow, arrived);
     this.track.push(new Int32Array(snapshot.players), snapshot.ticksRun, performance.now());
     this.entityIndex.apply(snapshot.entities);
+    this.mapStore.applyEntities(this.entityIndex);
     this.belts.apply(snapshot.belts, snapshot.tick, performance.now());
     this.inserters.apply(snapshot.inserters, performance.now());
     this.power.apply(snapshot.power);
@@ -257,20 +291,64 @@ export class GameView {
     }
     this.applyCamera();
     const view = this.camera.visibleTiles();
-    this.terrain.update(undefined, view, this.camera.zoom);
-    // Every entity layer draws only what overlaps the screen (cull.ts).
-    const cull = cullRect(view);
-    this.belts.animateSurfaces = this.animate;
-    this.belts.draw(now, cull);
-    const animDt = this.animate ? dtMs : 0;
-    // Arm poses first: inserters with sprites are drawn with the buildings;
-    // and generators: the engines' sprites take their speed from them.
-    this.inserters.draw(now, cull);
-    this.generators.draw(this.entityIndex, this.power.data, animDt, cull);
-    this.entities.draw(this.entityIndex, animDt, this.inserters.poses, cull);
-    this.assemblers.draw(this.entityIndex, animDt, cull);
-    this.power.drawWires(cull);
+    this.mapStore.update();
+    this.blend = stepMapBlend(
+      this.blend,
+      wantsMapMode(this.camera.zoom, this.mapModeOverride),
+      dtMs,
+    );
+    const map = this.map;
+    map.container.visible = this.blend > 0;
+    map.container.alpha = this.blend;
+    if (this.blend > 0) {
+      map.sync(
+        this.mapStore,
+        this.terrain.chunkWindow,
+        this.localPlayerPosition(now),
+        this.camera.zoom,
+      );
+    } else if (map.spriteCount > 0) {
+      map.clear();
+    }
+    const sprites = this.blend < 1;
+    for (const layer of this.spriteLayers) layer.visible = sprites;
+    if (sprites) {
+      this.terrain.update(undefined, view, this.camera.zoom);
+      // Every entity layer draws only what overlaps the screen (cull.ts).
+      const cull = cullRect(view);
+      this.belts.animateSurfaces = this.animate;
+      this.belts.draw(now, cull);
+      const animDt = this.animate ? dtMs : 0;
+      // Arm poses first: inserters with sprites are drawn with the buildings;
+      // and generators: the engines' sprites take their speed from them.
+      this.inserters.draw(now, cull);
+      this.generators.draw(this.entityIndex, this.power.data, animDt, cull);
+      this.entities.draw(this.entityIndex, animDt, this.inserters.poses, cull);
+      this.assemblers.draw(this.entityIndex, animDt, cull);
+      this.power.drawWires(cull);
+    }
     this.players.draw(this.track, now);
+  }
+
+  /** Map mode's opacity: 0 the sprite view, 1 map mode (the sprite layers are hidden), in between while fading. */
+  get mapBlend(): number {
+    return this.blend;
+  }
+
+  /**
+   * Whether what is on screen is complete: in map mode, every chunk on
+   * screen shown with its current colours; in the sprite view, the terrain
+   * baked (`TerrainLayer.isComplete`); never while fading between them.
+   */
+  viewComplete(): boolean {
+    if (this.blend >= 1) {
+      return this.map.isComplete(
+        this.mapStore,
+        this.terrain.chunkWindow,
+        this.camera.visibleTiles(),
+      );
+    }
+    return this.blend === 0 && this.terrain.isComplete();
   }
 
   /** The tile under the pointer, or `null` when the pointer is not over the canvas. */

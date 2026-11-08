@@ -104,6 +104,11 @@ describe('render profile report', () => {
           name: 'factory 1x',
           zoom: 1,
           panning: false,
+          view: 'sprites',
+          minimap: true,
+          minimapMs: { p50: 0.04, p95: 0.1, p99: 0.2, max: 0.25, mean: 0.05 },
+          mapBuilds: 0,
+          mapUploads: 0,
           frames: 180,
           fps: 59.9,
           interval: p,
@@ -118,6 +123,7 @@ describe('render profile report', () => {
     };
     const text = formatReport(report);
     expect(text).toContain('Test GPU');
-    expect(text).toContain('| factory 1x | 59.9 | 16.7 / 17.0 / 20.0 / 33.0 |');
+    expect(text).toContain('| factory 1x | sprites + minimap | 59.9 | 16.7 / 17.0 / 20.0 / 33.0 |');
+    expect(text).toContain('| 0.04 / 0.25 |');
   });
 });

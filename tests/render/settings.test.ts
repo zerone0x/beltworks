@@ -12,6 +12,7 @@ import {
   parseBindings,
   rebind,
   setBindings,
+  type Bindings,
 } from '../../src/ui/keybindings';
 import { DEFAULT_SETTINGS, parseSettings } from '../../src/ui/settings';
 import { scaledTransform } from '../../src/ui/uiScale';
@@ -62,7 +63,30 @@ describe('key bindings', () => {
     expect(stored.rotate).toBe('KeyR');
     expect(stored).not.toHaveProperty('bogus');
     // Two actions on one key: the defaults altogether.
-    expect(parseBindings({ inventory: 'KeyR' })).toEqual(DEFAULT_BINDINGS);
+    expect(parseBindings({ inventory: 'KeyR', rotate: 'KeyR' })).toEqual(DEFAULT_BINDINGS);
+  });
+
+  it('give an action added since the bindings were stored a free key, keeping the rest', () => {
+    // Stored before `minimap` existed, with `M` taken by the inventory.
+    const without = (b: Bindings): Partial<Bindings> =>
+      Object.fromEntries(Object.entries(b).filter(([a]) => a !== 'minimap'));
+    const before = without({ ...DEFAULT_BINDINGS, inventory: 'KeyM' });
+    const loaded = parseBindings(before);
+    expect(loaded.inventory).toBe('KeyM');
+    // The key the inventory left, as if it had been rebound with the minimap there.
+    expect(loaded.minimap).toBe('KeyE');
+    expect(conflicts(loaded)).toEqual([]);
+    expect(loaded).toEqual(rebind(DEFAULT_BINDINGS, 'inventory', 'KeyM').bindings);
+    // Untouched M: the minimap gets its default.
+    expect(parseBindings(without({ ...DEFAULT_BINDINGS, inventory: 'KeyI' })).minimap).toBe('KeyM');
+  });
+
+  it('bind the minimap to M by default, rebindable like every action', () => {
+    expect(actionFor('KeyM')).toBe('minimap');
+    setBindings(rebind(DEFAULT_BINDINGS, 'minimap', 'KeyN').bindings);
+    expect(actionFor('KeyN')).toBe('minimap');
+    expect(actionFor('KeyM')).toBeNull();
+    expect(controls().some((c) => c.keys === 'N' && c.action.startsWith('Minimap'))).toBe(true);
   });
 
   it('drive the input handlers', () => {
