@@ -1,4 +1,7 @@
 import { Application } from 'pixi.js';
+import { AudioEngine } from './audio/engine';
+import { GameAudio, createAudioContext } from './audio/gameAudio';
+import { followVolumeSettings } from './audio/volume';
 import { isPolePrototypeOf } from './sim/power/geometry';
 import type { CommandInput } from './sim/commands';
 import { PLAYER_INVENTORY_SLOTS } from './sim/inventory';
@@ -9,6 +12,8 @@ import {
   decodeNetworkDetail,
   decodeResearch,
   NO_RESEARCH,
+  PLAYER_STRIDE,
+  PlayerField,
   type ResearchData,
   type SlotData,
 } from './sim/snapshot';
@@ -355,6 +360,32 @@ async function main(): Promise<void> {
   ]).then(() => {
     view.artSettled = true;
   });
+  // Sound (D55): silent until the first user gesture, muted while the tab is hidden.
+  // Test builds stay silent unless a spec asks for sound (`?audio=1`).
+  const withAudio = testHook?.audioFromUrl(window.location.search, import.meta.env.MODE) ?? true;
+  const engine = new AudioEngine({ createContext: withAudio ? createAudioContext : () => null });
+  const audio = new GameAudio(engine, {
+    listener: () => ({
+      x: view.camera.x / TILE_PX,
+      y: view.camera.y / TILE_PX,
+      zoom: view.camera.zoom,
+    }),
+    entities: () => view.entityIndex.entities,
+    inserters: () => view.inserters.data,
+    networks: () => view.power.data.networks,
+    player: () => {
+      const r = view.track.latest;
+      const o = LOCAL_PLAYER_ID * PLAYER_STRIDE;
+      if (r.length < o + PLAYER_STRIDE) return null;
+      return {
+        mining: r[o + PlayerField.mining] === 1,
+        mineX: r[o + PlayerField.mineX]!,
+        mineY: r[o + PlayerField.mineY]!,
+        mineProgress: r[o + PlayerField.mineProgress]!,
+      };
+    },
+  });
+  followVolumeSettings(engine, settings);
   const input = new PlayerInput({
     element: app.canvas,
     playerId: LOCAL_PLAYER_ID,
@@ -449,6 +480,7 @@ async function main(): Promise<void> {
     if (inventoryPanel.isOpen) {
       craftingPanel.update(inventory, queue.entries.length, research);
     }
+    audio.onSnapshot(snapshot, queue, research);
   };
   app.ticker.add((ticker) => {
     view.frame(ticker.deltaMS);
@@ -460,6 +492,7 @@ async function main(): Promise<void> {
     const windowOpen = inventoryPanel.isOpen || entityPanel.isOpen;
     cursorStack.show(cursorItem(), windowOpen ? buildInput.handCount() : 0);
     overlay.updateTile(view.hoveredTile());
+    audio.frame();
   });
 
   if (testHook) {
@@ -472,6 +505,7 @@ async function main(): Promise<void> {
       techTree,
       minimap,
       saves,
+      audio: engine,
       seed: WORLD_SEED,
       inventory: () => inventory,
       research: () => research,

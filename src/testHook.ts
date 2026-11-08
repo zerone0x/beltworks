@@ -5,6 +5,8 @@
  * contain it.
  */
 
+import type { AudioDebugState, AudioEngine } from './audio/engine';
+import { renderLoudestMixPeak } from './audio/loudestMix';
 import { isBeltType } from './data/entities';
 import { ITEM_IDS, ITEMS, MAX_STACK_SIZE, itemPrototype, type ItemStack } from './data/items';
 import type { Ticker } from 'pixi.js';
@@ -175,6 +177,10 @@ export interface BeltworksTestHook {
   runDeterminism(ticks?: number): DeterminismResult;
   /** Tick of the latest snapshot from the worker, or -1 before the first one. */
   latestTick(): number;
+  /** The audio engine's state: whether it is unlocked, its buses, loops and one-shots played (D55). */
+  audio(): AudioDebugState;
+  /** Renders the loudest mix the audio engine can make offline and resolves to its peak sample (D55). */
+  audioMixPeak(): Promise<number>;
   /** Current camera position (world pixels at the screen center) and zoom. */
   camera(): CameraState;
   /** Moves the camera, as if the player had panned and zoomed there (this stops following the player). */
@@ -315,6 +321,21 @@ export function renderedTerrainFromUrl(search: string, mode: string): boolean | 
 }
 
 /**
+ * Dev and test builds: whether there is sound (D55), from an `?audio=` URL
+ * parameter (`1` or `0`); without one, on in dev builds and off in test
+ * builds (`mode` `test`), so the end-to-end specs that aren't about audio
+ * don't spend CI's two cores on synthesizing it. Production builds always
+ * have it.
+ */
+export function audioFromUrl(search: string, mode: string): boolean {
+  const audio = new URLSearchParams(search).get('audio');
+  if (audio === '1') return true;
+  if (audio === '0') return false;
+  if (audio !== null) throw new Error(`bad audio "${audio}"`);
+  return mode !== 'test';
+}
+
+/**
  * Dev and test builds: the most texels per tile the rendered terrain bakes
  * at, from a `?texels=` URL parameter (8, 16, 32 or 64), e.g. full density
  * for screenshots on a software renderer (64: with the detail textures
@@ -415,6 +436,7 @@ export interface TestHookContext {
   techTree: TechTreePanel;
   minimap: Minimap;
   saves: SaveController;
+  audio: AudioEngine;
   /** The world seed the game runs with. */
   seed: number;
   /** The local player's inventory as last shown by the UI. */
@@ -438,6 +460,7 @@ export function installTestHook({
   techTree,
   minimap,
   saves,
+  audio,
   seed,
   inventory,
   research,
@@ -461,6 +484,8 @@ export function installTestHook({
   window.__beltworks = {
     runDeterminism: (ticks) => runDeterminismScenario(ticks),
     latestTick: () => client.latestSnapshot?.tick ?? -1,
+    audio: () => audio.debugState(),
+    audioMixPeak: () => renderLoudestMixPeak(),
     camera: () => ({ x: view.camera.x, y: view.camera.y, zoom: view.camera.zoom }),
     setCamera: (x, y, zoom) => {
       view.following = false;

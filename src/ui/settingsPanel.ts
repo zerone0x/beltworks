@@ -2,7 +2,7 @@
  * The settings panel (plain DOM, D39), opened from the game menu: key
  * bindings (click a key, press the new one; a key another action had is
  * swapped with it; reset to defaults), graphics, UI scale, the lettered
- * icons option and the audio volumes (placeholders until there is sound).
+ * icons option and the audio volumes.
  *
  * Every change goes straight to the settings store (src/ui/settings.ts),
  * which persists it; main.ts applies it. While it waits for a new key, the
@@ -280,10 +280,6 @@ export class SettingsPanel {
       });
       rows.push(row(label, range));
     }
-    const note = document.createElement('div');
-    note.textContent = 'The game has no sound yet; these volumes apply once it does.';
-    Object.assign(note.style, { opacity: '0.6', fontSize: '12px' });
-    rows.push(note);
     return rows;
   }
 
