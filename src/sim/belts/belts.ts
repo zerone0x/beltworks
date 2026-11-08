@@ -73,7 +73,8 @@
  * that leaves by one side passes through that half, at the splitter's
  * speed. Halves step after every other lane (`stepHalf`), and a half that
  * the other one merges into closes up to `MERGE_SPACING` so they take
- * turns (`refreshMerge`).
+ * turns (`refreshMerge`), or, while the other one's items come sparsely,
+ * holds its first item back for each of them (`mergeHold`).
  *
  * Other systems move items with `insertAt`, `takeAt`, `peekAt` and `peekEnd`
  * on a line and lane (inserters drop with `dropOnTile`: anywhere on their
@@ -201,6 +202,9 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * A splitter's alternation per row: bit `i` is the half whose output lane
    * `i`'s next item goes to (it flips each time one goes to the preferred
    * output; an item that can't goes to the other one and leaves it as is).
+   * Bit `YIELD_BIT + 2 * half + i` is set while half `half`'s lane `i` has
+   * made way for an item of the other half and its own first item goes
+   * next (see `mergeHold`).
    */
   private nextCol = new Uint8Array(0);
   /**
@@ -883,7 +887,10 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     // Splitter halves step after every other lane (see `stepHalf`), in list order.
     for (let i = 0; i < n; i++) {
       const lane = list[i]!;
-      if (lane.line.splitter !== 0) continue;
+      if (lane.line.splitter !== 0) {
+        lane.due = this.tick;
+        continue;
+      }
       keep[i] = this.step(lane);
       if (!keep[i]) {
         lane.active = false;
@@ -920,6 +927,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    */
   private stepHalf(lane: LineLane): boolean {
     const { line } = lane;
+    lane.due = -1;
     this.refreshMerge(line);
     if (lane.count === 0) return false;
     this.handed = false;
@@ -946,7 +954,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   /** The outlet of a splitter half's lanes: straight on, or across to the other half's output. */
   private readonly splitOutlet: LaneOutlet = {
     early: true,
-    minFront: (l) => this.splitMinFront(l as LineLane),
+    minFront: (l) => this.splitStop(l as LineLane),
     handOn: (l, rem) => this.splitHandOn(l as LineLane, rem),
   };
 
@@ -967,6 +975,110 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   }
 
   /**
+   * How close to its end a splitter half's first item may come (the
+   * outlet's `minFront`): `splitMinFront`, or further back while it makes
+   * way for an item of the other half's lane (`mergeHold`).
+   */
+  private splitStop(lane: LineLane): number {
+    const floor = this.splitMinFront(lane);
+    const reach = this.mergeHold(lane);
+    if (reach < 0) return floor;
+    // The spacing behind the slot in front of it: right behind the output's
+    // last item, counted across, or past the end by as much as the item
+    // crossing over may carry on (`crossDepth`).
+    const carry = this.crossCarry(lane.line, lane.index, reach);
+    if (carry < 0) return this.crossFront(lane.line, lane.index) + BELT_ITEM_SPACING;
+    return Math.max(floor, BELT_ITEM_SPACING - this.crossDepth(lane.line, carry));
+  }
+
+  /**
+   * How much of `rem` (in subtiles of splitter half `half`) an item that
+   * reaches the end of `half` with that much movement left may carry on
+   * with onto lane `index` of its output (`passOn`): no closer than the
+   * spacing to that lane's last item, and, counted at the half's speed
+   * since that item left, no sooner than the half's own rate allows (as
+   * if both had gone through the half). Negative while it couldn't go on
+   * yet even from right at the end; see `crossFront` for where it could
+   * then go into the half.
+   */
+  private crossCarry(half: TransportLine, index: number, rem: number): number {
+    const out = half.out!;
+    const t = out.lanes[index as BeltLane];
+    if (t.count === 0) return rem;
+    const since = out.length - t.total;
+    return Math.min(
+      rem,
+      Math.floor(((since - t.spacing) * half.speed) / out.speed),
+      Math.floor((since * half.speed) / out.speed) - BELT_ITEM_SPACING,
+    );
+  }
+
+  /**
+   * How close to the end of splitter half `half` an item of the other half
+   * may go across into lane `index`: `splitMinFront`, or further back while
+   * the output's last item left the half less than the spacing ago, counted
+   * at the half's speed (so the half's own rate holds even where its output
+   * is faster than the half, where the spacing on the output alone would
+   * let items through closer in time). `late` is the half's movement still
+   * to come this tick (the half is yet to step, `due`): an item that goes in
+   * now moves on by that much, down to `splitMinFront` where the half then
+   * stops it, or on past the end with the movement left, so it goes in that
+   * much further back.
+   */
+  private crossFront(half: TransportLine, index: number, late = 0): number {
+    const lane = half.lanes[index as BeltLane];
+    const floor = this.splitMinFront(lane);
+    const out = half.out!;
+    const t = out.lanes[index as BeltLane];
+    if (t.count === 0) return floor;
+    const since = Math.floor(((out.length - t.total) * half.speed) / out.speed);
+    const front = BELT_ITEM_SPACING - since;
+    return floor > 0 && floor >= front ? floor : Math.max(floor, front + late);
+  }
+
+  /**
+   * How far past the end of splitter half `half` an item handed on with
+   * `carry` of its movement left (`crossCarry`) counts as being: an item of
+   * `half` that far plus the spacing from the end is the spacing behind it
+   * both in the half (so the half's own rate holds) and across the boundary
+   * (so the spacing on the output holds).
+   */
+  private crossDepth(half: TransportLine, carry: number): number {
+    return Math.min(carry, Math.floor((carry * half.out!.speed) / half.speed));
+  }
+
+  /**
+   * Whether a splitter half's first item makes way for an item of the
+   * other half's lane, to go across in front of it: while the other half
+   * merges into this one only sparsely (no slots kept, `refreshMerge`), its
+   * first item is ready to go across this tick (where it stops, or within
+   * a tick of it), and this half's first item is its own (unmarked), didn't
+   * make way already (the yield bit in `nextCol`, cleared when it goes on,
+   * so the two take turns), and isn't yet so close to the end that the
+   * other one couldn't go in front. Returns how far the other one may then
+   * carry on past this half's end (onto the output, `crossOn`), or -1 when
+   * it doesn't make way. The item crossing over lands right behind the
+   * output's last item, so the output loses no slot, and this half gives
+   * up the slot its item would have taken (or nothing, where its items come
+   * more than the spacing apart: its lane closes up behind the item held).
+   * O(1).
+   */
+  private mergeHold(lane: LineLane): number {
+    if (lane.spacing !== BELT_ITEM_SPACING || lane.count === 0 || lane.marked(0)) return -1;
+    const { line } = lane;
+    if ((this.nextCol[this.row(line.splitter)]! & yieldBit(line.half, lane.index)) !== 0) return -1;
+    const sib = line.sibling!;
+    const other = sib.lanes[lane.index];
+    if (other.count === 0 || this.outputOpen(sib, lane.index)) return -1;
+    if (!this.outputOpen(line, lane.index)) return -1;
+    const stop = this.splitMinFront(other);
+    if (other.gap(0) - stop >= sib.speed) return -1;
+    // From the other half's end, it may carry on with up to a tick's movement.
+    const reach = stop === 0 ? sib.speed : 0;
+    return lane.gap(0) + this.crossDepth(line, reach) >= BELT_ITEM_SPACING ? reach : -1;
+  }
+
+  /**
    * A splitter half's first item, held at `minFront` or at the end with
    * `rem` of the tick's movement left. An item the other half sent across
    * (marked) goes straight on, or back across if its output got blocked
@@ -978,8 +1090,8 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * the ordinary hand-over: the item keeps its leftover movement, scaled to
    * the target's speed, but lands no closer than the target lane's spacing
    * to its last item. Across, it moves over onto the other half's lane, as
-   * close to that lane's end as the spacing allows (from the other half's
-   * `minFront`, at most `CROSS_REACH` further back, and no closer than the
+   * close to that lane's end as the spacing and the half's rate allow (from
+   * `crossFront`, at most `CROSS_REACH` further back, and no closer than the
    * spacing to the first item of the lane feeding that half), marked, so it
    * goes straight on from there: everything bound for an output passes
    * through the half in front of it, at the splitter's speed and with the
@@ -999,35 +1111,95 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     for (let n = 0; n < tries; n++) {
       const t = n === 0 ? pref : 1 - pref;
       if (t === line.half) {
-        const out = line.out;
-        if (lane.gap(0) !== 0 || !out) continue;
-        const target = out.lanes[i];
-        const carry = Math.floor((rem * out.speed) / line.speed);
-        let pos = out.length - carry;
-        if (target.count > 0) pos = Math.max(pos, target.total + target.spacing);
-        if (pos > out.length) continue;
-        target.insert(pos, lane.removeAt(0));
-        this.wakeLane(target);
-        this.notifyWatchers(out, pos, pos);
+        if (lane.gap(0) !== 0 || !this.passOn(line, lane, rem)) continue;
+        // Its own item went on: it may make way again.
+        if (!marked) this.nextCol[row] = this.nextCol[row]! & ~yieldBit(line.half, i);
       } else {
         if (!this.outputOpen(sib, i)) continue;
         const target = sib.lanes[i];
-        const start = this.splitMinFront(target);
-        // Into the slot a merging half keeps: the plain spacing, not the lane's.
-        const pos = target.fitNear(start, CROSS_REACH, BELT_ITEM_SPACING);
+        // Whether the other half's first item makes way for it.
+        const making = this.mergeHold(target) >= 0;
+        // At the half's rate behind the output's last item; into the slot a
+        // merging half keeps: the plain spacing, not the lane's.
+        let pos = target.fitNear(this.crossFront(sib, i), CROSS_REACH, BELT_ITEM_SPACING);
+        const ahead = target.count > 0 ? target.gap(0) : Number.MAX_SAFE_INTEGER;
+        if (pos >= 0 && pos < ahead && target.due === this.tick) {
+          // In front of that half's items, and it is yet to step this tick:
+          // as much further back as that step will move it on.
+          pos = target.fitNear(this.crossFront(sib, i, sib.speed), CROSS_REACH, BELT_ITEM_SPACING);
+        }
         // Behind the half's last item, it keeps the half's own spacing ahead of
         // the item feeding in from behind, so that one isn't held up.
-        if (pos < 0 || pos > this.backLimit(sib, target, target.spacing)) continue;
-        target.insert(pos, lane.removeAt(0), true, BELT_ITEM_SPACING);
-        this.wakeLane(target);
-        this.notifyWatchers(sib, pos, pos);
+        const fits = pos >= 0 && pos <= this.backLimit(sib, target, target.spacing);
+        // From this half's end with movement left, onto the other half's
+        // very end (or past it): on through that half at once, as if it had
+        // reached that end with what is left of its movement.
+        const onward = fits ? pos === 0 : making;
+        if (lane.gap(0) === 0 && onward && this.crossOn(sib, lane, rem)) {
+          // Handed on.
+        } else if (fits) {
+          target.insert(pos, lane.removeAt(0), true, BELT_ITEM_SPACING);
+          this.wakeLane(target);
+          this.notifyWatchers(sib, pos, pos);
+        } else {
+          continue;
+        }
         this.frontLeft(line);
+        // In front of the other half's own first item, which made way for it:
+        // that one goes next.
+        if (making && (!fits || pos < ahead)) {
+          this.nextCol[row] = this.nextCol[row]! | yieldBit(sib.half, i);
+        }
       }
       if (!marked && t === pref) this.nextCol[row] = this.nextCol[row]! ^ (1 << i);
       this.handed = true;
       return true;
     }
     return false;
+  }
+
+  /**
+   * The first item of `from`, at the end of a splitter half with `rem` of
+   * its movement left, goes across and on through the other half `half` at
+   * once: straight onto `half`'s output (`passOn`), as if it had reached
+   * `half`'s end with that movement left, where that keeps it the spacing
+   * ahead of `half`'s first item. Returns whether it did. Used where it
+   * would land right at `half`'s end, or where `half` makes way for it
+   * (`mergeHold`): the half only stops the spacing (less the carry) behind
+   * the output's last item, so the item crossing over keeps exactly the
+   * spacing to that one, whichever half steps first.
+   */
+  private crossOn(half: TransportLine, from: LineLane, rem: number): boolean {
+    if (!half.out) return false;
+    const carry = this.crossCarry(half, from.index, rem);
+    if (carry < 0) return false;
+    const own = half.lanes[from.index];
+    if (own.count > 0 && own.gap(0) + this.crossDepth(half, carry) < BELT_ITEM_SPACING) {
+      return false;
+    }
+    return this.passOn(half, from, carry);
+  }
+
+  /**
+   * Hands the first item of `from` (a lane of `half` or of its sibling, at
+   * its end with `rem` subtiles of the tick's movement left) straight on
+   * from the end of `half` onto the start of the line in front of it, the
+   * ordinary hand-over: with that movement, scaled to the target's speed,
+   * but no closer than the target lane's spacing to its last item. Returns
+   * whether it did.
+   */
+  private passOn(half: TransportLine, from: LineLane, rem: number): boolean {
+    const out = half.out;
+    if (!out) return false;
+    const target = out.lanes[from.index];
+    const carry = Math.floor((rem * out.speed) / half.speed);
+    let pos = out.length - carry;
+    if (target.count > 0) pos = Math.max(pos, target.total + target.spacing);
+    if (pos > out.length) return false;
+    target.insert(pos, from.removeAt(0));
+    this.wakeLane(target);
+    this.notifyWatchers(out, pos, pos);
+    return true;
   }
 
   /**
@@ -1055,14 +1227,20 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
 
   /**
    * Fair merging: while a splitter half has items that can't go straight on
-   * (its output isn't open, `outputOpen`), the other half's lane closes up
-   * only to `MERGE_SPACING`, and the line feeding it hands on that far
-   * apart, so a slot stays free behind each of its own items for one sent
-   * across (the lanes only ever close gaps, so the slot has to be kept from
-   * the start). Everything bound for that output passes through that half,
-   * so the two inputs take turns at the rate of the half or the output,
-   * whichever is slower. Set per lane on both halves; a lane opening up
-   * again wakes, with the lane feeding it. O(1).
+   * (its output isn't open, `outputOpen`) and they come close together
+   * (`dense`), the other half's lane closes up only to `MERGE_SPACING`, and
+   * the line feeding it hands on that far apart, so a slot stays free
+   * behind each of its own items for one sent across (the lanes only ever
+   * close gaps, so the slot has to be kept from the start). Everything
+   * bound for that output passes through that half, so the two inputs take
+   * turns at the rate of the half or the output, whichever is slower. Items
+   * that come further apart (a sparse input) get no slots kept, which could
+   * go out empty: the other half makes way for each one as it comes
+   * instead (`mergeHold`). A first item waiting to go across doesn't count
+   * towards starting to keep slots (the one behind it may close up while
+   * it waits for its turn), only towards going on keeping them. Set per lane
+   * on both halves; a lane opening up again wakes, with the lane feeding
+   * it. O(1).
    */
   private refreshMerge(line: TransportLine): void {
     if (line.splitter === 0 || line.dead) return;
@@ -1073,7 +1251,14 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     ] as const) {
       for (const lane of x.lanes) {
         const other = y.lanes[lane.index];
-        const merging = x.out !== null && other.count > 0 && !this.outputOpen(y, lane.index);
+        const merging =
+          x.out !== null &&
+          !this.outputOpen(y, lane.index) &&
+          dense(
+            other,
+            y.speed,
+            lane.spacing === MERGE_SPACING || other.gap(0) > this.splitMinFront(other) ? 1 : 2,
+          );
         const spacing = merging ? MERGE_SPACING : BELT_ITEM_SPACING;
         if (spacing === lane.spacing) continue;
         lane.setSpacing(spacing);
@@ -1854,6 +2039,29 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     }
     return row;
   }
+}
+
+/** The first bit of a splitter row's `nextCol` that says a half's lane made way (`mergeHold`). */
+const YIELD_BIT = 2;
+
+/** The bit of a splitter row's `nextCol` set while half `half`'s lane `lane` made way. */
+function yieldBit(half: number, lane: number): number {
+  return 1 << (YIELD_BIT + 2 * half + lane);
+}
+
+/**
+ * Whether splitter half lane `lane` (of a half moving `speed` per tick)
+ * carries items closely enough that the half it merges into keeps slots
+ * for them (`refreshMerge`): two consecutive ones, from item `from - 1` on,
+ * less than the spacing plus one tick's movement apart. Items further apart
+ * than that can't be ready to go across on two consecutive turns, so the
+ * half they merge into makes way for each one instead (`mergeHold`). O(1):
+ * a half is one belt long, so it holds at most four items that far apart
+ * before the loop finds two closer ones.
+ */
+function dense(lane: Lane, speed: number, from = 1): boolean {
+  for (let i = from; i < lane.count; i++) if (lane.gap(i) < BELT_ITEM_SPACING + speed) return true;
+  return false;
 }
 
 /** The key of the items saved for splitter `id`'s half on tile `(x, y)` during a rebuild. */

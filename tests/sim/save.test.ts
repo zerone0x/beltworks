@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { ENTITIES, EntityTypeId } from '../../src/data/entities';
 import { ItemId } from '../../src/data/items';
+import { beltTable } from '../../src/sim/belts/belts';
 import { Direction } from '../../src/sim/entities/direction';
 import {
   DETERMINISM_TICKS,
@@ -94,6 +96,55 @@ describe('save round trip', () => {
     for (let i = 20; i < 40; i++) corrupt[i]! ^= 0xff;
     await expect(gunzip(corrupt)).rejects.toThrow(DAMAGED_SAVE_MESSAGE);
     await expect(gunzip(packed.slice(0, packed.length >> 1))).rejects.toThrow(DAMAGED_SAVE_MESSAGE);
+  });
+
+  it('round-trips a splitter merging a full and a sparse input, mid-turn', () => {
+    // An express splitter with fast inputs and an express output in front of
+    // half A: input A is full, input B gets an item per lane every 16 ticks,
+    // so half A keeps making way for B's items (its yield bits and held items
+    // change all the time). The relay is reloaded every few ticks.
+    const build = () => {
+      const sim = new Sim({ seed: 5 });
+      const { entities } = sim.state;
+      entities.add(ENTITIES[EntityTypeId.ExpressSplitter], 2, 0, Direction.East);
+      for (const [x, y, proto] of [
+        [0, 0, ENTITIES[EntityTypeId.FastTransportBelt]],
+        [1, 0, ENTITIES[EntityTypeId.FastTransportBelt]],
+        [0, 1, ENTITIES[EntityTypeId.FastTransportBelt]],
+        [1, 1, ENTITIES[EntityTypeId.FastTransportBelt]],
+        [3, 0, ENTITIES[EntityTypeId.ExpressTransportBelt]],
+        [4, 0, ENTITIES[EntityTypeId.ExpressTransportBelt]],
+      ] as const) {
+        entities.add(proto, x, y, Direction.East);
+      }
+      return sim;
+    };
+    /** Feeds and empties the belts of `sim` as the scene does after `tick`, the same way every run. */
+    const tend = (sim: Sim, tick: number) => {
+      const table = beltTable(sim.state.entities)!;
+      const [inA, inB, out] = [
+        [0, 0],
+        [0, 1],
+        [3, 0],
+      ].map(([x, y]) => table.line(table.beltLine(sim.state.entities.at(x!, y!)))!);
+      for (const lane of [0, 1]) {
+        while (table.takeAt(out!.id, lane, 0, out!.speed - 1) !== 0);
+        const l = inA!.lanes[lane as 0 | 1];
+        table.insertAt(inA!.id, lane, l.count === 0 ? inA!.length : l.total + 64, ItemId.IronPlate);
+        if (tick % 16 === 0) table.insertAt(inB!.id, lane, inB!.length, ItemId.Coal);
+      }
+    };
+    const reference = build();
+    let relay = build();
+    for (let t = 0; t < 600; t++) {
+      if (t >= 100 && t % 7 === 0) relay = reload(relay);
+      tend(reference, t);
+      tend(relay, t);
+      stepTogether(reference, relay, 1);
+    }
+    const out = (sim: Sim) =>
+      beltTable(sim.state.entities)!.itemsOwnedBy(sim.state.entities.at(3, 0));
+    expect(out(relay)).toEqual(out(reference));
   });
 
   it('describes a save in its meta section', () => {
