@@ -336,6 +336,35 @@ export function audioFromUrl(search: string, mode: string): boolean {
 }
 
 /**
+ * Dev and test builds: when the title screen shows, from a `?title=` URL
+ * parameter (`1`: always, as in production; `0`: never). Without one, test
+ * builds (`mode` `test`) show it only when there are saves to continue, so
+ * the end-to-end specs start straight in a new game on the default seed;
+ * dev builds always show it.
+ */
+export function titleModeFromUrl(search: string, mode: string): 'always' | 'saves' | 'never' {
+  const param = new URLSearchParams(search).get('title');
+  if (param === '1') return 'always';
+  if (param === '0') return 'never';
+  if (param !== null) throw new Error(`bad title "${param}"`);
+  return mode === 'test' ? 'saves' : 'always';
+}
+
+/**
+ * Dev and test builds: whether the onboarding's objectives can show, from an
+ * `?onboarding=` URL parameter (`1` or `0`). Without one, test builds keep
+ * them off (they would cover the screenshots and the corner the specs click
+ * in); dev builds behave like production.
+ */
+export function onboardingFromUrl(search: string, mode: string): boolean {
+  const param = new URLSearchParams(search).get('onboarding');
+  if (param === '1') return true;
+  if (param === '0') return false;
+  if (param !== null) throw new Error(`bad onboarding "${param}"`);
+  return mode !== 'test';
+}
+
+/**
  * Dev and test builds: the most texels per tile the rendered terrain bakes
  * at, from a `?texels=` URL parameter (8, 16, 32 or 64), e.g. full density
  * for screenshots on a software renderer (64: with the detail textures

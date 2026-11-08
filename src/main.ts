@@ -5,6 +5,8 @@ import { followVolumeSettings } from './audio/volume';
 import { isPolePrototypeOf } from './sim/power/geometry';
 import type { CommandInput } from './sim/commands';
 import { PLAYER_INVENTORY_SLOTS } from './sim/inventory';
+import { SUBTILES_PER_TILE } from './sim/fixed';
+import { startingPatches } from './sim/world/generate';
 import {
   decodeCraftQueue,
   decodeEntityDetail,
@@ -30,6 +32,8 @@ import { DebugOverlay } from './ui/debugOverlay';
 import { EntityPanel, hasEntityGui } from './ui/entityPanel';
 import { GameMenu } from './ui/gameMenu';
 import { HelpPanel } from './ui/help';
+import { OnboardingPanel } from './ui/onboardingPanel';
+import { Tooltips, entityTooltip } from './ui/tooltip';
 import {
   HOTBAR_SLOTS,
   Hotbar,
@@ -53,8 +57,15 @@ import { SimClient } from './worker/client';
 import { LOCAL_PLAYER_ID } from './worker/protocol';
 
 const BACKGROUND = 0x111418;
-/** Fixed world seed until there is a new-game screen. */
-const WORLD_SEED = 1;
+/** Snapshots between two updates of the onboarding objectives. */
+const ONBOARDING_EVERY = 6;
+/** Milliseconds the pointer rests on an entity before its tooltip shows. */
+const WORLD_TOOLTIP_MS = 600;
+/**
+ * The world seed of a new game that skips the title screen (test builds,
+ * render scenes), and of a save whose seed can't be read.
+ */
+const DEFAULT_SEED = 1;
 
 async function main(): Promise<void> {
   const root = document.getElementById('app') ?? document.body;
@@ -63,13 +74,24 @@ async function main(): Promise<void> {
   // `?research=` researched technologies.
   const testHook =
     import.meta.env.DEV || import.meta.env.MODE === 'test' ? await import('./testHook') : null;
-  // A save to continue (the start screen, or the menu's Load before it reloaded the page), or a new game;
-  // a `?scene=` render scene (render profile) is always a fresh game: no start screen, no autosaves.
-  const renderScene = testHook?.renderSceneFromUrl(window.location.search);
+  const search = window.location.search;
+  // Settings (keys, graphics, UI scale, volumes), per browser (D50); the title screen opens them too.
+  const settings = new SettingsStore();
+  const settingsPanel = new SettingsPanel(settings);
+  // A save to continue or a new game on a seed (the title screen, or the menu's Load before it
+  // reloaded the page); a `?scene=` render scene (render profile) is always a fresh game: no
+  // title screen, no autosaves, no onboarding.
+  const renderScene = testHook?.renderSceneFromUrl(search);
   const store = await SaveStore.open();
-  const start: StartChoice = renderScene ? {} : await chooseStart(store);
+  const start: StartChoice = renderScene
+    ? { seed: DEFAULT_SEED }
+    : await chooseStart(store, {
+        mode: testHook?.titleModeFromUrl(search, import.meta.env.MODE) ?? 'always',
+        defaultSeed: DEFAULT_SEED,
+        settings: settingsPanel,
+      });
   const client = new SimClient(
-    WORLD_SEED,
+    start.seed,
     testHook?.startingKitFromUrl(window.location.search),
     testHook?.researchedFromUrl(window.location.search),
     start.save,
@@ -80,8 +102,6 @@ async function main(): Promise<void> {
   let inventory: SlotData[] = [];
   /** The local player's force's research as of the latest snapshot. */
   let research: ResearchData = NO_RESEARCH;
-  // Settings (keys, graphics, UI scale, volumes), per browser (D50).
-  const settings = new SettingsStore();
   const uiScale = new UiScale();
   /**
    * Item ids pinned to the hotbar slots, 0 where a slot shows the inventory
@@ -232,7 +252,28 @@ async function main(): Promise<void> {
     },
     () => pinNames(pins),
   );
-  const settingsPanel = new SettingsPanel(settings);
+  const tooltips = new Tooltips(document.body);
+  /** The local player's position in tiles as of the latest snapshot. */
+  let playerAt: { x: number; y: number } | null = null;
+  // The first five minutes' objectives (D54): UI state in localStorage, advanced by the snapshots.
+  const onboardingOn =
+    !renderScene && (testHook?.onboardingFromUrl(search, import.meta.env.MODE) ?? true);
+  const patches = startingPatches(start.seed);
+  const onboarding = onboardingOn
+    ? new OnboardingPanel(document.body, {
+        highlight: ({ item, recipe }) => {
+          hotbar.markItem(item);
+          craftingPanel.markRecipe(recipe);
+        },
+        player: () => playerAt,
+        patch: (ore) => {
+          const p = patches.find((q) => q.ore === ore);
+          return p ? { x: p.x + 0.5, y: p.y + 0.5 } : null;
+        },
+      })
+    : null;
+  // A new game picked on the title screen starts the objectives again, unless the player closed them.
+  if (onboarding && start.fresh && !onboarding.progress.dismissed) onboarding.restart();
   menu = new GameMenu(
     document.body,
     {
@@ -247,6 +288,11 @@ async function main(): Promise<void> {
       newGame: () => {
         saves.newGame();
       },
+      ...(onboarding && {
+        restartTutorial: () => {
+          onboarding.restart();
+        },
+      }),
       otherWindowOpen: () =>
         entityPanel.isOpen ||
         inventoryPanel.isOpen ||
@@ -256,6 +302,7 @@ async function main(): Promise<void> {
     },
     settingsPanel,
   );
+  menu.setSeed(start.seed);
   // Single-player: the game pauses behind the menu (the simulation just runs no ticks).
   menu.onToggle = (open) => {
     client.setPaused(open);
@@ -279,6 +326,8 @@ async function main(): Promise<void> {
   uiScale.register(menu.button, '100% 0');
   uiScale.register(menu.panel, '50% 50%');
   uiScale.register(settingsPanel.element, '50% 50%');
+  // Above the controls hint: it scales around the hint's corner, like the help panel.
+  if (onboarding) uiScale.register(onboarding.element, '0 calc(100% + 36px)');
   client.onLoaded = (msg) => {
     if (msg.error !== null) {
       menu?.notify(`Couldn't load the save: ${msg.error} A new game was started instead.`, 10_000);
@@ -463,6 +512,11 @@ async function main(): Promise<void> {
   // what the worker thinks was sent. Snapshots before this point carry no
   // chunks: the worker only sends them once it has a viewport, and the first
   // one goes out on the first frame below.
+  /** Snapshots since startup (the objectives update on every `ONBOARDING_EVERY`th). */
+  let onboardingFrame = 0;
+  /** The entity the pointer rests on (0: none), and since when (for its tooltip). */
+  let restingOn = 0;
+  let restingSince = 0;
   client.onSnapshot = (snapshot) => {
     view.applySnapshot(snapshot);
     inventory = decodeInventory(snapshot.inventory);
@@ -485,6 +539,24 @@ async function main(): Promise<void> {
       craftingPanel.update(inventory, queue.entries.length, research);
     }
     audio.onSnapshot(snapshot, queue, research);
+    // The objectives read the game a few times a second (they scan the entities around the view).
+    if (onboarding && ++onboardingFrame % ONBOARDING_EVERY === 0) {
+      const o = LOCAL_PLAYER_ID * PLAYER_STRIDE;
+      const records = view.track.latest;
+      playerAt =
+        records.length >= o + PLAYER_STRIDE
+          ? {
+              x: records[o + PlayerField.x]! / SUBTILES_PER_TILE,
+              y: records[o + PlayerField.y]! / SUBTILES_PER_TILE,
+            }
+          : null;
+      onboarding.update({
+        inventory,
+        craftQueue: queue.entries.map((e) => e.recipe),
+        entities: view.entityIndex.entities,
+        resourceAt: (x, y) => view.terrain.tileAt(x, y)?.resource ?? null,
+      });
+    }
   };
   app.ticker.add((ticker) => {
     view.frame(ticker.deltaMS);
@@ -495,8 +567,24 @@ async function main(): Promise<void> {
     // The held stack shows at the cursor in windows with slots (the ghost shows it over the game).
     const windowOpen = inventoryPanel.isOpen || entityPanel.isOpen;
     cursorStack.show(cursorItem(), windowOpen ? buildInput.handCount() : 0);
-    overlay.updateTile(view.hoveredTile());
+    const hovered = view.hoveredTile();
+    overlay.updateTile(hovered);
     audio.frame();
+    // An entity's tooltip once the pointer rests on it with nothing in hand.
+    const pointer = view.input.pointer;
+    const entity =
+      pointer && hovered && buildInput.selection === null
+        ? view.entityIndex.at(hovered.x, hovered.y)
+        : null;
+    const now = performance.now();
+    if ((entity?.id ?? 0) !== restingOn) {
+      restingOn = entity?.id ?? 0;
+      restingSince = now;
+      tooltips.showAt(null, '', 0, 0);
+    } else if (entity && pointer && now - restingSince >= WORLD_TOOLTIP_MS) {
+      const key = `entity:${String(entity.id)}:${String(entity.recipe)}`;
+      tooltips.showAt(entityTooltip(entity.type, entity.recipe), key, pointer.x, pointer.y);
+    }
   });
 
   if (testHook) {
@@ -510,7 +598,7 @@ async function main(): Promise<void> {
       minimap,
       saves,
       audio: engine,
-      seed: WORLD_SEED,
+      seed: start.seed,
       inventory: () => inventory,
       research: () => research,
       ticker: app.ticker,

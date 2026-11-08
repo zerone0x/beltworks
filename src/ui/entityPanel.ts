@@ -436,6 +436,8 @@ export class EntityPanel {
     this.element.dataset.type = entityPrototype(type)?.name ?? '';
     this.title.textContent = entityPrototype(type)?.label ?? '';
     this.element.setAttribute('aria-label', this.title.textContent);
+    // Hovering the name shows the entity's tooltip (power use, size; tooltip.ts).
+    this.title.dataset.tip = `entity:${String(type)}`;
     this.type = type;
     this.buildBody(type);
     this.setStatus(MachineState.Idle);

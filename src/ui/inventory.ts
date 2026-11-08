@@ -28,6 +28,8 @@ export const HOTBAR_BOTTOM_PX = 8;
 const SLOT_BORDER = '1px solid rgba(232, 226, 208, 0.25)';
 /** Drawn as an outline inside the slot, so selecting doesn't shift its contents. */
 const SELECTED_OUTLINE = '2px solid #f2d36b';
+/** Glow around a slot the onboarding points out (outside the slot, so it doesn't clash with the outline). */
+export const MARKED_GLOW = '0 0 0 2px #7fd4ff, 0 0 8px 2px rgba(127, 212, 255, 0.8)';
 /** Border of a hotbar slot with a pinned item. */
 const PINNED_BORDER = '1px solid rgba(120, 190, 255, 0.85)';
 
@@ -322,6 +324,19 @@ export class SlotGrid {
     });
   }
 
+  /**
+   * Points out cell `index` with a glow (the onboarding's "use this one"),
+   * independent of the selection outline; `null` for none.
+   */
+  mark(index: number | null): void {
+    this.cells.forEach((cell, i) => {
+      const on = i === index;
+      if ((cell.root.dataset.marked === 'true') === on) return;
+      cell.root.dataset.marked = String(on);
+      cell.root.style.boxShadow = on ? MARKED_GLOW : 'none';
+    });
+  }
+
   /** The item shown in cell `index` (0 for none), as of the latest `update`. */
   itemAt(index: number): number {
     return Number(this.cells[index]?.icon.dataset.item ?? 0);
@@ -359,7 +374,13 @@ export class SlotGrid {
       this.shown[i] = key;
       cell.root.dataset.item = view.name;
       cell.root.dataset.count = view.count === '' ? '0' : view.count;
-      cell.root.title = hint !== 0 ? (itemPrototype(hint)?.label ?? view.title) : view.title;
+      // The rich tooltip (tooltip.ts) shows for `data-tip`; the label stays for screen readers.
+      const shownItem = view.color ? slot.item : hint;
+      cell.root.dataset.tip = shownItem !== 0 ? `item:${String(shownItem)}` : '';
+      cell.root.setAttribute(
+        'aria-label',
+        hint !== 0 ? (itemPrototype(hint)?.label ?? view.title) : view.title,
+      );
       cell.icon.style.display = view.color || hint !== 0 ? 'block' : 'none';
       cell.icon.style.opacity = hint !== 0 ? '0.3' : '1';
       setSlotIcon(cell.icon, view.color ? slot.item : hint);
@@ -385,6 +406,10 @@ export interface HotbarOptions {
 export class Hotbar {
   readonly element: HTMLElement;
   private readonly grid: SlotGrid;
+  /** What the slots show, as of the latest `update`. */
+  private shown: SlotData[] = [];
+  /** The item `markItem` points out (0 for none). */
+  private marked = 0;
 
   constructor(parent: HTMLElement, options?: HotbarOptions) {
     this.grid = new SlotGrid(HOTBAR_SLOTS, HOTBAR_SLOTS, options?.onClick, {
@@ -420,7 +445,26 @@ export class Hotbar {
   update(slots: readonly SlotData[], pins: readonly number[] = []): void {
     this.grid.setHints(pins);
     this.grid.setPinned(Array.from({ length: HOTBAR_SLOTS }, (_, i) => (pins[i] ?? 0) !== 0));
-    this.grid.update(hotbarSlots(slots, pins));
+    this.shown = hotbarSlots(slots, pins);
+    this.grid.update(this.shown);
+    this.applyMark();
+  }
+
+  /** Points out the first hotbar slot showing `item` (0: none), from now on and as the hotbar changes. */
+  markItem(item: number): void {
+    this.marked = item;
+    this.applyMark();
+  }
+
+  /** The hotbar slot `markItem` points out, or `null`. */
+  get markedSlot(): number | null {
+    if (this.marked === 0) return null;
+    const i = this.shown.findIndex((s) => s.item === this.marked && s.count > 0);
+    return i < 0 ? null : i;
+  }
+
+  private applyMark(): void {
+    this.grid.mark(this.markedSlot);
   }
 
   /** Highlights hotbar slot `slot`, or none for `null` or a slot past the hotbar. */

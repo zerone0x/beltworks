@@ -6,6 +6,8 @@ A factory-automation game for the browser, inspired by Factorio. All art and nam
 
 ## Playing
 
+The game opens on the **title screen**: **Continue** (the newest save), **New game** on a world seed (a random one is suggested; type a number, or any word or phrase, to get the same world every time, and **Copy** its number, the one the game menu shows, to share it), **Load** (any save) and **Settings**. The game menu (**Esc**) shows the seed of the game you are playing, with a copy button.
+
 A new game starts between four ore patches (iron, copper, coal, stone) with a kit of belts, burner inserters, burner mining drills, stone furnaces, wooden chests and coal in the hotbar. The first goal: a drill on iron ore drops ore onto a belt, an inserter feeds it into a furnace, and another inserter moves the plates into a chest, all on their own once fuelled with coal. From there: steam power, assembling machines, and labs researching technologies from red and then green science packs, made by machines.
 
 ![Pre-rendered sprites of assembling machines 1 and 2, a lit stone furnace, an iron and a wooden chest, and burner mining drills facing all four ways](docs/screenshots/art-first.png)
@@ -15,6 +17,16 @@ A new game starts between four ore patches (iron, copper, coal, stone) with a ki
 ![Automated science: assembling machines making gears, red and green science packs, fed by inserters from chests and a belt, and a lab researching on steam power](docs/screenshots/m3-science.png)
 
 ![The M1 chain: a burner mining drill on iron ore, a belt, an inserter, a furnace, an inserter and a chest filling with iron plates](docs/screenshots/m1-chain.png)
+
+The **Getting started** panel in the bottom-left corner (above the controls hint) walks a new player through the first five minutes: mine stone, craft a furnace, place a drill on iron ore, lay a belt, place a furnace, feed it with an inserter, collect the plates with a second inserter and a chest, and fuel it all. Each objective is done when the game sees it done, not when you click anything; it names the keys to press (as bound), points the way to the ore patch it needs, and marks the hotbar slot or crafting recipe to use. **Skip** closes it for good; **Tutorial** in the game menu starts it again.
+
+**Tooltips**: hover an item (inventory, hotbar, an entity's window), a crafting recipe or the name of an entity window for its recipe, crafting time and, for a machine, its power use, size and speed. Resting the mouse on a placed entity shows its tooltip too.
+
+![The title screen: world seed, New game, Load and Settings](docs/screenshots/m5-title.png)
+
+![The Getting started objectives on the craft step, with the stone furnace recipe marked and its tooltip](docs/screenshots/m5-onboarding-craft.png)
+
+![The objectives done: the iron plate line built from them runs on its own](docs/screenshots/m5-onboarding-done.png)
 
 Press **H** in the game (or click the hint in the bottom-left corner) for a list of the controls. In full:
 
@@ -47,7 +59,7 @@ Press **H** in the game (or click the hint in the bottom-left corner) for a list
 - **Mouse wheel**: zoom (towards the cursor with a free camera, around the player while following). Zoomed out past 0.25×, the view fades into the **map view**: flat colours for the terrain, ore, trees, buildings and belts, down to 0.125×.
 - **M**: show or hide the **minimap** in the bottom-right corner: what you have seen around the camera, the part on screen (white rectangle) and you (orange dot). **Click** or **drag** on it to move the camera there; **F** follows the player again.
 - **H**: show or hide the list of controls (with the keys as currently bound).
-- **Esc** with no window open (or the **Menu** button in the top-right corner): the **game menu**. Save the game under a name (saving under an existing name replaces that save), load, export (download a `.bwsave` file) or delete a save, import a save file, start a new game, or open the **settings**: rebind every key (click it, press the new key; a key another action has swaps with it; reset to defaults), graphics (rendered or flat terrain, terrain detail, shadows, animations), the UI scale (75–200%), lettered item icons, and the master, effects and music volumes. Settings are kept in the browser. The game also **autosaves** every 5 minutes, rotating through three autosave slots. Saves live in the browser (IndexedDB); when there are any, the game starts on a screen offering to **Continue** the newest one or start a new game.
+- **Esc** with no window open (or the **Menu** button in the top-right corner): the **game menu**. Save the game under a name (saving under an existing name replaces that save), load, export (download a `.bwsave` file) or delete a save, import a save file, start a new game (back on the title screen, to pick a seed), copy the world seed, restart the **Tutorial** objectives, or open the **settings**: rebind every key (click it, press the new key; a key another action has swaps with it; reset to defaults), graphics (rendered or flat terrain, terrain detail, shadows, animations), the UI scale (75–200%), lettered item icons, and the master, effects and music volumes. Settings are kept in the browser. The game also **autosaves** every 5 minutes, rotating through three autosave slots. Saves live in the browser (IndexedDB); the game always opens on the title screen, whose **Continue** (shown once there is a save) loads the newest one.
 
 Items show as rendered icons, the same on belts, in inserter hands and in the inventory; the settings offer the placeholder icons instead: the item's color with a one- or two-letter label (**FE** iron, **CU** copper, **C** coal, **S** stone, ...). Ores are rough chunks, plates and bricks bevelled squares, and everything else rounded squares.
 

@@ -28,6 +28,7 @@ import {
   GAP_PX,
   HOTBAR_BOTTOM_PX,
   HOTBAR_SLOTS,
+  MARKED_GLOW,
   SLOT_PX,
   barWidth,
   makeSlotIcon,
@@ -124,6 +125,7 @@ export class CraftingPanel {
   readonly element: HTMLElement;
   private readonly cells: { root: HTMLElement; count: HTMLElement }[] = [];
   private shown = '';
+  private marked = 0;
 
   constructor({ playerId, send }: CraftingUiOptions) {
     const el = document.createElement('div');
@@ -141,7 +143,8 @@ export class CraftingPanel {
       const { root, icon, count } = makeSlot('button');
       root.className = 'recipe';
       root.dataset.recipe = recipeName(recipe);
-      root.title = `${shownItem(recipe).label}: ${recipeTitle(recipe)}`;
+      root.setAttribute('aria-label', `${shownItem(recipe).label}: ${recipeTitle(recipe)}`);
+      root.dataset.tip = `recipe:${String(recipe.id)}`;
       setSlotIcon(icon, shownItem(recipe).id);
       root.addEventListener('click', (e) => {
         send([
@@ -159,6 +162,18 @@ export class CraftingPanel {
     el.append(title, grid);
     this.element = el;
     this.update([], 0);
+  }
+
+  /** Points out the button of hand recipe `recipe` with a glow (the onboarding); 0 for none. */
+  markRecipe(recipe: number): void {
+    if (recipe === this.marked) return;
+    this.marked = recipe;
+    HAND_RECIPES.forEach((r, i) => {
+      const cell = this.cells[i]!;
+      const on = r.id === recipe;
+      cell.root.dataset.marked = String(on);
+      cell.root.style.boxShadow = on ? MARKED_GLOW : 'none';
+    });
   }
 
   /**
