@@ -153,7 +153,7 @@ test('walk to an ore tile, mine it for 2 s, and find the ore in the inventory', 
   // 2 s at one unit per 0.5 s is 4 units; allow for input latency and slow test steps.
   expect(mined).toBeGreaterThanOrEqual(3);
   expect(mined).toBeLessThanOrEqual(10);
-  await expect(slots.first()).toHaveAttribute('title', new RegExp(`^${item.label} × \\d+$`));
+  await expect(slots.first()).toHaveAttribute('aria-label', new RegExp(`^${item.label} × \\d+$`));
   // The ore lands in the first free slot: in the hotbar unless the starting kit fills it.
   const inHotbar = STARTING_KIT.length < HOTBAR_SLOTS ? 1 : 0;
   await expect(hotbar.locator(`[data-item="${item.name}"]`)).toHaveCount(inHotbar);

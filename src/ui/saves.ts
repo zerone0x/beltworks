@@ -1,8 +1,8 @@
 /**
- * Saving and loading on the main thread: picks what to start with (a save
- * to continue, or a new game), stores the worker's saves in IndexedDB,
- * autosaves, exports and imports save files, and backs the game menu
- * (src/ui/gameMenu.ts).
+ * Saving and loading on the main thread: picks what to start with (the
+ * title screen: a save to continue, or a new game on a seed), stores the
+ * worker's saves in IndexedDB, autosaves, exports and imports save files,
+ * and backs the game menu (src/ui/gameMenu.ts).
  *
  * Loading a save (or starting a new game) from the menu reloads the page
  * with the choice in `sessionStorage`, so every part of the main thread
@@ -24,16 +24,29 @@ import {
 import { SaveStore } from '../save/store';
 import { SAVE_VERSION, readSaveMeta } from '../sim/save/container';
 import type { SimClient } from '../worker/client';
-import { showStartScreen, type GameMenuActions } from './gameMenu';
+import type { GameMenuActions } from './gameMenu';
+import type { SettingsPanel } from './settingsPanel';
+import { showTitleScreen } from './titleScreen';
 
 /** What the page reload after "Load" or "New game" in the menu should start with. */
 const NEXT_KEY = 'beltworks.next';
 
-/** What a page starts with: a save to continue (and its slot), or a new game. */
+/** What a page starts with: a save to continue (and its slot), or a new game; and the world seed. */
 export interface StartChoice {
   save?: Uint8Array;
   slot?: SaveSlot;
+  /** The world seed: the new game's, or the save's. */
+  seed: number;
+  /** Whether this is a new game picked on the title screen (the onboarding starts again). */
+  fresh?: boolean;
 }
+
+/**
+ * When the title screen shows: `always` (production and dev builds), only
+ * when there are saves to continue (`saves`: test builds, so the e2e specs
+ * start straight in a new game on the default seed), or `never`.
+ */
+export type TitleMode = 'always' | 'saves' | 'never';
 
 function newerVersionMessage(version: number): string {
   return (
@@ -42,29 +55,53 @@ function newerVersionMessage(version: number): string {
   );
 }
 
-/**
- * Decides what this page starts with: the choice the menu left before
- * reloading, else, when there are saves, whatever the start screen's
- * player picks (Continue: the newest save), else a new game.
- */
-export async function chooseStart(store: SaveStore | null): Promise<StartChoice> {
-  const next = sessionStorage.getItem(NEXT_KEY);
-  sessionStorage.removeItem(NEXT_KEY);
-  if (!store || next === 'new') return {};
-  const slots = sortSlots(await store.list());
-  const fromMenu = next?.startsWith('load:') ? slots.find((s) => s.id === next.slice(5)) : null;
-  let slot = fromMenu ?? null;
-  if (!slot) {
-    if (slots.length === 0) return {};
-    const choice = await showStartScreen(document.body, slots[0]!, slots.length);
-    if (choice === 'new') return {};
-    slot = slots[0]!;
+/** The world seed of save `save` (gzipped or not), or `fallback` if it can't be read. */
+async function seedOf(save: Uint8Array, fallback: number): Promise<number> {
+  try {
+    return readSaveMeta(isGzip(save) ? await gunzip(save) : save).seed >>> 0;
+  } catch {
+    return fallback;
   }
-  const save = await store.read(slot.id);
-  return save ? { save, slot } : {};
 }
 
-export class SaveController implements Omit<GameMenuActions, 'otherWindowOpen'> {
+/**
+ * Decides what this page starts with: the save the menu's Load left before
+ * reloading, else what the player picks on the title screen (`mode` says
+ * when it shows; the menu's New game always shows it), else a new game on
+ * `defaultSeed`.
+ */
+export async function chooseStart(
+  store: SaveStore | null,
+  {
+    mode = 'always',
+    defaultSeed,
+    settings = null,
+  }: { mode?: TitleMode; defaultSeed: number; settings?: SettingsPanel | null },
+): Promise<StartChoice> {
+  const next = sessionStorage.getItem(NEXT_KEY);
+  sessionStorage.removeItem(NEXT_KEY);
+  const slots = store ? sortSlots(await store.list()) : [];
+  let slot = next?.startsWith('load:') ? (slots.find((s) => s.id === next.slice(5)) ?? null) : null;
+  if (!slot) {
+    const show = next === 'title' || mode === 'always' || (mode === 'saves' && slots.length > 0);
+    if (!show) return { seed: defaultSeed };
+    const choice = await showTitleScreen(document.body, {
+      slots,
+      ...(mode !== 'always' && { seed: defaultSeed }),
+      settings,
+    });
+    if (choice.kind === 'new') return { seed: choice.seed, fresh: true };
+    slot = choice.slot;
+  }
+  const save = await store?.read(slot.id);
+  if (!save) return { seed: defaultSeed };
+  return { save, slot, seed: await seedOf(save, defaultSeed) };
+}
+
+export class SaveController implements Omit<
+  GameMenuActions,
+  'otherWindowOpen' | 'restartTutorial'
+> {
   private autosaveTimer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
 
@@ -120,8 +157,9 @@ export class SaveController implements Omit<GameMenuActions, 'otherWindowOpen'> 
     window.location.reload();
   }
 
+  /** Reloads the page into the title screen, where the player picks a seed. */
   newGame(): void {
-    sessionStorage.setItem(NEXT_KEY, 'new');
+    sessionStorage.setItem(NEXT_KEY, 'title');
     window.location.reload();
   }
 

@@ -8,8 +8,7 @@
  *   place (`Esc` there goes back to the menu). Deleting and starting over
  *   ask for a second click. The game pauses while it is open (`onToggle`;
  *   main.ts pauses the worker, single-player only).
- * - The start screen shows on startup when there are saves: Continue (the
- *   newest one) or New game.
+ * - The title screen (titleScreen.ts) shares its styles.
  *
  * Neither knows about the worker or IndexedDB: main.ts passes the actions.
  */
@@ -27,12 +26,15 @@ export interface GameMenuActions {
   delete(slot: SaveSlot): Promise<void>;
   /** Imports a save file; resolves with a message for the status line. */
   import(file: File): Promise<string>;
+  /** Leaves the game for the title screen (to start a new one with a seed). */
   newGame(): void;
+  /** Starts the onboarding's objectives again (absent where there are none). */
+  restartTutorial?(): void;
   /** Whether another window is open (Escape closes that one instead of opening the menu). */
   otherWindowOpen(): boolean;
 }
 
-const OVERLAY_STYLE: Partial<CSSStyleDeclaration> = {
+export const OVERLAY_STYLE: Partial<CSSStyleDeclaration> = {
   position: 'fixed',
   inset: '0',
   display: 'flex',
@@ -42,7 +44,7 @@ const OVERLAY_STYLE: Partial<CSSStyleDeclaration> = {
   zIndex: '50',
 };
 
-const PANEL_STYLE: Partial<CSSStyleDeclaration> = {
+export const PANEL_STYLE: Partial<CSSStyleDeclaration> = {
   minWidth: '420px',
   maxWidth: '640px',
   maxHeight: '80vh',
@@ -66,7 +68,7 @@ const BUTTON_STYLE: Partial<CSSStyleDeclaration> = {
   cursor: 'pointer',
 };
 
-function button(label: string, id?: string): HTMLButtonElement {
+export function button(label: string, id?: string): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
   b.textContent = label;
@@ -83,7 +85,7 @@ function heading(text: string): HTMLDivElement {
 }
 
 /** "Saved 14:03" today, else the date and time. */
-function savedLabel(savedAt: number): string {
+export function savedLabel(savedAt: number): string {
   const d = new Date(savedAt);
   const now = new Date();
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -91,10 +93,62 @@ function savedLabel(savedAt: number): string {
 }
 
 /**
+ * Copies `text` to the clipboard; resolves with whether it worked. Falls
+ * back to a selected text field and `execCommand` where the Clipboard API
+ * is missing or refused (it needs a secure context: GitHub Pages and
+ * localhost are).
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const field = document.createElement('textarea');
+    field.value = text;
+    Object.assign(field.style, { position: 'fixed', opacity: '0' });
+    document.body.append(field);
+    field.select();
+    let ok: boolean;
+    try {
+      ok = document.execCommand('copy');
+    } catch {
+      ok = false;
+    }
+    field.remove();
+    return ok;
+  }
+}
+
+/** A "World seed: 123 [Copy]" row; `status` gets the copy's outcome. */
+export function seedRow(
+  id: string,
+  seed: () => number,
+  status: (message: string) => void,
+): { row: HTMLElement; value: HTMLElement } {
+  const row = document.createElement('div');
+  Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '6px' });
+  const label = document.createElement('span');
+  label.textContent = 'World seed';
+  label.style.opacity = '0.75';
+  const value = document.createElement('code');
+  value.id = id;
+  Object.assign(value.style, { userSelect: 'all', font: '13px ui-monospace, monospace' });
+  const copy = button('Copy', `${id}-copy`);
+  copy.addEventListener('click', () => {
+    const text = String(seed());
+    void copyText(text).then((ok) => {
+      status(ok ? `Copied seed ${text}.` : `Couldn't copy: select the seed and copy it.`);
+    });
+  });
+  row.append(label, value, copy);
+  return { row, value };
+}
+
+/**
  * Makes `b` ask for a second click within 3 s before running `action`
  * (deleting a save, abandoning the game).
  */
-function confirmTwice(b: HTMLButtonElement, action: () => void): void {
+export function confirmTwice(b: HTMLButtonElement, action: () => void): void {
   const label = b.textContent;
   let armed: ReturnType<typeof setTimeout> | null = null;
   b.addEventListener('click', () => {
@@ -118,7 +172,7 @@ function confirmTwice(b: HTMLButtonElement, action: () => void): void {
  * and fields) from reaching the game's key handlers (WASD, hotbar); Escape
  * still gets through.
  */
-function isolateKeys(input: HTMLElement): void {
+export function isolateKeys(input: HTMLElement): void {
   for (const type of ['keydown', 'keyup'] as const) {
     input.addEventListener(type, (e) => {
       if (e.key !== 'Escape') e.stopPropagation();
@@ -138,6 +192,8 @@ export class GameMenu {
   private readonly status: HTMLElement;
   /** Called when the menu opens (`true`) or closes (`false`): main.ts pauses the game behind it. */
   onToggle: ((open: boolean) => void) | null = null;
+  private readonly seedValue: HTMLElement;
+  private seed = 0;
 
   constructor(
     parent: HTMLElement,
@@ -170,6 +226,15 @@ export class GameMenu {
       this.actions.newGame();
     });
     top.append(resume, newGame);
+    if (actions.restartTutorial) {
+      const tutorial = button('Tutorial', 'menu-tutorial');
+      tutorial.title = 'Show the getting-started objectives again';
+      tutorial.addEventListener('click', () => {
+        actions.restartTutorial?.();
+        this.close();
+      });
+      top.append(tutorial);
+    }
     if (settings) {
       const open = button('Settings', 'menu-settings');
       open.addEventListener('click', () => {
@@ -180,6 +245,16 @@ export class GameMenu {
         this.showSettings(false);
       };
     }
+
+    const seed = seedRow(
+      'menu-seed',
+      () => this.seed,
+      (message) => {
+        this.setStatus(message);
+      },
+    );
+    seed.row.style.marginTop = '8px';
+    this.seedValue = seed.value;
 
     const saveRow = document.createElement('div');
     Object.assign(saveRow.style, { display: 'flex', gap: '6px', marginTop: '6px' });
@@ -259,7 +334,8 @@ export class GameMenu {
     });
     importRow.append(importButton, file);
 
-    panel.append(title, top, heading('Save'), saveRow, status, heading('Saves'), slotTable);
+    panel.append(title, top, seed.row, heading('Save'), saveRow, status, heading('Saves'));
+    panel.append(slotTable);
     panel.append(importRow);
     overlay.append(panel);
     isolateKeys(panel);
@@ -338,6 +414,12 @@ export class GameMenu {
       },
       { capture: true },
     );
+  }
+
+  /** Shows the world seed of the game being played. */
+  setSeed(seed: number): void {
+    this.seed = seed >>> 0;
+    this.seedValue.textContent = String(this.seed);
   }
 
   /** Shows `message` for a few seconds in the corner, whether the menu is open or not. */
@@ -456,54 +538,4 @@ export class GameMenu {
     }
     this.panel.scrollTop = 0;
   }
-}
-
-/**
- * The start screen: resolves with `continue` (load `latest`) or `new`.
- * Removed from the page once the player picks.
- */
-export function showStartScreen(
-  parent: HTMLElement,
-  latest: SaveSlot,
-  saveCount: number,
-): Promise<'continue' | 'new'> {
-  const overlay = document.createElement('div');
-  overlay.id = 'start-screen';
-  Object.assign(overlay.style, { ...OVERLAY_STYLE, background: '#111418' });
-  const panel = document.createElement('div');
-  panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-label', 'Start');
-  Object.assign(panel.style, { ...PANEL_STYLE, minWidth: '320px', textAlign: 'center' });
-  const title = document.createElement('div');
-  title.textContent = 'Beltworks';
-  Object.assign(title.style, { fontSize: '22px', fontWeight: '700', marginBottom: '12px' });
-  const resume = button('Continue', 'start-continue');
-  Object.assign(resume.style, { fontSize: '15px', padding: '6px 18px' });
-  const info = document.createElement('div');
-  info.id = 'start-latest';
-  info.textContent = `${latest.name} · ${formatPlayTime(latest.tick)} played · ${savedLabel(latest.savedAt)}`;
-  Object.assign(info.style, { margin: '6px 0 14px', opacity: '0.8' });
-  const fresh = button('New game', 'start-new-game');
-  const more = document.createElement('div');
-  more.textContent =
-    saveCount > 1
-      ? `${String(saveCount)} saves: Esc in game opens the menu to load the others.`
-      : '';
-  Object.assign(more.style, { marginTop: '12px', opacity: '0.6', fontSize: '12px' });
-  panel.append(title, resume, info, fresh, more);
-  overlay.append(panel);
-  parent.append(overlay);
-  resume.focus();
-  return new Promise((resolve) => {
-    const pick = (choice: 'continue' | 'new'): void => {
-      overlay.remove();
-      resolve(choice);
-    };
-    resume.addEventListener('click', () => {
-      pick('continue');
-    });
-    fresh.addEventListener('click', () => {
-      pick('new');
-    });
-  });
 }
