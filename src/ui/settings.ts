@@ -24,7 +24,7 @@ export interface GraphicsSettings {
   animation: boolean;
 }
 
-/** Volumes in percent (0–100); placeholders until the game has sound (#90). */
+/** Volumes in percent (0–100), applied by the audio engine (D55). */
 export interface AudioSettings {
   master: number;
   sfx: number;
