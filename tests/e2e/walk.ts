@@ -51,6 +51,26 @@ export const fps = (page: Page, ms = 500) =>
   );
 
 /**
+ * Waits until `count` more frames have been rendered, e.g. before a
+ * screenshot so the last state change is drawn: about 33 ms at 60 fps, and
+ * as long as it takes at CI's lowest frame rates (where a fixed wait can be
+ * too short, and on a fast page is just slow).
+ */
+export const frames = (page: Page, count = 2) =>
+  page.evaluate(
+    (n) =>
+      new Promise<void>((resolve) => {
+        let left = n;
+        const tick = (): void => {
+          if (--left <= 0) resolve();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    count,
+  );
+
+/**
  * The frame rate looking at a scene (camera at world `(x, y)`, `zoom`) and,
  * for comparison, at bare terrain `away` tiles north-west of it at the same
  * zoom, each over `ms` once the terrain there is baked. CI renders in

@@ -12,6 +12,7 @@ import { startingPatches } from '../../src/sim/world/generate';
 import { World } from '../../src/sim/world/world';
 import { walkNear } from './walk';
 import { closeWindows } from './windows';
+import { turnGhost } from './ghost';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -130,10 +131,7 @@ test('an electric drill shows no power until a boiler and steam engine power it'
     const at = await tileScreen(page, r.x + (r.w - 1) / 2, r.y + (r.h - 1) / 2);
     await page.mouse.move(at.x, at.y);
     await expect.poll(async () => (await ghost(page))?.name).toBe(name);
-    while ((await ghost(page))?.dir !== dir) {
-      await page.keyboard.press('r');
-      await page.waitForTimeout(50);
-    }
+    await turnGhost(page, dir);
     await expect.poll(() => ghost(page)).toMatchObject({ x: r.x, y: r.y, valid: true });
     await page.mouse.click(at.x, at.y);
     await expect.poll(async () => (await entityAt(page, r.x, r.y))?.name).toBe(name);

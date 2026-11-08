@@ -9,6 +9,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { EntityTypeId, SAT_ONE } from '../../src/data/entities';
 import { Direction } from '../../src/sim/entities/direction';
 import { MachineState } from '../../src/sim/entities/machine';
+import { turnGhost } from './ghost';
 
 const KIT = 'long-handed-inserter:2,iron-chest:2,fast-inserter:2';
 const KEY = { long: '1', chest: '2', fast: '3' } as const;
@@ -40,10 +41,7 @@ test('a long-handed inserter reaches 2 tiles, and an iron chest holds 32 stacks'
     const at = await tileScreen(page, x, y);
     await page.mouse.move(at.x, at.y);
     await expect.poll(async () => (await ghost(page))?.name).toBe(name);
-    while ((await ghost(page))?.dir !== dir) {
-      await page.keyboard.press('r');
-      await page.waitForTimeout(50);
-    }
+    await turnGhost(page, dir);
     await expect.poll(() => ghost(page)).toMatchObject({ x, y, valid: true });
     return at;
   };

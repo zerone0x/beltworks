@@ -29,6 +29,7 @@ import { Direction } from '../../src/sim/entities/direction';
 import { MachineState } from '../../src/sim/entities/machine';
 import { fastForward } from './timeScale';
 import { closeWindows } from './windows';
+import { turnGhost } from './ghost';
 
 /** The test kit, in hotbar order (keys 1–0); the copper plates go past the hotbar. */
 const KIT =
@@ -122,10 +123,7 @@ test('automated red and green science research automation 2 without further inpu
     const pos = await tileScreen(page, cx, cy);
     await page.mouse.move(pos.x, pos.y);
     await expect.poll(async () => (await ghost(page))?.name).toBe(name);
-    while ((await ghost(page))?.dir !== dir) {
-      await page.keyboard.press('r');
-      await page.waitForTimeout(50);
-    }
+    await turnGhost(page, dir);
     await expect.poll(() => ghost(page)).toMatchObject({ x: r.x, y: r.y, valid: true });
     await page.mouse.click(pos.x, pos.y);
     await expect.poll(async () => (await entityAt(page, r.x, r.y))?.name).toBe(name);

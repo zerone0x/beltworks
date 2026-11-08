@@ -32,6 +32,8 @@ export interface WorkerSave {
 export class SimClient {
   private readonly worker: Worker;
   private lastStats: { tick: number; at: number } | null = null;
+  /** Whether `setPaused(true)` is in effect: `stats` still in flight from before the pause are ignored. */
+  private paused = false;
   private nextSaveId = 1;
   private readonly saves = new Map<
     number,
@@ -107,6 +109,17 @@ export class SimClient {
     this.send({ type: 'setTimeScale', scale });
   }
 
+  /** Pauses (no ticks, snapshots or stats) or resumes the simulation; see `SetPausedMessage`. */
+  setPaused(paused: boolean): void {
+    // UPS is measured between two stats messages, not across a pause: the
+    // first stats after resuming only sets the baseline. Stats sent just
+    // before the pause can arrive after this; they are dropped while paused,
+    // so they can't become a baseline that spans the pause.
+    this.paused = paused;
+    this.lastStats = null;
+    this.send({ type: 'setPaused', paused });
+  }
+
   setViewport(viewport: Viewport): void {
     this.send({ type: 'setViewport', viewport });
   }
@@ -126,7 +139,7 @@ export class SimClient {
         this.onSnapshot?.(msg);
         break;
       case 'stats':
-        this.onStats?.(this.measure(msg));
+        if (!this.paused) this.onStats?.(this.measure(msg));
         break;
       case 'error':
         console.error('Simulation worker error:', msg.message);

@@ -18,8 +18,9 @@ import { TILE_PX } from '../../src/render/camera';
 import { Direction } from '../../src/sim/entities/direction';
 import { drillDropTile } from '../../src/sim/entities/drill';
 import { MachineState } from '../../src/sim/entities/machine';
-import { sceneFps } from './walk';
+import { frames, sceneFps } from './walk';
 import { closeWindows } from './windows';
+import { turnGhost } from './ghost';
 
 /** The test kit, in hotbar order. */
 const KIT = [
@@ -117,7 +118,15 @@ const sprites = (page: Page) => page.evaluate(() => window.__beltworks!.sprites(
 test('entities with models are drawn with their pre-rendered sprites', async ({
   page,
 }, testInfo) => {
-  test.setTimeout(120_000);
+  // About 45 s on a fast machine with the page to itself, nearly all of it
+  // browser round trips (placing 14 entities, six windows, six screenshots
+  // with full-density terrain bakes, a 4 s frame-rate measurement) that each
+  // cost about one rendered frame: CI's 2-vCPU runners render at about 7 fps
+  // and took up to the old 120 s now and then, and two such pages on a busy
+  // 4-core machine took 75–130 s. The ghost now turns without overshooting
+  // (ghost.ts) and screenshots wait for frames, not fixed times; the rest is
+  // the size of the spec.
+  test.setTimeout(180_000);
   const errors = collectErrors(page);
   // Full terrain density even on a software renderer, for the screenshots,
   // with the detail textures zoomed in as on a GPU (`?texels=64`).
@@ -149,14 +158,11 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
     const at = await tileScreen(page, r.x + (r.w - 1) / 2, r.y + (r.h - 1) / 2);
     await page.mouse.move(at.x, at.y);
     await expect.poll(async () => (await ghost(page))?.name).toBe(name);
-    while ((await ghost(page))?.dir !== dir) {
-      await page.keyboard.press('r');
-      await page.waitForTimeout(50);
-    }
+    await turnGhost(page, dir);
     await expect.poll(() => ghost(page)).toMatchObject({ x: r.x, y: r.y, dir, valid: true });
     // The ghost shows the entity's sprite if it has a model (and a drill's, the tile it drops onto).
-    const loaded = (await sprites(page)).models;
-    expect((await sprites(page)).ghost).toBe(loaded.includes(name));
+    const shown = await sprites(page);
+    expect(shown.ghost).toBe(shown.models.includes(name));
     if (name === 'burner-mining-drill') {
       expect((await ghost(page))?.drop).toEqual(drillDropTile(r.x, r.y, dir as Direction));
     }
@@ -240,7 +246,7 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
       [-1 * TILE_PX, -0.5 * TILE_PX, zoom],
     );
     await page.waitForFunction(() => window.__beltworks!.terrainReady());
-    await page.waitForTimeout(300);
+    await frames(page);
     const shot = testInfo.outputPath(file);
     await page.screenshot({ path: shot });
     await testInfo.attach(`the first sprites at ${String(zoom)}× zoom`, {
@@ -259,7 +265,7 @@ test('entities with models are drawn with their pre-rendered sprites', async ({
     await page.waitForFunction(() => window.__beltworks!.terrainReady(), undefined, {
       timeout: 30_000,
     });
-    await page.waitForTimeout(300);
+    await frames(page);
     // Zoomed in, the chunks on screen have 64-texel detail textures (16 MiB
     // each) over their base ones; zoomed out they are freed.
     const stats = await page.evaluate(() => window.__beltworks!.terrainStats());

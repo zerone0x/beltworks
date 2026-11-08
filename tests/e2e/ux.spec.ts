@@ -80,6 +80,12 @@ async function place(
 }
 
 test('entity windows move one item, half or the whole stack, both ways', async ({ page }) => {
+  // About 11 s on a fast machine, but its time is nearly all browser round
+  // trips (13 clicks of about six each, placing, the checks), each about one
+  // rendered frame: at the 6 fps CI's software renderer drops to, it took up
+  // to 29 s against the default 30 s. Fewer round trips (below) and room for
+  // the slowest runners.
+  test.setTimeout(60_000);
   const errors = collectErrors(page);
   await open(page);
   // A furnace on tiles (2..3, -1..0): the cursor on the corner between them.
@@ -95,36 +101,51 @@ test('entity windows move one item, half or the whole stack, both ways', async (
 
   const coal = panel.locator('.player-inventory .slot[data-item="coal"]');
   const fuel = panel.locator('[data-role="fuel"] .slot');
+  // Every browser round trip costs about a frame on CI's software renderer
+  // (at times 6 fps or less), so both counts are read in one, and the clicks
+  // skip Playwright's wait for the slot to be stable over two animation
+  // frames (the panel doesn't move, and the counts check every click).
   const expectCounts = async (inFurnace: number, inInventory: number) => {
-    await expect(fuel).toHaveAttribute('data-count', String(inFurnace));
-    await expect.poll(() => countOf(page, ItemId.Coal)).toBe(inInventory);
+    await expect
+      .poll(() =>
+        page.evaluate((item) => {
+          const fuelSlot = document.querySelector('#entity-panel [data-role="fuel"] .slot');
+          const held = window
+            .__beltworks!.inventory()
+            .reduce((n, s) => n + (s.item === item ? s.count : 0), 0);
+          // No slot (or no count) reads as null, never 0, so a missing window fails.
+          const count = fuelSlot?.getAttribute('data-count');
+          return { inFurnace: count == null ? null : Number(count), inInventory: held };
+        }, ItemId.Coal),
+      )
+      .toEqual({ inFurnace, inInventory });
   };
   await expectCounts(0, 10);
 
   // In: ctrl-click and middle click move one item each, right click half
   // (rounded up), shift-click the rest of the stack.
-  await coal.click({ modifiers: ['Control'] });
+  await coal.click({ modifiers: ['Control'], force: true });
   await expectCounts(1, 9);
-  await coal.click({ button: 'middle' });
+  await coal.click({ button: 'middle', force: true });
   await expectCounts(2, 8);
-  await coal.click({ button: 'right' });
+  await coal.click({ button: 'right', force: true });
   await expectCounts(6, 4);
-  await coal.click({ modifiers: ['Shift'] });
+  await coal.click({ modifiers: ['Shift'], force: true });
   await expectCounts(10, 0);
   await expect(coal).toHaveCount(0);
 
   // Out of the fuel slot, the same way.
-  await fuel.click({ modifiers: ['Control'] });
+  await fuel.click({ modifiers: ['Control'], force: true });
   await expectCounts(9, 1);
-  await fuel.click({ button: 'middle' });
+  await fuel.click({ button: 'middle', force: true });
   await expectCounts(8, 2);
-  await fuel.click({ button: 'right' });
+  await fuel.click({ button: 'right', force: true });
   await expectCounts(4, 6);
-  await fuel.click();
+  await fuel.click({ force: true });
   await expectCounts(0, 10);
 
   // One coal each for every machine of the starting kit is now possible.
-  for (let i = 0; i < 3; i++) await coal.click({ modifiers: ['Control'] });
+  for (let i = 0; i < 3; i++) await coal.click({ modifiers: ['Control'], force: true });
   await expectCounts(3, 7);
   expect(errors).toEqual([]);
 });

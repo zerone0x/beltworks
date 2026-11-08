@@ -86,6 +86,16 @@ describe('save round trip', () => {
     expect(copy.hash()).toBe(sim.hash());
   });
 
+  it('says a save is damaged when its gzip stream is corrupt or cut off', async () => {
+    const { gzip, gunzip, DAMAGED_SAVE_MESSAGE } = await import('../../src/save/compress');
+    const packed = await gzip(saveSim(new Sim({ seed: 42 })));
+    // Damaged inside the stream, past the 10-byte gzip header.
+    const corrupt = packed.slice();
+    for (let i = 20; i < 40; i++) corrupt[i]! ^= 0xff;
+    await expect(gunzip(corrupt)).rejects.toThrow(DAMAGED_SAVE_MESSAGE);
+    await expect(gunzip(packed.slice(0, packed.length >> 1))).rejects.toThrow(DAMAGED_SAVE_MESSAGE);
+  });
+
   it('describes a save in its meta section', () => {
     const sim = scenario();
     for (let i = 0; i < 1_000; i++) sim.step();

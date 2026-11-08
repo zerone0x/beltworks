@@ -26,8 +26,8 @@ const decoder = new TextDecoder();
 
 /** Thrown when a save can't be read: corrupt, truncated, or from an unknown version. */
 export class SaveError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'SaveError';
   }
 }

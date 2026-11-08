@@ -7,7 +7,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ItemId } from '../../src/data/items';
 import { STARTING_KIT } from '../../src/data/start';
-import { closeWindows } from './windows';
+import { closeMenu, closeWindows } from './windows';
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -65,7 +65,7 @@ test('a rebound key works at once, shows in the help, and is remembered', async 
   await key.click();
   await page.keyboard.press('i');
   await expect(key).toHaveText('I');
-  await closeWindows(page);
+  await closeMenu(page);
   await expect(page.locator('#game-menu')).toBeHidden();
 
   const panel = page.locator('#inventory-panel');
@@ -101,7 +101,7 @@ test('the UI scale grows the hotbar and panels around where they sit; graphics o
   await page.locator('#setting-shadows').uncheck();
   await page.locator('#setting-animation').uncheck();
   await page.locator('#setting-terrain-detail').selectOption('low');
-  await closeWindows(page);
+  await closeMenu(page);
   await expect
     .poll(async () => (await hotbar.boundingBox())!.width)
     .toBeCloseTo(before.width * 1.5, 0);
