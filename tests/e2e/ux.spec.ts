@@ -180,10 +180,13 @@ test('an item past the hotbar is selected in the inventory and placed with the m
 
   await page.keyboard.press('e');
   await expect(inventory).toBeVisible();
-  // Coal places nothing: a click on it selects nothing.
+  // Coal places nothing, but a click still picks it up onto the cursor (D52);
+  // a right click puts it away.
   await invSlot('coal').click();
-  await page.waitForTimeout(200);
-  expect(await selected(page)).toBeNull();
+  const coalSlot = STARTING_KIT.findIndex((s) => s.item === ItemId.Coal);
+  await expect.poll(() => selected(page)).toBe(coalSlot);
+  await invSlot('coal').click({ button: 'right' });
+  await expect.poll(() => selected(page)).toBeNull();
   // An electric inserter, past the hotbar: selected, highlighted in the
   // inventory and not in the hotbar.
   await invSlot('electric-inserter').click();
@@ -203,6 +206,9 @@ test('an item past the hotbar is selected in the inventory and placed with the m
   const chestSlot = STARTING_KIT.findIndex((s) => s.item === ItemId.WoodenChest);
   await expect.poll(() => selected(page)).toBe(chestSlot);
   await expect(hotbar).toHaveAttribute('data-selected', String(chestSlot));
+  // Holding the chests, a click on another slot would put them there: put them away first.
+  await page.keyboard.press('q');
+  await expect.poll(() => selected(page)).toBeNull();
 
   await invSlot('electric-inserter').click();
   await expect.poll(() => selected(page)).toBe(kitSlot);

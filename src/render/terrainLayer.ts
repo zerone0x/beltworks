@@ -168,6 +168,8 @@ export class TerrainLayer {
   maxTexels = 32;
   /** Chunk textures (base and detail) baked so far, for the render profile. */
   bakeCount = 0;
+  /** Whether the rendered look draws the trees' shadows (the shadows setting). */
+  private treeShadows = true;
 
   constructor() {
     this.container.addChild(this.base, this.details);
@@ -180,6 +182,22 @@ export class TerrainLayer {
   setArt(art: TerrainArt | null, renderer: Renderer | null): void {
     this.art = art && renderer ? art : null;
     this.renderer = renderer;
+    if (this.art) this.art.treeShadows = this.treeShadows;
+    this.rebakeAll();
+  }
+
+  /** Draws the trees' shadows (or not) from now on, baking every chunk again. */
+  setShadows(on: boolean): void {
+    if (on === this.treeShadows) return;
+    this.treeShadows = on;
+    if (this.art) {
+      this.art.treeShadows = on;
+      this.rebakeAll();
+    }
+  }
+
+  /** Bakes every chunk again. */
+  private rebakeAll(): void {
     for (const [key, cached] of this.chunks) {
       this.freeTexture(cached);
       cached.stale = true;

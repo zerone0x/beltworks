@@ -21,6 +21,12 @@ export interface SaveSlot {
   bytes: number;
   /** The save format version (src/sim/save/container.ts). */
   version: number;
+  /**
+   * Item names pinned to the hotbar slots (`''` for none) when it was saved:
+   * UI state kept next to the save, not in it (D51). Missing for imported
+   * saves and saves made before hotbar pins.
+   */
+  hotbar?: string[];
 }
 
 /** Autosave slots, used in rotation. */

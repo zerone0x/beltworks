@@ -5,6 +5,7 @@
  * pointer position for the tile readout.
  */
 
+import { actionFor, type Action } from '../ui/keybindings';
 import type { Camera, Point } from './camera';
 
 /** Arrow-key pan speed, in screen pixels per second (constant at every zoom). */
@@ -16,12 +17,18 @@ const LINE_PX = 33;
 const PAGE_PX = 800;
 const MIDDLE_BUTTON = 1;
 
-const ARROWS: Readonly<Record<string, readonly [number, number]>> = {
-  ArrowLeft: [-1, 0],
-  ArrowRight: [1, 0],
-  ArrowUp: [0, -1],
-  ArrowDown: [0, 1],
+/** Pan direction per action; the keys (arrows by default) are rebindable (src/ui/keybindings.ts). */
+const PAN_ACTIONS: Readonly<Partial<Record<Action, readonly [number, number]>>> = {
+  panLeft: [-1, 0],
+  panRight: [1, 0],
+  panUp: [0, -1],
+  panDown: [0, 1],
 };
+
+function panFor(code: string): readonly [number, number] | undefined {
+  const action = actionFor(code);
+  return action === null ? undefined : PAN_ACTIONS[action];
+}
 
 export class CameraInput {
   /** Pointer position over the canvas in CSS pixels, or `null` when it is outside. */
@@ -53,12 +60,12 @@ export class CameraInput {
     window.addEventListener('blur', this.onBlur, opts);
   }
 
-  /** Applies held arrow keys for a frame that took `dtMs` milliseconds. */
+  /** Applies held pan keys (the arrows by default) for a frame that took `dtMs` milliseconds. */
   update(dtMs: number): void {
     let dx = 0;
     let dy = 0;
     for (const key of this.held) {
-      const dir = ARROWS[key];
+      const dir = panFor(key);
       if (dir) {
         dx += dir[0];
         dy += dir[1];
@@ -133,14 +140,14 @@ export class CameraInput {
   };
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key in ARROWS) {
+    if (panFor(e.code) && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-      this.held.add(e.key);
+      this.held.add(e.code);
     }
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {
-    this.held.delete(e.key);
+    this.held.delete(e.code);
   };
 
   private readonly onBlur = (): void => {

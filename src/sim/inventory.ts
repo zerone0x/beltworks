@@ -138,6 +138,40 @@ export class Inventory {
     return amount - left;
   }
 
+  /**
+   * Moves up to `amount` units from slot `from` to slot `to` and returns how
+   * many moved: into an empty slot, onto a stack of the same item (as many as
+   * fit), or, when the whole stack moves onto a different item, swapping the
+   * two slots (which moves all of `from`). Moves nothing when `from` is
+   * empty, the slots are the same or don't exist, or only part of a stack
+   * would land on a different item.
+   */
+  move(from: number, to: number, amount: number): number {
+    assertAmount(amount);
+    const { items, counts } = this;
+    if (from === to || from >= items.length || to >= items.length) return 0;
+    const item = items[from]!;
+    const have = counts[from]!;
+    if (item === ItemId.None || amount === 0) return 0;
+    const n = Math.min(amount, have);
+    const target = items[to]!;
+    if (target !== ItemId.None && target !== item) {
+      if (n !== have) return 0;
+      items[from] = target;
+      counts[from] = counts[to]!;
+      items[to] = item;
+      counts[to] = have;
+      return have;
+    }
+    const put = Math.min(n, stackSizeOf(item) - (target === item ? counts[to]! : 0));
+    if (put <= 0) return 0;
+    items[to] = item;
+    counts[to] = (target === item ? counts[to]! : 0) + put;
+    counts[from] = have - put;
+    if (counts[from] === 0) items[from] = ItemId.None;
+    return put;
+  }
+
   /** Empties every slot. */
   clear(): void {
     this.items.fill(0);

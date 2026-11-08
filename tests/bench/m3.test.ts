@@ -42,12 +42,15 @@ describe('m3 scene', () => {
     expect(powerGrid(built.sim.state.entities)!.networkCount).toBe(M3_COLUMNS);
   });
 
+  // Builds the 1 170-entity scene twice through commands: about 2.5 s on a
+  // CI runner on its own, more while the other bench files run in parallel,
+  // so a slow runner went past vitest's 5 s default without any sim change.
   it('is deterministic', () => {
     const a = m3.build();
     const b = m3.build();
     expect(a.setupTicks).toBe(b.setupTicks);
     expect(a.sim.hash()).toBe(b.sim.hash());
-  });
+  }, 30_000);
 
   it('keeps its machines, inserters and labs busy, on full power', () => {
     const result = measureScene(m3, { runs: 1, warmupRuns: 0 });

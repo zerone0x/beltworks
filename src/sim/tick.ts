@@ -124,6 +124,9 @@ export function applyCommand(state: SimState, cmd: Command): void {
     case 'SetResearch':
       setResearch(state, cmd.playerId, cmd.tech);
       break;
+    case 'MoveStack':
+      players.inventory(cmd.playerId).move(cmd.from, cmd.to, cmd.count);
+      break;
   }
 }
 

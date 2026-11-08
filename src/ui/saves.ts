@@ -73,6 +73,8 @@ export class SaveController implements Omit<GameMenuActions, 'otherWindowOpen'> 
     private readonly client: SimClient,
     /** Status messages for the player (autosaves, failures). */
     private readonly notify: (message: string) => void,
+    /** Item names pinned to the hotbar slots, stored with each save (D51). */
+    private readonly hotbar: () => string[] = () => [],
   ) {}
 
   /** Starts autosaving every `minutes` minutes of wall time (not while the tab is hidden). */
@@ -192,6 +194,7 @@ export class SaveController implements Omit<GameMenuActions, 'otherWindowOpen'> 
         entities: meta.entities,
         bytes: data.length,
         version: SAVE_VERSION,
+        hotbar: this.hotbar(),
       };
       await this.store.write(slot, data);
       return slot;

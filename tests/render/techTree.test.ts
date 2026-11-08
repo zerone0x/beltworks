@@ -5,7 +5,7 @@ import { MachineState } from '../../src/sim/entities/machine';
 import type { EntityDetailData, ResearchData } from '../../src/sim/snapshot';
 import { NO_RESEARCH } from '../../src/sim/snapshot';
 import { hasEntityGui, machineBars, statusView } from '../../src/ui/entityPanel';
-import { CONTROLS } from '../../src/ui/help';
+import { controls } from '../../src/ui/help';
 import { costText, techProgress, techState, treeLayout, unlocksText } from '../../src/ui/techTree';
 
 const research = (
@@ -80,7 +80,7 @@ describe('tech tree', () => {
   });
 
   it('has a key in the controls help', () => {
-    expect(CONTROLS.some((c) => c.keys === 'T')).toBe(true);
+    expect(controls().some((c) => c.keys === 'T')).toBe(true);
   });
 });
 

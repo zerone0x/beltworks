@@ -52,7 +52,7 @@
  *    short by missing items, and cancels (of a craft, of an intermediate in
  *    progress, and of nothing).
  * 2. Random: a pseudo-random but fixed stream of every command type for the
- *    remaining ticks.
+ *    remaining ticks (`MoveStack` from a stream of its own).
  */
 
 import { ItemId, type ItemStack } from '../../data/items';
@@ -88,6 +88,8 @@ const RECIPE_ID_SPAN = 34;
 const TECH_ID_SPAN = 10;
 /** Random `SetRecipe` commands target entity ids in `[0, RECIPE_ENTITY_SPAN)` (the assembler included). */
 const RECIPE_ENTITY_SPAN = 48;
+/** Random `MoveStack` commands use inventory slots in `[0, SLOT_SPAN)` (the last four past the 40 slots). */
+const SLOT_SPAN = 44;
 
 /**
  * What every player starts with: the normal starting kit plus materials to
@@ -959,6 +961,24 @@ export function buildDeterminismScript(
         }
       }
     }
+  }
+  // Cursor-stack moves between inventory slots (D52), about one every 32
+  // ticks: any slots, some past the inventory, and counts above a stack. They
+  // come from a stream of their own so the other random commands stay as
+  // they were.
+  const moveRng = Rng.fromSeed(scriptSeed ^ 0x5eed);
+  for (let tick = DETERMINISM_SCRIPTED_TICKS; tick < ticks; tick++) {
+    if (moveRng.nextInt(32) !== 0) {
+      continue;
+    }
+    commands.push({
+      tick,
+      playerId: moveRng.nextInt(DETERMINISM_PLAYERS + 1),
+      type: 'MoveStack',
+      from: moveRng.nextInt(SLOT_SPAN),
+      to: moveRng.nextInt(SLOT_SPAN),
+      count: 1 + moveRng.nextInt(60),
+    });
   }
   // Fixed Fisher-Yates shuffle: enqueue order across ticks/players must not matter.
   // Commands of the same player on the same tick keep their relative order.
