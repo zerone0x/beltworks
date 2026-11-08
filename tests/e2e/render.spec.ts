@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { TILE_PX } from '../../src/render/camera';
+import { MAX_ZOOM, MIN_ZOOM, TILE_PX } from '../../src/render/camera';
 import { DETAIL_FREE_MARGIN, FREE_MARGIN } from '../../src/render/terrainLayer';
 import { startingPatches } from '../../src/sim/world/generate';
 import { formatTile } from '../../src/ui/debugOverlay';
@@ -85,12 +85,14 @@ test('wheel zooms towards the cursor, arrows and middle-drag pan, without errors
   expect(pinned.x).toBeCloseTo(original.x, 3);
   expect(pinned.y).toBeCloseTo(original.y, 3);
 
-  // The zoom is clamped to [0.25, 4].
+  // The zoom is clamped to [MIN_ZOOM, MAX_ZOOM]; below 0.25× the view is in map mode (D53).
   for (let i = 0; i < 10; i++) await page.mouse.wheel(0, -500);
-  await expect.poll(async () => (await camera(page)).zoom).toBe(4);
+  await expect.poll(async () => (await camera(page)).zoom).toBe(MAX_ZOOM);
   for (let i = 0; i < 20; i++) await page.mouse.wheel(0, 500);
-  await expect.poll(async () => (await camera(page)).zoom).toBe(0.25);
-  await waitForTerrain(page);
+  await expect.poll(async () => (await camera(page)).zoom).toBe(MIN_ZOOM);
+  await page.waitForFunction(() => window.__beltworks!.mapView().complete, undefined, {
+    timeout: 10_000,
+  });
 
   // Arrow keys pan.
   const beforeKeys = await camera(page);
@@ -112,7 +114,9 @@ test('wheel zooms towards the cursor, arrows and middle-drag pan, without errors
   expect(afterDrag.x - afterKeys.x).toBeCloseTo(200 / afterDrag.zoom, 3);
   expect(afterDrag.y - afterKeys.y).toBeCloseTo(100 / afterDrag.zoom, 3);
 
-  await waitForTerrain(page);
+  await page.waitForFunction(() => window.__beltworks!.mapView().complete, undefined, {
+    timeout: 10_000,
+  });
   expect(errors).toEqual([]);
 });
 

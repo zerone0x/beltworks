@@ -15,19 +15,25 @@ test('the render profile runs on the scripted factory', async ({ page }) => {
   await page.waitForFunction(() => window.__beltworks !== undefined);
   const report = await page.evaluate(() =>
     window.__beltworks!.renderProfile({
-      stages: ['pan factory 0.5x', 'factory 1x'],
+      stages: ['factory 0.25x map', 'pan factory 0.5x', 'factory 1x'],
       durationMs: 300,
       minFrames: 3,
     }),
   );
-  expect(report.stages.map((s) => s.name)).toEqual(['pan factory 0.5x', 'factory 1x']);
+  expect(report.stages.map((s) => s.name)).toEqual([
+    'factory 0.25x map',
+    'pan factory 0.5x',
+    'factory 1x',
+  ]);
+  // The first stage forced map mode at the sprite view's zoom (D53).
+  expect(report.stages.map((s) => s.view)).toEqual(['map', 'sprites', 'sprites']);
   for (const stage of report.stages) {
     expect(stage.frames).toBeGreaterThanOrEqual(3);
     expect(stage.interval.p50).toBeGreaterThan(0);
     expect(stage.work.max).toBeGreaterThan(0);
   }
   // The scene replaced the simulation's entities: a factory around the spawn.
-  const still = report.stages[1];
+  const still = report.stages[2];
   expect(still!.entities).toBeGreaterThan(500);
   expect(still!.belts).toBeGreaterThan(300);
   expect(still!.beltItems).toBe(8 * still!.belts);

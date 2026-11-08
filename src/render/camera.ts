@@ -11,7 +11,8 @@ import type { Viewport } from '../worker/protocol';
 
 /** Size of one tile in world pixels (and in screen pixels at zoom 1). */
 export const TILE_PX = 32;
-export const MIN_ZOOM = 0.25;
+/** The lowest zoom: below 0.25× (`MAP_ZOOM`) only map mode shows (mapLayer.ts). */
+export const MIN_ZOOM = 0.125;
 export const MAX_ZOOM = 4;
 
 export interface Point {

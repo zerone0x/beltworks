@@ -13,6 +13,7 @@ import {
   type SlotData,
 } from './sim/snapshot';
 import { BuildInput } from './render/buildInput';
+import { TILE_PX } from './render/camera';
 import { GameView } from './render/gameView';
 import { PlayerInput } from './render/playerInput';
 import { SPRITE_ATLASES, loadSpriteAtlases } from './render/sprites';
@@ -34,6 +35,7 @@ import {
   pinsFromNames,
   type Transfer,
 } from './ui/inventory';
+import { Minimap, minimapState } from './ui/minimap';
 import { PowerHistory } from './ui/powerHistory';
 import { PowerPanel } from './ui/powerPanel';
 import { SaveController, chooseStart, type StartChoice } from './ui/saves';
@@ -293,6 +295,11 @@ async function main(): Promise<void> {
   const view = new GameView(app, (viewport) => {
     client.setViewport(viewport);
   });
+  const minimap = new Minimap(document.body, view.mapStore, (tile) => {
+    view.following = false;
+    view.camera.set(tile.x * TILE_PX, tile.y * TILE_PX);
+  });
+  uiScale.register(minimap.element, '100% 100%');
   const sprites = `${import.meta.env.BASE_URL}sprites/`;
   // Test builds draw the flat placeholder terrain unless a spec asks for the
   // rendered one (`?art=1`), which is slow to bake in CI's software renderer;
@@ -324,6 +331,7 @@ async function main(): Promise<void> {
   /** Applies the settings (all of them at startup, with `previous` null). */
   function applySettings(next: Settings, previous: Settings | null): void {
     uiScale.set(next.uiScale);
+    minimap.uiScale = next.uiScale;
     view.animate = next.graphics.animation;
     view.setShadows(next.graphics.shadows);
     help.refresh();
@@ -444,6 +452,7 @@ async function main(): Promise<void> {
   };
   app.ticker.add((ticker) => {
     view.frame(ticker.deltaMS);
+    if (minimap.isOpen) minimap.update(minimapState(view.camera, view.localPlayerPosition()));
     input.update();
     buildInput.update();
     view.drawGhost(buildInput.ghost);
@@ -461,6 +470,7 @@ async function main(): Promise<void> {
       entityPanel,
       powerPanel,
       techTree,
+      minimap,
       saves,
       seed: WORLD_SEED,
       inventory: () => inventory,

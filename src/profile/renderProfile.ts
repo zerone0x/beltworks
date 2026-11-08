@@ -16,11 +16,16 @@
  *
  * Each stage reports p50, p95, p99 and max of both, the mean frame rate,
  * the frames over 50 ms (hitches), and the terrain bakes that happened.
+ *
+ * A stage can force map mode on or off (`map`; by default it follows the
+ * zoom, below 0.25×) and show the minimap (`minimap`), so the same view can
+ * be compared with and without them.
  */
 
 import { UPDATE_PRIORITY, type Ticker } from 'pixi.js';
 import { TILE_PX } from '../render/camera';
 import type { GameView } from '../render/gameView';
+import type { Minimap } from '../ui/minimap';
 import { chunkWindow } from '../worker/chunkStream';
 
 /** One step of the profile: where the camera is, and how fast it pans (screen pixels per second). */
@@ -38,6 +43,10 @@ export interface ProfileStage {
    * terrain: the frames that bake it (a jump to a new place).
    */
   noWait?: boolean;
+  /** Forces map mode on (`true`) or off (`false`); by default it follows the zoom. */
+  map?: boolean;
+  /** Shows the minimap during the stage (default: hidden). */
+  minimap?: boolean;
 }
 
 /** Bare terrain is profiled far south of the factory (which is centered on the spawn). */
@@ -56,6 +65,11 @@ export const DEFAULT_STAGES: readonly ProfileStage[] = [
   { name: 'factory 1x', x: 0, y: 0, zoom: 1 },
   { name: 'factory 0.5x', x: 0, y: 0, zoom: 0.5 },
   { name: 'factory 0.25x', x: 0, y: 0, zoom: 0.25 },
+  { name: 'factory 0.25x map', x: 0, y: 0, zoom: 0.25, map: true },
+  { name: 'factory 0.125x map', x: 0, y: 0, zoom: 0.125 },
+  { name: 'factory 1x minimap', x: 0, y: 0, zoom: 1, minimap: true },
+  { name: 'pan factory 1x minimap', x: -60, y: 0, zoom: 1, vx: 512, minimap: true },
+  { name: 'pan map 0.125x', x: -60, y: 0, zoom: 0.125, vx: 256 },
   { name: 'pan factory 1x', x: -60, y: 0, zoom: 1, vx: 512 },
   { name: 'pan factory 0.5x', x: -60, y: 10, zoom: 0.5, vx: 512 },
   { name: 'pan terrain 1x', x: 0, y: TERRAIN_Y + 120, zoom: 1, vx: 512 },
@@ -74,6 +88,14 @@ export interface StageResult {
   name: string;
   zoom: number;
   panning: boolean;
+  /** What was drawn: map mode or the sprite view, and whether the minimap showed. */
+  view: 'map' | 'sprites';
+  minimap: boolean;
+  /** Time inside the minimap's update per frame, ms (zeros without a minimap). */
+  minimapMs: Percentiles;
+  /** Map colours rebuilt (chunks) and map mode's texture uploads during the stage. */
+  mapBuilds: number;
+  mapUploads: number;
   frames: number;
   /** Mean frames per second over the stage. */
   fps: number;
@@ -136,12 +158,12 @@ export function formatReport(report: ProfileReport): string {
   const lines = [
     `Renderer: ${report.renderer}${report.software ? ' (software)' : ''}, ${String(report.width)}×${String(report.height)} @${String(report.resolution)}x, terrain ${report.terrain} (≤ ${String(report.maxTexels)} texels/tile)`,
     '',
-    '| Stage | fps | interval p50 / p95 / p99 / max (ms) | work p50 / p95 / p99 / max (ms) | >50 ms | bakes | entities / belts / items |',
-    '|---|---:|---|---|---:|---:|---|',
+    '| Stage | view | fps | interval p50 / p95 / p99 / max (ms) | work p50 / p95 / p99 / max (ms) | minimap p50 / max (ms) | >50 ms | bakes | entities / belts / items |',
+    '|---|---|---:|---|---|---|---:|---:|---|',
   ];
   for (const s of report.stages) {
     lines.push(
-      `| ${s.name} | ${f(s.fps)} | ${f(s.interval.p50)} / ${f(s.interval.p95)} / ${f(s.interval.p99)} / ${f(s.interval.max)} | ${f(s.work.p50)} / ${f(s.work.p95)} / ${f(s.work.p99)} / ${f(s.work.max)} | ${String(s.hitches)} | ${String(s.bakes)} | ${String(s.entities)} / ${String(s.belts)} / ${String(s.beltItems)} |`,
+      `| ${s.name} | ${s.view}${s.minimap ? ' + minimap' : ''} | ${f(s.fps)} | ${f(s.interval.p50)} / ${f(s.interval.p95)} / ${f(s.interval.p99)} / ${f(s.interval.max)} | ${f(s.work.p50)} / ${f(s.work.p95)} / ${f(s.work.p99)} / ${f(s.work.max)} | ${s.minimap ? `${s.minimapMs.p50.toFixed(2)} / ${s.minimapMs.max.toFixed(2)}` : '–'} | ${String(s.hitches)} | ${String(s.bakes)} | ${String(s.entities)} / ${String(s.belts)} / ${String(s.beltItems)} |`,
     );
   }
   return lines.join('\n');
@@ -154,12 +176,13 @@ const nextFrame = () =>
     });
   });
 
-/** Runs the profile on `view`, whose frames `ticker` drives. */
+/** Runs the profile on `view`, whose frames `ticker` drives (and the `minimap`, which the stages that ask for it show). */
 export async function runRenderProfile(
   view: GameView,
   ticker: Ticker,
   renderer: { name: string; software: boolean; width: number; height: number; resolution: number },
   options: ProfileOptions = {},
+  minimap?: Pick<Minimap, 'isOpen' | 'setOpen' | 'update'>,
 ): Promise<ProfileReport> {
   const stages = (options.stages ?? DEFAULT_STAGES).map((s) => {
     if (typeof s !== 'string') return s;
@@ -176,7 +199,17 @@ export async function runRenderProfile(
   // (after Pixi's render, at LOW priority) ends it.
   let frameStart = 0;
   let lastStart = 0;
-  let recording: { intervals: number[]; work: number[] } | null = null;
+  let recording: { intervals: number[]; work: number[]; minimap: number[] } | null = null;
+  // Time the minimap's updates (the game calls it once per frame while it shows).
+  let minimapFrameMs = 0;
+  const minimapUpdate = minimap?.update;
+  if (minimap && minimapUpdate) {
+    minimap.update = (state) => {
+      const t = performance.now();
+      minimapUpdate.call(minimap, state);
+      minimapFrameMs += performance.now() - t;
+    };
+  }
   let pan: { x: number; y: number; vx: number; vy: number; zoom: number; t0: number } | null = null;
   const start = () => {
     const now = performance.now();
@@ -189,7 +222,11 @@ export async function runRenderProfile(
     }
   };
   const end = () => {
-    if (recording) recording.work.push(performance.now() - frameStart);
+    if (recording) {
+      recording.work.push(performance.now() - frameStart);
+      recording.minimap.push(minimapFrameMs);
+    }
+    minimapFrameMs = 0;
   };
   ticker.add(start, null, UPDATE_PRIORITY.INTERACTION + 1);
   ticker.add(end, null, UPDATE_PRIORITY.UTILITY - 1);
@@ -204,15 +241,18 @@ export async function runRenderProfile(
       expected.cy0 === actual.cy0 &&
       expected.cx1 === actual.cx1 &&
       expected.cy1 === actual.cy1 &&
-      view.terrain.isComplete()
+      view.viewComplete()
     );
   };
 
   const results: StageResult[] = [];
+  const minimapWasOpen = minimap?.isOpen ?? false;
   try {
     for (const stage of stages) {
       pan = null;
       view.following = false;
+      view.mapModeOverride = stage.map ?? null;
+      minimap?.setOpen(stage.minimap ?? false);
       view.camera.set(stage.x * TILE_PX, stage.y * TILE_PX, stage.zoom);
       const waitStart = performance.now();
       while (!stage.noWait && !ready() && performance.now() - waitStart < readyTimeout) {
@@ -222,7 +262,9 @@ export async function runRenderProfile(
       const panning = (stage.vx ?? 0) !== 0 || (stage.vy ?? 0) !== 0;
       const bakesBefore = view.terrain.bakeCount;
       lastStart = 0;
-      recording = { intervals: [], work: [] };
+      const buildsBefore = view.mapStore.buildCount;
+      const uploadsBefore = view.map.uploads;
+      recording = { intervals: [], work: [], minimap: [] };
       if (panning) {
         pan = {
           x: stage.x * TILE_PX,
@@ -241,13 +283,17 @@ export async function runRenderProfile(
       while (!done()) await nextFrame();
       const elapsed = performance.now() - t0;
       const { intervals, work } = recording;
-      recording = null;
       pan = null;
       const belts = view.belts.data;
       results.push({
         name: stage.name,
         zoom: stage.zoom,
         panning,
+        view: view.mapBlend >= 1 ? 'map' : 'sprites',
+        minimap: minimap?.isOpen ?? false,
+        minimapMs: percentiles(recording.minimap),
+        mapBuilds: view.mapStore.buildCount - buildsBefore,
+        mapUploads: view.map.uploads - uploadsBefore,
         frames: intervals.length,
         fps: (intervals.length * 1000) / elapsed,
         interval: percentiles(intervals),
@@ -258,10 +304,14 @@ export async function runRenderProfile(
         belts: belts.length,
         beltItems: belts.reduce((n, b) => n + b.items.length, 0),
       });
+      recording = null;
     }
   } finally {
     ticker.remove(start, null);
     ticker.remove(end, null);
+    view.mapModeOverride = null;
+    minimap?.setOpen(minimapWasOpen);
+    if (minimap && minimapUpdate) minimap.update = minimapUpdate;
   }
   return {
     renderer: renderer.name,

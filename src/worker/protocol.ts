@@ -31,7 +31,7 @@ export const MAX_TIME_SCALE = 16;
 /**
  * Viewports wider or taller than this many tiles are clamped by the worker, so
  * a bogus viewport can't make it generate an unbounded number of chunks. At
- * the minimum zoom (0.25×, 8 px per tile) this is still 8192 px.
+ * the minimum zoom (0.125× in map mode, 4 px per tile) this is still 4096 px.
  */
 export const MAX_VIEWPORT_TILES = 1024;
 /** Chunks kept around the viewport on each side, so panning reveals ready-made chunks. */
