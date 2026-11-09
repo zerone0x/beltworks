@@ -42,7 +42,7 @@ import { startStep } from './ui/onboarding';
 import { OnboardingPanel, loadStored } from './ui/onboardingPanel';
 import {
   Tooltips,
-  drillAreaOre,
+  DrillAreaOreCache,
   drillAreaTooltip,
   entityTooltip,
   resourceTooltip,
@@ -660,6 +660,8 @@ async function main(): Promise<void> {
    */
   let restingOn = '';
   let restingSince = 0;
+  /** The ore under a drill ghost's area, summed again only when its chunks change. */
+  const drillOre = new DrillAreaOreCache();
   client.onSnapshot = (snapshot) => {
     view.applySnapshot(snapshot);
     // Autosaves count ticks of play (none run while the menu pauses the game).
@@ -745,12 +747,16 @@ async function main(): Promise<void> {
       } else if (ghost && ghost.proto.miningTicks !== undefined) {
         resting = `drill:${String(ghost.proto.id)}:${String(ghost.x)}:${String(ghost.y)}`;
         tip = () => {
-          const ore = drillAreaOre(ghost.proto, ghost.x, ghost.y, (x, y) =>
-            view.terrain.tileAt(x, y),
+          const area = drillOre.update(
+            ghost.proto,
+            ghost.x,
+            ghost.y,
+            (x, y) => view.terrain.tileAt(x, y),
+            (cx, cy) => view.terrain.chunkData(cx, cy),
           );
           return {
-            key: `${resting}:${ore.map((o) => `${String(o.resource)}=${String(o.amount)}`).join()}`,
-            content: drillAreaTooltip(ghost.proto, ore),
+            key: `${resting}:${area.oreKey}`,
+            content: drillAreaTooltip(ghost.proto, area.ore),
           };
         };
       }
