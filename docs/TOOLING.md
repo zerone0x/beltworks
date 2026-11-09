@@ -219,7 +219,7 @@ Per-system time per tick (`--profile`, ms and share) and active entities per sys
 | furnaces, assemblers, labs | 0.009 (2.2%) | 152 / 137 / 137 | 0.032 (1.2%) | 604 / 580 / 580 |
 | total | 0.406 | | 2.548 | |
 
-Measured against the code before #73 in alternating local runs on one machine (Node 22, a shared 4-core AMD EPYC 9475F; ratios, since the machine is shared), the mean tick time went to 0.74× in 10k, 0.76× in 50k and 0.54× in m3, with 1k and power unchanged within noise. What changed and what is left:
+Measured against the code before #73 in alternating local runs on one machine (Node 22, a shared 4-core AMD EPYC 9475F; ratios, since the machine is shared), the mean tick time went to 0.74× in 10k, about 0.8× in 50k and 0.54× in m3, with 1k and power unchanged within noise. What changed and what is left:
 
 - **Power** (now 4–5%): only producers and awake consumers are asked (D62), a quarter of the electric entities in both large scenes; on the small power scene, where nearly everything is awake, it asks everyone as before.
 - **Belts**: the loops still move every tick, so their lanes stay awake; that is real work. Each lane's queries are now logarithmic and a line notifies a stretch once per step.
