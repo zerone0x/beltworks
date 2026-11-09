@@ -61,7 +61,7 @@ export const SYSTEMS: readonly System[] = [
     name: 'players',
     run: ({ state }) => {
       // Movement and hand-mining of every player, then hand-crafting.
-      updatePlayers(state.players, state.world);
+      updatePlayers(state.players, state.world, state.entities);
       updateCrafting(state.crafting, state.players);
     },
   },

@@ -6,6 +6,11 @@
  *   player is an axis-aligned box of `2 * PLAYER_HALF_SIZE` subtiles that
  *   can't overlap a non-walkable tile (water). Each axis is resolved on its
  *   own, so a player pushing diagonally into a shore slides along it.
+ * - Belts carry the player (D66): after its own step, the belt under the
+ *   player's center pushes it along the belt's direction at the belt's item
+ *   speed (8 / 16 / 24 subtiles/tick), so walking with a belt is faster and
+ *   against it slower. The push is stopped by water and by entities that
+ *   aren't belts.
  * - Hand-mining: while the mining intent is set and the target tile is within
  *   reach, one unit is mined every `HAND_MINING_TICKS` ticks and goes into the
  *   player's inventory. A tree is felled whole after `TREE_MINING_TICKS`
@@ -14,10 +19,13 @@
  *   an inventory without room for what the next unit (or tree) gives ends it.
  */
 
+import { entityPrototype } from '../data/entities';
 import { minedItem } from '../data/items';
 import { TREE_ITEM, TREE_MINING_TICKS, TREE_WOOD } from '../data/trees';
 import type { Axis } from './commands';
 import { HALF_TILE, SUBTILES_PER_TILE, fixedToTile, isInt32, tileToFixed } from './fixed';
+import { DIRECTION_DX, DIRECTION_DY } from './entities/direction';
+import type { Entities } from './entities/entities';
 import { fnv1a32 } from './hash';
 import { SaveError, type SaveReader, type SaveWriter } from './save/codec';
 import { Inventory, PLAYER_INVENTORY_SLOTS } from './inventory';
@@ -186,52 +194,80 @@ export class PlayerTable {
   }
 }
 
-/** Whether tile `(x, y)` blocks movement. Tiles outside the supported map range block too. */
-function blocked(world: World, x: number, y: number): boolean {
-  return !world.isWalkable(x, y);
+/**
+ * Whether tile `(x, y)` blocks movement: tiles outside the supported map
+ * range and non-walkable tiles always do. With `entities` (the belt carrying
+ * the player, see `beltDrift`) so does any entity that isn't a belt; players
+ * walk through entities on their own.
+ */
+function blocked(world: World, entities: Entities | null, x: number, y: number): boolean {
+  if (!world.isWalkable(x, y)) return true;
+  if (entities === null) return false;
+  const id = entities.at(x, y);
+  return id !== 0 && entityPrototype(entities.store.type(id))?.beltSpeed === undefined;
 }
 
-/** Whether any tile in column `col`, rows `row0..row1`, blocks movement. */
-function columnBlocked(world: World, col: number, row0: number, row1: number): boolean {
-  for (let row = row0; row <= row1; row++) {
-    if (blocked(world, col, row)) return true;
-  }
-  return false;
-}
-
-/** Whether any tile in row `row`, columns `col0..col1`, blocks movement. */
-function rowBlocked(world: World, row: number, col0: number, col1: number): boolean {
-  for (let col = col0; col <= col1; col++) {
-    if (blocked(world, col, row)) return true;
+/**
+ * Whether any tile on line `line` (a column when `horizontal`, else a row),
+ * across tiles `from..to` of the other axis, blocks movement.
+ */
+function lineBlocked(
+  world: World,
+  entities: Entities | null,
+  horizontal: boolean,
+  line: number,
+  from: number,
+  to: number,
+): boolean {
+  for (let t = from; t <= to; t++) {
+    if (horizontal ? blocked(world, entities, line, t) : blocked(world, entities, t, line)) {
+      return true;
+    }
   }
   return false;
 }
 
 /**
- * Moves a box centered on `pos` (half size `PLAYER_HALF_SIZE`, covering
- * subtiles `[pos - H, pos + H)`) by `delta` along one axis, stopping flush
- * against the first blocking tile line. `delta` is smaller than a tile, so at
- * most one new tile line is entered. `lineBlocked(line)` says whether that
- * line (a column for x, a row for y) has a blocking tile across the box.
+ * Moves player `i`'s box (half size `PLAYER_HALF_SIZE`, covering subtiles
+ * `[pos - H, pos + H)` on each axis) by `delta` along one axis (x when
+ * `horizontal`), stopping flush against the first blocking tile line (see
+ * `blocked`). `delta` is smaller than a tile, so at most one new tile line
+ * is entered. No closures, so moving allocates nothing.
  */
-function moveAxis(pos: number, delta: number, lineBlocked: (line: number) => boolean): number {
+function moveAxis(
+  players: PlayerTable,
+  world: World,
+  entities: Entities | null,
+  i: number,
+  horizontal: boolean,
+  delta: number,
+): void {
   const H = PLAYER_HALF_SIZE;
+  const pos = horizontal ? players.x[i]! : players.y[i]!;
+  const across = horizontal ? players.y[i]! : players.x[i]!;
   const next = pos + delta;
   if (!isInt32(next - H) || !isInt32(next + H)) {
-    return pos;
+    return;
   }
+  const from = fixedToTile(across - H);
+  const to = fixedToTile(across + H - 1);
+  let moved = next;
   if (delta > 0) {
     const line = fixedToTile(next + H - 1);
-    if (line !== fixedToTile(pos + H - 1) && lineBlocked(line)) {
-      return tileToFixed(line) - H;
+    if (
+      line !== fixedToTile(pos + H - 1) &&
+      lineBlocked(world, entities, horizontal, line, from, to)
+    ) {
+      moved = tileToFixed(line) - H;
     }
   } else if (delta < 0) {
     const line = fixedToTile(next - H);
-    if (line !== fixedToTile(pos - H) && lineBlocked(line)) {
-      return tileToFixed(line + 1) + H;
+    if (line !== fixedToTile(pos - H) && lineBlocked(world, entities, horizontal, line, from, to)) {
+      moved = tileToFixed(line + 1) + H;
     }
   }
-  return next;
+  if (horizontal) players.x[i] = moved;
+  else players.y[i] = moved;
 }
 
 /** Moves player `i` one tick along its intent. */
@@ -242,21 +278,39 @@ function movePlayer(players: PlayerTable, world: World, i: number): void {
     return;
   }
   const speed = dx !== 0 && dy !== 0 ? PLAYER_DIAGONAL_SPEED : PLAYER_SPEED;
-  const H = PLAYER_HALF_SIZE;
-  if (dx !== 0) {
-    const y = players.y[i]!;
-    const row0 = fixedToTile(y - H);
-    const row1 = fixedToTile(y + H - 1);
-    players.x[i] = moveAxis(players.x[i]!, dx * speed, (col) =>
-      columnBlocked(world, col, row0, row1),
-    );
-  }
-  if (dy !== 0) {
-    const x = players.x[i]!;
-    const col0 = fixedToTile(x - H);
-    const col1 = fixedToTile(x + H - 1);
-    players.y[i] = moveAxis(players.y[i]!, dy * speed, (row) => rowBlocked(world, row, col0, col1));
-  }
+  if (dx !== 0) moveAxis(players, world, null, i, true, dx * speed);
+  if (dy !== 0) moveAxis(players, world, null, i, false, dy * speed);
+}
+
+/**
+ * The belt under a player at `(px, py)` (subtiles): the push it gives, as a
+ * direction (0–3, see src/sim/entities/direction.ts) in the low 2 bits and
+ * its belt speed (subtiles/tick) above them, or -1 when the tile under the
+ * player's center has no belt (transport belt, underground belt end or
+ * splitter, any tier). One occupancy lookup; read-only.
+ */
+export function beltDrift(entities: Entities, px: number, py: number): number {
+  const id = entities.at(fixedToTile(px), fixedToTile(py));
+  if (id === 0) return -1;
+  const speed = entityPrototype(entities.store.type(id))?.beltSpeed;
+  if (speed === undefined) return -1;
+  return (speed << 2) | entities.store.dir(id);
+}
+
+/**
+ * Lets the belt under player `i` (after its own step) carry it one tick
+ * along the belt's direction (its output side, so a curve carries it round
+ * the corner) at the belt's item speed. The push can't move the player into
+ * water nor into an entity that isn't a belt: it stops flush against it.
+ */
+function ridePlayer(players: PlayerTable, world: World, entities: Entities, i: number): void {
+  const drift = beltDrift(entities, players.x[i]!, players.y[i]!);
+  if (drift < 0) return;
+  const speed = drift >> 2;
+  const dir = drift & 3;
+  const dx = DIRECTION_DX[dir]!;
+  if (dx !== 0) moveAxis(players, world, entities, i, true, dx * speed);
+  else moveAxis(players, world, entities, i, false, DIRECTION_DY[dir]! * speed);
 }
 
 /** Advances player `i`'s hand-mining by one tick. */
@@ -298,12 +352,14 @@ function minePlayer(players: PlayerTable, world: World, i: number): void {
 }
 
 /**
- * Player system: moves every player one tick along its movement intent, then
+ * Player system: moves every player one tick along its movement intent, lets
+ * the belt it then stands on carry it (D66; only with `entities`), then
  * advances its hand-mining (reach is checked from the new position).
  */
-export function updatePlayers(players: PlayerTable, world: World): void {
+export function updatePlayers(players: PlayerTable, world: World, entities?: Entities): void {
   for (let i = 0; i < players.count; i++) {
     movePlayer(players, world, i);
+    if (entities) ridePlayer(players, world, entities, i);
     minePlayer(players, world, i);
   }
 }
