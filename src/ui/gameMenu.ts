@@ -414,6 +414,8 @@ export class GameMenu {
     window.addEventListener(
       'keydown',
       (e) => {
+        // A full-screen message (a crash, D61) is shown: the keys are its own.
+        if (document.querySelector('.fatal') !== null) return;
         if (this.isOpen && this.settings?.capturing) {
           // The settings wait for a new key binding: the key is theirs alone.
           e.preventDefault();

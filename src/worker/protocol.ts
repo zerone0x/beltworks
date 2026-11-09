@@ -313,9 +313,10 @@ export interface ErrorMessage {
 }
 
 /**
- * The simulation threw during a tick (D61): the worker has stopped running
- * ticks for good, since the state may be half-updated, and won't save it.
- * The main thread offers to load the last save.
+ * The simulation threw during a tick, or starting the game (`init`) threw
+ * (D61): the worker has stopped running ticks for good, since the state may
+ * be half-updated, and won't save it. The main thread offers to load the
+ * last save.
  */
 export interface CrashedMessage {
   type: 'crashed';

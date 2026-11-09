@@ -88,7 +88,8 @@ export function controls(b: Bindings = bindings()): ControlHelp[] {
     { keys: k('debugInfo'), action: 'Debug info: ticks, UPS and the tile under the cursor' },
     {
       keys: 'Esc',
-      action: 'Close windows; with none open, the game menu (save, load, settings, new game)',
+      action:
+        'Close windows; with none open, the game menu (save, load, settings, About, new game)',
     },
   ];
 }

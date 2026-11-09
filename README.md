@@ -2,7 +2,7 @@
 
 A factory-automation game for the browser: start by mining ore by hand, then build drills, belts, furnaces, steam power, assembling machines and labs until the factory runs (and researches) on its own. Inspired by Factorio; all art, sound, names and code are original.
 
-**Play the public beta: https://zerone0x.github.io/beltworks-play/** (v1.0.0-beta.1; free, no account, no download, no server: everything runs and is saved in your browser). *Beltworks* is a working title.
+**Play the public beta: https://zerone0x.github.io/beltworks-play/** (v1.0.0-beta.1; free, no account, no download, no server: everything runs and is saved in your browser).
 
 ![Automated science: assembling machines making gears, red and green science packs, fed by inserters from chests and a belt, and a lab researching on steam power](docs/screenshots/m3-science.png)
 
@@ -45,7 +45,7 @@ v1 covers the start of the game: hand mining, burner and electric machines, belt
 
 ## Playing in detail
 
-The game opens on the **title screen**: **Continue** (the newest save), **New game** on a world seed (a random one is suggested; type a number, or any word or phrase, to get the same world every time, and **Copy** its number, the one the game menu shows, to share it), **Load** (any save), **Settings** and **About** (the version, the controls as bound, credits and licenses). The game menu (**Esc**) shows the seed of the game you are playing, with a copy button.
+The game opens on the **title screen**: **Continue** (the newest save), **New game** on a world seed (a random one is suggested; type a number, or any word or phrase, to get the same world every time, and **Copy** its number, the one the game menu shows, to share it), **Load** (any save), **Settings** and **About** (the version, the controls as bound, credits, the game's MIT license and the third-party licenses). The game menu (**Esc**) shows the seed of the game you are playing, with a copy button.
 
 A new game starts between four ore patches (iron, copper, coal, stone) with a kit of belts, burner inserters, burner mining drills, stone furnaces, wooden chests and coal in the hotbar. The first goal: a drill on iron ore drops ore onto a belt, an inserter feeds it into a furnace, and another inserter moves the plates into a chest, all on their own once fuelled with coal. From there: steam power, assembling machines, and labs researching technologies from red and then green science packs, made by machines.
 
@@ -182,3 +182,5 @@ This is done by `.github/workflows/deploy.yml` on every push to `main` (or manua
 ## Credits and licenses
 
 Made by zerone0x. This project does not use any Factorio assets, names, sounds, or code: the art is rendered in Blender from the project's own procedural models (no image textures, models or fonts from elsewhere), and the sound and music are synthesized in the browser (no samples). The only third-party code in the game is [PixiJS](https://pixijs.com) (MIT) and the small libraries it includes (earcut, ISC; tiny-lru, BSD-3-Clause; eventemitter3, @pixi/colord, ismobilejs, parse-svg-path, MIT); their license texts ship with every build as `third-party-licenses.txt` and are linked from the in-game About.
+
+Beltworks itself is released under the [MIT License](LICENSE), copyright 2026 zerone0x.

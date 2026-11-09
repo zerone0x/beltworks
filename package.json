@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "A factory-automation game for the browser.",
+  "license": "MIT",
   "engines": {
     "node": ">=22.12.0"
   },

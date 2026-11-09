@@ -74,6 +74,9 @@ const WORLD_TOOLTIP_MS = 600;
  */
 const DEFAULT_SEED = 1;
 
+/** The simulation worker once `main` started it, so a failed start can stop it. */
+let startedClient: SimClient | null = null;
+
 async function main(): Promise<void> {
   const root = document.getElementById('app') ?? document.body;
   // Before anything else: a browser without what the game needs gets a message, not a broken page.
@@ -112,6 +115,7 @@ async function main(): Promise<void> {
     start.save,
     renderScene,
   );
+  startedClient = client;
   const overlay = new DebugOverlay(document.body);
   // Players turn the debug overlay on (F3, or the settings); test builds always show it (specs read it).
   const debugAlways = testHook !== null;
@@ -749,6 +753,8 @@ async function main(): Promise<void> {
 
 main().catch((err: unknown) => {
   console.error('Failed to start Beltworks', err);
+  // The game behind the message never runs: stop its simulation.
+  startedClient?.terminate();
   showFatal(
     'start-failed',
     "Beltworks couldn't start",

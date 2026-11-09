@@ -6,7 +6,7 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 
 ### Added
 
-- **Public beta readiness** (#92): the version in the title screen, the game menu and About; an **About** panel (controls as bound, credits, licenses) on the title screen and in the game menu; `third-party-licenses.txt` with the bundled packages' licenses, written by every build; a message instead of a broken page on browsers without what the game needs (module workers, WebGL, compression streams, Web Crypto), and a note when saves are off (no IndexedDB); when the simulation crashes, a message that offers to load the newest save; **F3** (or the settings) toggles the debug info, now hidden by default; a player-facing README and this changelog; a release check that plays the production build with real input (`npm run test:release`).
+- **Public beta readiness** (#92): the version in the title screen, the game menu and About; an **About** panel (controls as bound, credits, licenses) on the title screen and in the game menu; `third-party-licenses.txt` with the bundled packages' licenses, written by every build; a message instead of a broken page on browsers without what the game needs (module workers, WebGL, compression streams, Web Crypto), and a note when saves are off (no IndexedDB); when the simulation crashes, a message that offers to load the newest save; **F3** (or the settings) toggles the debug info, now hidden by default; a player-facing README and this changelog; a release check that plays the production build with real input (`npm run test:release`); the game's own license, MIT (#110).
 - **Blueprints** (#108): box-select copy, paste with ghosts and rotation, `BW1.` string export and import, a blueprint library in the browser.
 - **Snapshot transfer** (#103): delta snapshots, allocation-free encoders and compact belt items (D56).
 - **Title screen and onboarding** (#104): Continue, New game on a world seed, Load, Settings; eight "Getting started" objectives for the first five minutes; rich tooltips for items, recipes and entities.
@@ -23,6 +23,7 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 ### Fixed
 
 - Inserters pick up only ingredients the target machine can use now (#95) and drop into any free gap on their belt tile (#101).
+- A splitter merging a sparse input into a busy one no longer sends out empty slots: the busy side makes way for each item as it comes (#106, D58).
 - A damaged save file says so clearly when imported (#105).
 - Importing a blueprint string no longer leaves a storage error unhandled (#92).
 

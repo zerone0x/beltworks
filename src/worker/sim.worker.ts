@@ -412,9 +412,19 @@ function validateResearched(techs: unknown): number[] | undefined {
 let inbox: Promise<void> = Promise.resolve();
 
 self.onmessage = (event: MessageEvent<MainToWorker>) => {
+  const isInit = (event.data as { type?: unknown } | null)?.type === 'init';
   inbox = inbox
     .then(() => handle(event.data))
     .catch((err: unknown) => {
-      post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+      const message = err instanceof Error ? err.message : String(err);
+      if (isInit) {
+        // No game to go on with (D61): the main thread shows the crash
+        // message instead of waiting for a game that never starts.
+        crashed = true;
+        console.error('Simulation failed to start:', err);
+        post({ type: 'crashed', message });
+        return;
+      }
+      post({ type: 'error', message });
     });
 };

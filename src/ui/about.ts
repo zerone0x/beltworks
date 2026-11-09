@@ -2,9 +2,10 @@
  * The About panel (plain DOM, D39; D61), opened from the title screen and
  * the game menu in their place, like the settings: the version, the
  * controls as currently bound (the help panel's list, src/ui/help.ts), the
- * credits, and the licenses of the third-party code the game bundles (the
- * build writes their full texts into `third-party-licenses.txt`, see
- * vite.config.ts). Back (or Escape, handled by whoever shows it) returns.
+ * credits, the game's own license (MIT) and the licenses of the third-party
+ * code the game bundles (the build writes their full texts into
+ * `third-party-licenses.txt`, see vite.config.ts). Back (or Escape, handled
+ * by whoever shows it) returns.
  */
 
 import { VERSION_LABEL } from '../version';
@@ -16,6 +17,8 @@ import { bindings, keyLabel } from './keybindings';
 export const ISSUES_URL = 'https://github.com/zerone0x/beltworks/issues';
 /** The bundled packages' license texts, written next to index.html by the build. */
 export const LICENSES_FILE = 'third-party-licenses.txt';
+/** The game's own license (MIT) in the repository. */
+export const LICENSE_URL = 'https://github.com/zerone0x/beltworks/blob/main/LICENSE';
 
 function heading(text: string): HTMLDivElement {
   const el = document.createElement('div');
@@ -95,6 +98,11 @@ export class AboutPanel {
       '.',
     );
 
+    const own = paragraph(
+      'Beltworks is free software under the ',
+      link('MIT License', LICENSE_URL),
+      ' (copyright 2026 zerone0x).',
+    );
     // The libraries PixiJS brings into the bundle (the build lists them in the license file).
     const licenses = paragraph(
       'Built with PixiJS (MIT) and the small libraries it includes (earcut, ISC; tiny-lru, ' +
@@ -113,6 +121,7 @@ export class AboutPanel {
       credits,
       feedback,
       heading('Licenses'),
+      own,
       licenses,
     );
     this.element = el;
