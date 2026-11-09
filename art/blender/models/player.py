@@ -223,7 +223,8 @@ def build(ctx):
         sphere(0.052, h, dark, segments=12)
         hands.append((h, d2))
 
-    if pose['tool'] == 'pick':
+    # The pick swings through every frame but the shadow is frame 0's: leave it out of the shadow.
+    if pose['tool'] == 'pick' and ctx.layer != 'shadow':
         # The handle runs through both hands and on along the forearms; the head across its end.
         h = (hands[0][0] + hands[1][0]) / 2
         d = (hands[0][1] + hands[1][1]).normalized()
