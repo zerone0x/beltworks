@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTOSAVE_SLOTS,
+  AUTOSAVE_TICKS,
+  AutosaveClock,
   exportFileName,
   formatPlayTime,
   importedName,
@@ -46,5 +48,24 @@ describe('save slots', () => {
     expect(exportFileName('My base: v2!')).toBe('beltworks-My-base-v2.bwsave');
     expect(exportFileName('???')).toBe('beltworks-save.bwsave');
     expect(importedName('beltworks-My-base.bwsave')).toBe('My-base');
+  });
+
+  it('counts autosave time in ticks of play, from the first tick it sees', () => {
+    expect(AUTOSAVE_TICKS).toBe(5 * 60 * 60);
+    // A loaded game starts counting at its save's tick.
+    const clock = new AutosaveClock(600);
+    expect(clock.due(10_000)).toBe(false);
+    expect(clock.due(10_599)).toBe(false);
+    // However long the menu paused the game, the next tick is only one later: still not due.
+    expect(clock.due(10_599)).toBe(false);
+    expect(clock.due(10_600)).toBe(true);
+    // Due until an autosave restarts the count (e.g. it was skipped while the tab was hidden).
+    expect(clock.due(10_700)).toBe(true);
+    clock.restart(10_700);
+    expect(clock.due(11_299)).toBe(false);
+    expect(clock.due(11_300)).toBe(true);
+    // A tick before the count's start (a different game) starts it again.
+    expect(clock.due(5)).toBe(false);
+    expect(clock.due(605)).toBe(true);
   });
 });

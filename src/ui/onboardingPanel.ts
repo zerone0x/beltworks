@@ -7,7 +7,8 @@
  * (through `highlight`), and has Skip (closes it for good; the game menu
  * can start it again).
  *
- * Progress is stored in `localStorage` (D54), not in saves.
+ * Whether it is closed is stored in `localStorage` (D54); the current step
+ * goes into each save's slot (`progress.step`, see saves.ts), not in saves.
  */
 
 import { keyFor, keyLabel } from './keybindings';
@@ -17,13 +18,15 @@ import {
   STEPS,
   directionText,
   isActive,
-  parseProgress,
+  parseStored,
+  storedJson,
   unfuelled,
   type OnboardingProgress,
   type OnboardingState,
+  type StoredOnboarding,
 } from './onboarding';
 
-/** The `localStorage` key of the onboarding progress (JSON). */
+/** The `localStorage` key of the onboarding's stored state (JSON, see `StoredOnboarding`). */
 export const ONBOARDING_KEY = 'beltworks.onboarding';
 
 const ACCENT = '#7fd4ff';
@@ -36,18 +39,18 @@ function storage(): Storage | null {
   }
 }
 
-/** Progress as stored in this browser. */
-export function loadProgress(): OnboardingProgress {
+/** What this browser stores: whether the objectives are closed, and the legacy shared step. */
+export function loadStored(): StoredOnboarding {
   try {
-    return parseProgress(JSON.parse(storage()?.getItem(ONBOARDING_KEY) ?? 'null'));
+    return parseStored(JSON.parse(storage()?.getItem(ONBOARDING_KEY) ?? 'null'));
   } catch {
-    return NEW_PROGRESS;
+    return parseStored(null);
   }
 }
 
-function saveProgress(progress: OnboardingProgress): void {
+function saveDismissed(dismissed: boolean): void {
   try {
-    storage()?.setItem(ONBOARDING_KEY, JSON.stringify(progress));
+    storage()?.setItem(ONBOARDING_KEY, JSON.stringify(storedJson({ ...loadStored(), dismissed })));
   } catch {
     // Full or blocked storage: the tutorial still works for this session.
   }
@@ -85,7 +88,8 @@ export class OnboardingPanel {
   constructor(
     parent: HTMLElement,
     private readonly options: OnboardingPanelOptions,
-    progress: OnboardingProgress = loadProgress(),
+    /** Where it starts: the world's step (`startStep`) and whether this browser closed it. */
+    progress: OnboardingProgress = { ...NEW_PROGRESS, dismissed: loadStored().dismissed },
   ) {
     this.tracker = new OnboardingTracker(progress);
     const el = document.createElement('div');
@@ -187,16 +191,21 @@ export class OnboardingPanel {
     this.setProgress({ ...this.tracker.progress, dismissed: true });
   }
 
+  /** Goes back to the first step, open or closed as it was (a save that failed to load: a new world). */
+  restartSteps(): void {
+    this.setProgress({ ...this.tracker.progress, step: 0 });
+  }
+
   private setProgress(progress: OnboardingProgress): void {
     this.tracker.progress = progress;
-    saveProgress(progress);
+    saveDismissed(progress.dismissed);
     this.render(null);
   }
 
   /** Advances on the latest snapshot's state and redraws what changed. */
   update(state: OnboardingState): void {
     if (!isActive(this.tracker.progress)) return;
-    if (!this.tracker.done && this.tracker.update(state)) saveProgress(this.tracker.progress);
+    if (!this.tracker.done) this.tracker.update(state);
     this.render(state);
   }
 

@@ -6,8 +6,9 @@
  * The text comes from pure functions of the prototypes (`itemTooltip`,
  * `recipeTooltip`, `entityTooltip`), unit-tested in Node. The `Tooltips`
  * element shows one for whatever element under the pointer carries a
- * `data-tip` attribute (`item:<id>`, `recipe:<id>` or `entity:<type id>`;
- * slots set it from the item they show, see inventory.ts), and main.ts
+ * `data-tip` attribute (`item:<id>`, `recipe:<id>` or `entity:<type id>`,
+ * with `@<id>` after a recipe for the machine making it, e.g. an assembler's
+ * recipe picker; slots set it from the item they show, see inventory.ts), and main.ts
  * shows entity tooltips for the world (`showAt`) when the pointer rests on
  * an entity.
  */
@@ -133,12 +134,22 @@ export function itemTooltip(id: number): TooltipContent | null {
   return { title: proto.label, lines };
 }
 
-/** The tooltip of recipe `id`: what it makes, from what, how long it takes, and what the result does. */
-export function recipeTooltip(id: number): TooltipContent | null {
+/**
+ * The tooltip of recipe `id`: what it makes, from what, how long it takes
+ * (also in machine `machine`, an assembling machine's type id, if given),
+ * and what the result does.
+ */
+export function recipeTooltip(id: number, machine = 0): TooltipContent | null {
   const recipe = recipePrototype(id);
   if (!recipe) return null;
   const output = recipe.outputs[0]![0];
   const lines = recipeLines(recipe);
+  const maker = entityPrototype(machine);
+  if (maker?.craftingSpeed) {
+    lines.push(
+      `In ${maker.label}: ${formatSeconds(craftingTicks(recipe.ticks, maker.craftingSpeed))}`,
+    );
+  }
   const entity = entityForItem(output);
   if (entity) lines.push(...entityLines(entity));
   return { title: itemPrototype(output)?.label ?? `item#${String(output)}`, lines };
@@ -160,16 +171,19 @@ export function entityTooltip(type: number, recipe = 0): TooltipContent | null {
   return { title: proto.label, lines };
 }
 
-/** The tooltip a `data-tip` value (`item:3`, `recipe:7`, `entity:2`) asks for, or `null`. */
+/**
+ * The tooltip a `data-tip` value (`item:3`, `recipe:7`, `recipe:7@14` made
+ * in machine type 14, `entity:2`) asks for, or `null`.
+ */
 export function tooltipFor(tip: string): TooltipContent | null {
-  const m = /^(item|recipe|entity):(\d+)$/.exec(tip);
-  if (!m) return null;
+  const m = /^(item|recipe|entity):(\d+)(?:@(\d+))?$/.exec(tip);
+  if (!m || (m[3] !== undefined && m[1] !== 'recipe')) return null;
   const id = Number(m[2]);
   switch (m[1]) {
     case 'item':
       return itemTooltip(id);
     case 'recipe':
-      return recipeTooltip(id);
+      return recipeTooltip(id, Number(m[3] ?? 0));
     default:
       return entityTooltip(id);
   }

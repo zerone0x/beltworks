@@ -27,12 +27,46 @@ export interface SaveSlot {
    * saves and saves made before hotbar pins.
    */
   hotbar?: string[];
+  /**
+   * The onboarding objective the game was at when it was saved (D54, #107):
+   * UI state kept next to the save like the hotbar pins, so continuing a
+   * world shows that world's progress. Missing for imported saves, saves
+   * made before it and saves made with the objectives off.
+   */
+  onboarding?: number;
 }
 
 /** Autosave slots, used in rotation. */
 export const AUTOSAVE_SLOTS = 3;
 /** Minutes of play between autosaves. */
 export const AUTOSAVE_MINUTES = 5;
+/** Simulation ticks (60 per second) of play between autosaves. */
+export const AUTOSAVE_TICKS = AUTOSAVE_MINUTES * 60 * 60;
+
+/**
+ * Counts play time for autosaves in simulation ticks, so time the game
+ * spends paused behind the menu (D57: no ticks run) never counts. The first
+ * tick it sees starts the count (a loaded game starts at its save's tick).
+ */
+export class AutosaveClock {
+  private from: number | null = null;
+
+  constructor(readonly interval = AUTOSAVE_TICKS) {}
+
+  /** Whether an autosave is due at `tick` (it stays due until `restart`). */
+  due(tick: number): boolean {
+    if (this.from === null || tick < this.from) {
+      this.from = tick;
+      return false;
+    }
+    return tick - this.from >= this.interval;
+  }
+
+  /** Starts counting again from `tick` (an autosave was made then). */
+  restart(tick: number): void {
+    this.from = tick;
+  }
+}
 
 /** Slots newest first. */
 export function sortSlots(slots: readonly SaveSlot[]): SaveSlot[] {

@@ -13,7 +13,9 @@ import {
   STEP_IDS,
   directionText,
   holds,
-  parseProgress,
+  parseStored,
+  startStep,
+  storedJson,
   unfuelled,
   type OnboardingEntity,
   type OnboardingState,
@@ -138,12 +140,39 @@ describe('onboarding tracker', () => {
     expect(STEP_IDS[t.step]).toBe('power');
   });
 
-  it('parses stored progress, falling back to a fresh start', () => {
-    expect(parseProgress(null)).toEqual(NEW_PROGRESS);
-    expect(parseProgress({ step: 3, dismissed: true })).toEqual({ step: 3, dismissed: true });
-    expect(parseProgress({ step: 99 })).toEqual(NEW_PROGRESS);
-    expect(parseProgress({ step: STEPS.length })).toEqual({ step: STEPS.length, dismissed: false });
-    expect(parseProgress({ step: 1.5, dismissed: 'yes' })).toEqual(NEW_PROGRESS);
+  it('parses what the browser stores, keeping the legacy shared step', () => {
+    const none = { dismissed: false, legacyStep: null };
+    expect(parseStored(null)).toEqual(none);
+    expect(parseStored({ step: 3, dismissed: true })).toEqual({ dismissed: true, legacyStep: 3 });
+    expect(parseStored({ step: 99 })).toEqual(none);
+    expect(parseStored({ step: STEPS.length })).toEqual({ dismissed: false, legacyStep: 8 });
+    expect(parseStored({ step: 1.5, dismissed: 'yes' })).toEqual(none);
+    expect(parseStored({ dismissed: true })).toEqual({ dismissed: true, legacyStep: null });
+    // Writing it back keeps the legacy step for older saves, and adds none.
+    expect(storedJson({ dismissed: true, legacyStep: 3 })).toEqual({ step: 3, dismissed: true });
+    expect(storedJson({ dismissed: false, legacyStep: null })).toEqual({ dismissed: false });
+    expect(parseStored(storedJson({ dismissed: true, legacyStep: 2 }))).toEqual({
+      dismissed: true,
+      legacyStep: 2,
+    });
+  });
+
+  it('starts each world at its own step (#107)', () => {
+    // A new game starts at the first step, whatever another world reached.
+    expect(startStep(false, undefined, 5)).toBe(0);
+    expect(startStep(false, 4, null)).toBe(0);
+    // A loaded save at the step stored with it.
+    expect(startStep(true, 2, 5)).toBe(2);
+    expect(startStep(true, 0, 5)).toBe(0);
+    expect(startStep(true, STEPS.length, null)).toBe(STEPS.length);
+    // A save without one (older, or imported): the browser's legacy step, else the first.
+    expect(startStep(true, undefined, 5)).toBe(5);
+    expect(startStep(true, 'x', null)).toBe(0);
+    expect(startStep(true, 99, null)).toBe(0);
+    // Two worlds don't share progress: each tracker runs on its own world's step.
+    const a = new OnboardingTracker({ ...NEW_PROGRESS, step: startStep(true, 6, null) });
+    const b = new OnboardingTracker({ ...NEW_PROGRESS, step: startStep(true, 1, null) });
+    expect([STEP_IDS[a.step], STEP_IDS[b.step]]).toEqual(['chest', 'craft']);
   });
 
   it('points the way to a patch', () => {

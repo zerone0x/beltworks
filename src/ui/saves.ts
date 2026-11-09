@@ -13,7 +13,8 @@
 
 import { gunzip, gzip, isGzip } from '../save/compress';
 import {
-  AUTOSAVE_MINUTES,
+  AUTOSAVE_TICKS,
+  AutosaveClock,
   exportFileName,
   importedName,
   newSlotId,
@@ -102,7 +103,7 @@ export class SaveController implements Omit<
   GameMenuActions,
   'otherWindowOpen' | 'restartTutorial'
 > {
-  private autosaveTimer: ReturnType<typeof setInterval> | null = null;
+  private autosaveClock: AutosaveClock | null = null;
   private busy = false;
 
   constructor(
@@ -112,14 +113,28 @@ export class SaveController implements Omit<
     private readonly notify: (message: string) => void,
     /** Item names pinned to the hotbar slots, stored with each save (D51). */
     private readonly hotbar: () => string[] = () => [],
+    /** The onboarding objective the game is at, stored with each save (`undefined`: none). */
+    private readonly onboarding: () => number | undefined = () => undefined,
   ) {}
 
-  /** Starts autosaving every `minutes` minutes of wall time (not while the tab is hidden). */
-  startAutosave(minutes = AUTOSAVE_MINUTES): void {
-    if (!this.store || this.autosaveTimer !== null) return;
-    this.autosaveTimer = setInterval(() => {
-      if (!document.hidden) void this.autosave();
-    }, minutes * 60_000);
+  /**
+   * Starts autosaving every `ticks` ticks of play: time paused behind the
+   * menu runs no ticks, so it doesn't count (`onTick` feeds the ticks in).
+   */
+  startAutosave(ticks = AUTOSAVE_TICKS): void {
+    if (!this.store || this.autosaveClock) return;
+    this.autosaveClock = new AutosaveClock(ticks);
+  }
+
+  /** The tick of the latest snapshot: autosaves once enough play has passed (not while the tab is hidden). */
+  onTick(tick: number): void {
+    const clock = this.autosaveClock;
+    if (!clock?.due(tick) || this.busy || document.hidden) return;
+    clock.restart(tick);
+    // Count from the tick the save holds (the worker saves a few ticks later).
+    void this.autosave().then((slot) => {
+      if (slot) clock.restart(slot.tick);
+    });
   }
 
   /** Saves into the next autosave slot (the oldest of the rotation). */
@@ -234,6 +249,8 @@ export class SaveController implements Omit<
         version: SAVE_VERSION,
         hotbar: this.hotbar(),
       };
+      const step = this.onboarding();
+      if (step !== undefined) slot.onboarding = step;
       await this.store.write(slot, data);
       return slot;
     } finally {

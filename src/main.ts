@@ -32,7 +32,8 @@ import { DebugOverlay } from './ui/debugOverlay';
 import { EntityPanel, hasEntityGui } from './ui/entityPanel';
 import { GameMenu } from './ui/gameMenu';
 import { HelpPanel } from './ui/help';
-import { OnboardingPanel } from './ui/onboardingPanel';
+import { startStep } from './ui/onboarding';
+import { OnboardingPanel, loadStored } from './ui/onboardingPanel';
 import { Tooltips, entityTooltip } from './ui/tooltip';
 import {
   HOTBAR_SLOTS,
@@ -251,29 +252,42 @@ async function main(): Promise<void> {
       if (menu?.isOpen) menu.setStatus(message);
     },
     () => pinNames(pins),
+    // The objectives' step goes with each save (#107); `onboarding` exists by the first save.
+    () => onboarding?.progress.step,
   );
   const tooltips = new Tooltips(document.body);
   /** The local player's position in tiles as of the latest snapshot. */
   let playerAt: { x: number; y: number } | null = null;
-  // The first five minutes' objectives (D54): UI state in localStorage, advanced by the snapshots.
+  // The first five minutes' objectives (D54): UI state, advanced by the snapshots; closed or
+  // not per browser, the step per world (a new game's first, else the loaded save's, #107).
   const onboardingOn =
     !renderScene && (testHook?.onboardingFromUrl(search, import.meta.env.MODE) ?? true);
   const patches = startingPatches(start.seed);
-  const onboarding = onboardingOn
-    ? new OnboardingPanel(document.body, {
-        highlight: ({ item, recipe }) => {
-          hotbar.markItem(item);
-          craftingPanel.markRecipe(recipe);
+  const storedOnboarding = onboardingOn ? loadStored() : null;
+  const onboarding = storedOnboarding
+    ? new OnboardingPanel(
+        document.body,
+        {
+          highlight: ({ item, recipe }) => {
+            hotbar.markItem(item);
+            craftingPanel.markRecipe(recipe);
+          },
+          player: () => playerAt,
+          patch: (ore) => {
+            const p = patches.find((q) => q.ore === ore);
+            return p ? { x: p.x + 0.5, y: p.y + 0.5 } : null;
+          },
         },
-        player: () => playerAt,
-        patch: (ore) => {
-          const p = patches.find((q) => q.ore === ore);
-          return p ? { x: p.x + 0.5, y: p.y + 0.5 } : null;
+        {
+          step: startStep(
+            start.save !== undefined,
+            start.slot?.onboarding,
+            storedOnboarding.legacyStep,
+          ),
+          dismissed: storedOnboarding.dismissed,
         },
-      })
+      )
     : null;
-  // A new game picked on the title screen starts the objectives again, unless the player closed them.
-  if (onboarding && start.fresh && !onboarding.progress.dismissed) onboarding.restart();
   menu = new GameMenu(
     document.body,
     {
@@ -331,11 +345,12 @@ async function main(): Promise<void> {
   client.onLoaded = (msg) => {
     if (msg.error !== null) {
       menu?.notify(`Couldn't load the save: ${msg.error} A new game was started instead.`, 10_000);
+      onboarding?.restartSteps();
     } else if (start.slot) {
       menu?.notify(`Loaded “${start.slot.name}”.`);
     }
   };
-  if (!renderScene) saves.startAutosave();
+  if (!renderScene) saves.startAutosave(testHook?.autosaveTicksFromUrl(search));
   client.onStats = (stats) => {
     overlay.update(stats);
   };
@@ -519,6 +534,8 @@ async function main(): Promise<void> {
   let restingSince = 0;
   client.onSnapshot = (snapshot) => {
     view.applySnapshot(snapshot);
+    // Autosaves count ticks of play (none run while the menu pauses the game).
+    saves.onTick(snapshot.tick);
     inventory = decodeInventory(snapshot.inventory);
     research = decodeResearch(snapshot.research);
     techTree.update(research);
