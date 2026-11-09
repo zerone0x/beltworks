@@ -10,6 +10,9 @@ import { BlueprintLibrary, LIBRARY_KEY, parseLibrary } from '../../src/blueprint
 import {
   BLUEPRINT_VERSION,
   BlueprintError,
+  MAX_BLUEPRINT_JSON_BYTES,
+  MAX_STRING_LENGTH,
+  TOO_LARGE_MESSAGE,
   blueprintToJson,
   decodeBlueprint,
   encodeBlueprint,
@@ -19,7 +22,7 @@ import {
 } from '../../src/blueprint/string';
 import { ENTITIES, EntityTypeId } from '../../src/data/entities';
 import { ASSEMBLER_RECIPES, RecipeId } from '../../src/data/recipes';
-import { gzip } from '../../src/save/compress';
+import { DAMAGED_SAVE_MESSAGE, TooLargeError, gunzip, gzip } from '../../src/save/compress';
 import { UndergroundMode } from '../../src/sim/belts/underground';
 import { Direction } from '../../src/sim/entities/direction';
 
@@ -165,6 +168,12 @@ describe('blueprint strings', () => {
       expect(await refusal('BW.abc')).toMatch(/isn’t a Beltworks blueprint string/);
     });
 
+    it('call a far newer format newer, not foreign', async () => {
+      expect(await refusal('BW999999999.abc')).toMatch(
+        /newer version of Beltworks \(format 999999999;/,
+      );
+    });
+
     it('migrate older formats step by step, and refuse a gap in the migrations', async () => {
       // Pretend this build writes format 3: format 1 renamed `label` to `title`
       // in format 2, and format 3 renamed it back (so the format-1 reader
@@ -260,6 +269,74 @@ describe('blueprint strings', () => {
       const latin1 = await gzip(Uint8Array.of(0x7b, 0xff, 0x7d));
       expect(await refusal(`BW1.${toBase64Url(latin1)}`)).toMatch(/isn’t readable/);
     });
+  });
+});
+
+// Every test here inflates at most about 1 MB: never test the caps with real
+// gigabyte bombs (that takes the whole machine's memory), set small caps instead.
+describe('size limits', () => {
+  /** About 1 MB of JSON (a label of spaces) that gzips to a few KB: a small bomb. */
+  const bombDoc = { label: ' '.repeat(1 << 20), entities: [{ name: 'wooden-chest', x: 0, y: 0 }] };
+
+  it('gunzip stops at its cap', async () => {
+    const zeros = await gzip(new Uint8Array(1 << 20));
+    expect(zeros.length).toBeLessThan(4096);
+    await expect(gunzip(zeros, 64 * 1024)).rejects.toBeInstanceOf(TooLargeError);
+    expect((await gunzip(zeros, 1 << 20)).length).toBe(1 << 20);
+    // No cap (saves): everything, as before.
+    expect((await gunzip(zeros)).length).toBe(1 << 20);
+    // A cap doesn't hide damage: a stream cut short is damaged, not too large.
+    await expect(gunzip(zeros.slice(0, zeros.length - 8), 2 << 20)).rejects.toThrow(
+      DAMAGED_SAVE_MESSAGE,
+    );
+  });
+
+  it('refuse a string that inflates past the cap, saying it is too large', async () => {
+    const bomb = await stringOf(bombDoc);
+    const small = { version: BLUEPRINT_VERSION, migrations: {}, maxJsonBytes: 64 * 1024 };
+    await expect(decodeBlueprint(bomb, small)).rejects.toThrow(TOO_LARGE_MESSAGE);
+    await expect(decodeBlueprint(bomb, small)).rejects.toBeInstanceOf(BlueprintError);
+    // Under the default cap the same string is read (its label cut to length).
+    expect((await decodeBlueprint(bomb)).entities).toHaveLength(1);
+  });
+
+  it('refuse a string longer than the limit before reading it', async () => {
+    const text = await encodeBlueprint(SAMPLE);
+    const short = { version: BLUEPRINT_VERSION, migrations: {}, maxLength: text.length - 1 };
+    await expect(decodeBlueprint(text, short)).rejects.toThrow(TOO_LARGE_MESSAGE);
+    expect(await refusal(`BW1.${'A'.repeat(MAX_STRING_LENGTH)}`)).toBe(TOO_LARGE_MESSAGE);
+  });
+
+  it('leave plenty of room for the largest real blueprint', async () => {
+    // The longest records there are: 10 000 assembling machines with the
+    // longest recipe name, turned, at three-digit positions.
+    const machine = E[EntityTypeId.AssemblingMachine2];
+    const recipe = [...ASSEMBLER_RECIPES].sort(
+      (a, b) => recipeName(b).length - recipeName(a).length,
+    )[0]!;
+    const big = normalize(
+      'x'.repeat(80),
+      Array.from({ length: 10_000 }, (_, i) => ({
+        proto: machine,
+        x: (i % 100) * 3,
+        y: Math.floor(i / 100) * 3,
+        dir: North,
+        recipe: recipe.id,
+        mode: 0 as const,
+      })),
+    )!;
+    const json = blueprintToJson(big);
+    for (const e of json.entities) {
+      e.x += 699;
+      e.y += 699;
+      e.dir = 3;
+    }
+    const bytes = new TextEncoder().encode(JSON.stringify(json)).length;
+    expect(bytes).toBeLessThan(1_000_000);
+    expect(bytes * 4).toBeLessThan(MAX_BLUEPRINT_JSON_BYTES);
+    const text = await stringOf(json);
+    expect(text.length * 4).toBeLessThan(MAX_STRING_LENGTH);
+    expect((await decodeBlueprint(text)).entities).toHaveLength(10_000);
   });
 });
 

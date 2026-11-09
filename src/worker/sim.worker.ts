@@ -55,6 +55,8 @@ let streamer: ChunkStreamer | null = null;
 let viewport: Viewport | null = null;
 /** The entity whose GUI is open on the main thread, or 0. */
 let inspected = 0;
+/** `commands` messages received (`SnapshotMessage.commandBatches`). */
+let commandBatches = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
 /** Whether the main thread paused the game (`setPaused`): no ticks run, no wake-ups are scheduled. */
 let paused = false;
@@ -152,6 +154,7 @@ function sendSnapshot(ticksRun: number): void {
       type: 'snapshot',
       tick: sim.tick,
       ticksRun,
+      commandBatches,
       viewport,
       ...sections,
       patched,
@@ -238,6 +241,7 @@ async function handle(msg: MainToWorker): Promise<void> {
       if (!sim) {
         throw new Error('commands received before init');
       }
+      commandBatches++;
       for (const input of msg.commands) {
         const error = validateCommandInput(input);
         if (error !== null) {

@@ -21,7 +21,7 @@
 import { ENTITIES, ENTITY_TYPE_IDS, type EntityPrototype } from '../data/entities';
 import { itemPrototype } from '../data/items';
 import { ASSEMBLER_RECIPES, type Recipe } from '../data/recipes';
-import { gunzip, gzip, isGzip } from '../save/compress';
+import { TooLargeError, gunzip, gzip, isGzip } from '../save/compress';
 import { UndergroundMode } from '../sim/belts/underground';
 import { Direction } from '../sim/entities/direction';
 import { footprintSize } from '../sim/entities/store';
@@ -38,8 +38,21 @@ import {
 export const BLUEPRINT_VERSION = 1;
 /** Longest label kept, in characters. */
 export const MAX_LABEL_LENGTH = 80;
-/** Longest string read, in characters (well above 10 000 entities' worth). */
-const MAX_STRING_LENGTH = 4_000_000;
+/**
+ * Most bytes of JSON a string may inflate to. The largest real blueprint
+ * (`MAX_BLUEPRINT_ENTITIES` entities with the longest names, positions,
+ * directions and recipes) is under 1 MB of JSON, so 4 MiB leaves plenty of
+ * headroom, while a "decompression bomb" (a short string that inflates to
+ * gigabytes) is stopped once 4 MiB are out, without inflating the rest.
+ */
+export const MAX_BLUEPRINT_JSON_BYTES = 4 * 1024 * 1024;
+/**
+ * Longest string read, in characters: 1 000 000 base64url characters are
+ * 750 KB of gzip, several times what the largest real blueprint compresses to.
+ */
+export const MAX_STRING_LENGTH = 1_000_000;
+/** What a string longer than `MAX_STRING_LENGTH`, or inflating past `MAX_BLUEPRINT_JSON_BYTES`, is told. */
+export const TOO_LARGE_MESSAGE = `The blueprint string is too large (one holds at most ${String(MAX_BLUEPRINT_ENTITIES)} entities)`;
 
 /** A blueprint string that can't be read, with a message for the player. */
 export class BlueprintError extends Error {
@@ -213,10 +226,17 @@ export function blueprintFromJson(doc: unknown): Blueprint {
   return normalize(label, entities)!;
 }
 
-/** The format a reader writes and the migrations it has from older ones (tests can pretend to be newer). */
+/**
+ * The format a reader writes, the migrations it has from older ones and its
+ * size limits (tests can pretend to be newer, or set small limits).
+ */
 export interface BlueprintFormats {
   readonly version: number;
   readonly migrations: Readonly<Record<number, (doc: unknown) => unknown>>;
+  /** Longest string read, in characters (default `MAX_STRING_LENGTH`). */
+  readonly maxLength?: number;
+  /** Most bytes of JSON a string may inflate to (default `MAX_BLUEPRINT_JSON_BYTES`). */
+  readonly maxJsonBytes?: number;
 }
 
 /**
@@ -227,11 +247,16 @@ export async function decodeBlueprint(
   text: string,
   formats: BlueprintFormats = { version: BLUEPRINT_VERSION, migrations: MIGRATIONS },
 ): Promise<Blueprint> {
-  const { version: current, migrations } = formats;
+  const {
+    version: current,
+    migrations,
+    maxLength = MAX_STRING_LENGTH,
+    maxJsonBytes = MAX_BLUEPRINT_JSON_BYTES,
+  } = formats;
   const trimmed = text.trim();
-  if (trimmed.length > MAX_STRING_LENGTH)
-    throw new BlueprintError('The blueprint string is too long');
-  const m = /^BW(\d{1,6})\.(.*)$/s.exec(trimmed);
+  if (trimmed.length > maxLength) throw new BlueprintError(TOO_LARGE_MESSAGE);
+  // Up to 15 digits (exact as a number), so a far newer format is reported as one.
+  const m = /^BW(\d{1,15})\.(.*)$/s.exec(trimmed);
   if (!m)
     throw new BlueprintError('This isn’t a Beltworks blueprint string (it should start with BW1.)');
   const version = Number(m[1]);
@@ -245,8 +270,9 @@ export async function decodeBlueprint(
   if (!isGzip(bytes)) throw new BlueprintError('The blueprint string is damaged');
   let json: Uint8Array;
   try {
-    json = await gunzip(bytes);
+    json = await gunzip(bytes, maxJsonBytes);
   } catch (err) {
+    if (err instanceof TooLargeError) throw new BlueprintError(TOO_LARGE_MESSAGE, { cause: err });
     throw new BlueprintError(
       'The blueprint string is damaged (its compressed data can’t be read)',
       {

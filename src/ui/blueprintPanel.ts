@@ -298,7 +298,13 @@ export class BlueprintPanel {
     if (!bp) return;
     const name = bp.label || `Imported blueprint ${String(this.library.entries.length + 1)}`;
     // Stored as written now, so an older format is migrated once.
-    const stored = await encodeBlueprint({ ...bp, label: name });
+    let stored: string;
+    try {
+      stored = await encodeBlueprint({ ...bp, label: name });
+    } catch (err) {
+      this.setStatus(errorText(err));
+      return;
+    }
     this.library.add(name, stored, bp.entities.length);
     this.text.value = '';
     this.setStatus(`Imported “${name}” (${entitiesLabel(bp.entities.length)}).`);

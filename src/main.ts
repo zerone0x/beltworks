@@ -548,6 +548,8 @@ async function main(): Promise<void> {
     send: (commands) => {
       client.sendCommands(commands);
     },
+    commandsSent: () => client.commandBatchesSent,
+    blocked: () => menu?.isOpen ?? false,
     pointer: () => view.input.pointer,
     screenToWorld: (sx, sy) => view.camera.screenToWorld(sx, sy),
     entities: () => view.entityIndex.entities,
@@ -580,7 +582,7 @@ async function main(): Promise<void> {
     // Autosaves count ticks of play (none run while the menu pauses the game).
     saves.onTick(snapshot.tick);
     inventory = decodeInventory(snapshot.inventory);
-    blueprintInput.onSnapshot();
+    blueprintInput.onSnapshot(snapshot.commandBatches);
     research = decodeResearch(snapshot.research);
     techTree.update(research);
     hotbar.update(inventory, pins);

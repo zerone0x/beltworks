@@ -12,7 +12,9 @@
  * While it is active the blueprint input takes the left and right mouse
  * buttons on the canvas and the rotate and pipette keys before the build and
  * player inputs see them (capture-phase listeners that stop the event), so
- * nothing is placed, removed or mined by accident.
+ * nothing is placed, removed or mined by accident. Keys in text fields and
+ * every key while the game menu is open are left alone (`blocked`), and a
+ * paste click waits until a snapshot shows the previous paste.
  */
 
 import type { EntityPrototype } from '../data/entities';
@@ -49,6 +51,10 @@ export interface BlueprintInputOptions {
   element: HTMLElement;
   playerId: number;
   send: (commands: CommandInput[]) => void;
+  /** How many command batches `send` has sent so far (`SimClient.commandBatchesSent`). */
+  commandsSent: () => number;
+  /** Whether keys must be left alone (the game menu is open, with its own buttons and fields). */
+  blocked?: () => boolean;
   /** Pointer position over the canvas in CSS pixels, or `null` when it is elsewhere. */
   pointer: () => Point | null;
   /** World position (world pixels) under a screen position. */
@@ -107,6 +113,15 @@ export class BlueprintInput {
   private released = false;
   private clickPending = false;
   private rotateRequested = false;
+  /**
+   * The command batch of the last paste: until a snapshot shows it, the plan
+   * still sees the world before it, and a second click would send the same
+   * commands again (some of which, like a lone underground exit's turn, would
+   * succeed twice), so clicks are ignored until then.
+   */
+  private pasteBatch = 0;
+  /** Command batches the latest snapshot shows (`SnapshotMessage.commandBatches`). */
+  private batchesShown = 0;
   private pending: (PendingRecipe & { wait: number })[] = [];
   private readonly controller = new AbortController();
 
@@ -198,7 +213,8 @@ export class BlueprintInput {
       this.planKey = '';
     }
     this.rotateRequested = false;
-    const clicked = this.clickPending;
+    // A click before the last paste shows up in a snapshot is ignored (see `pasteBatch`).
+    const clicked = this.clickPending && this.batchesShown >= this.pasteBatch;
     this.clickPending = false;
     const bp = this.held;
     const p = options.pointer();
@@ -240,7 +256,10 @@ export class BlueprintInput {
     }
     if (!clicked) return;
     const plan = this.plan;
-    if (plan.commands.length > 0) options.send([...plan.commands]);
+    if (plan.commands.length > 0) {
+      options.send([...plan.commands]);
+      this.pasteBatch = options.commandsSent();
+    }
     for (const r of plan.recipes) this.pending.push({ ...r, wait: RECIPE_WAIT_SNAPSHOTS });
     const message = pasteMessage(plan);
     if (message) options.notify(message);
@@ -250,10 +269,12 @@ export class BlueprintInput {
 
   /**
    * A snapshot arrived: plan the ghosts again, and set the recipes of pasted
-   * machines that showed up (their ids are known now).
+   * machines that showed up (their ids are known now). `commandBatches` is
+   * the snapshot's count of command batches it shows.
    */
-  onSnapshot(): void {
+  onSnapshot(commandBatches: number): void {
     this.stale = true;
+    this.batchesShown = commandBatches;
     if (this.pending.length === 0) return;
     const commands: CommandInput[] = [];
     this.pending = this.pending.filter((r) => {
@@ -312,6 +333,8 @@ export class BlueprintInput {
     ) {
       return;
     }
+    // Behind the open game menu (or its key rebinding) no key is the blueprint input's.
+    if (this.options.blocked?.()) return;
     if (e.key === 'Escape') {
       // The game menu already saw that something was open (main.ts) and stayed shut.
       if (this.active) this.clear();

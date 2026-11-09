@@ -37,6 +37,7 @@ export class SimClient {
   /** Whether `setPaused(true)` is in effect: `stats` still in flight from before the pause are ignored. */
   private paused = false;
   private nextSaveId = 1;
+  private batchesSent = 0;
   private readonly saves = new Map<
     number,
     { resolve: (save: WorkerSave) => void; reject: (err: Error) => void }
@@ -99,8 +100,17 @@ export class SimClient {
     });
   }
 
+  /**
+   * `commands` messages sent so far: a snapshot whose `commandBatches` is at
+   * least this shows what every command sent until now did.
+   */
+  get commandBatchesSent(): number {
+    return this.batchesSent;
+  }
+
   sendCommands(commands: CommandInput[]): void {
     if (commands.length > 0) {
+      this.batchesSent++;
       this.send({ type: 'commands', commands });
     }
   }
