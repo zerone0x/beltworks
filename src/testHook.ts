@@ -365,6 +365,20 @@ export function onboardingFromUrl(search: string, mode: string): boolean {
 }
 
 /**
+ * Dev and test builds: the play time between autosaves in ticks, from an
+ * `?autosave=` URL parameter in seconds of play (a positive integer), for
+ * specs that check autosave timing without waiting 5 minutes; `undefined`
+ * (the normal interval) without one.
+ */
+export function autosaveTicksFromUrl(search: string): number | undefined {
+  const param = new URLSearchParams(search).get('autosave');
+  if (param === null) return undefined;
+  const seconds = Number(param);
+  if (!Number.isInteger(seconds) || seconds < 1) throw new Error(`bad autosave "${param}"`);
+  return seconds * 60;
+}
+
+/**
  * Dev and test builds: the most texels per tile the rendered terrain bakes
  * at, from a `?texels=` URL parameter (8, 16, 32 or 64), e.g. full density
  * for screenshots on a software renderer (64: with the detail textures

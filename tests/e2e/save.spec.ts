@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { ItemId } from '../../src/data/items';
 import { STARTING_KIT } from '../../src/data/start';
 import { DAMAGED_SAVE_MESSAGE } from '../../src/save/compress';
+import { closeMenu } from './windows';
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -122,6 +123,63 @@ test('the game pauses behind the menu and resumes when it closes', async ({ page
   await page.keyboard.press('Escape');
   await expect(page.locator('#game-menu')).toBeHidden();
   await expect.poll(tick).toBeGreaterThan(paused);
+  expect(errors).toEqual([]);
+});
+
+/** The autosave slots in IndexedDB (src/save/store.ts), with the tick each was made at, by id. */
+const autosaves = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<{ id: string; tick: number }[]>((resolve, reject) => {
+        const open = indexedDB.open('beltworks');
+        open.onerror = () => reject(open.error ?? new Error('open failed'));
+        open.onsuccess = () => {
+          const get = open.result.transaction('slots').objectStore('slots').getAll();
+          get.onerror = () => reject(get.error ?? new Error('getAll failed'));
+          get.onsuccess = () => {
+            open.result.close();
+            resolve(
+              (get.result as { id: string; tick: number; autosave: boolean }[])
+                .filter((s) => s.autosave)
+                .map(({ id, tick }) => ({ id, tick }))
+                .sort((a, b) => a.id.localeCompare(b.id)),
+            );
+          };
+        };
+      }),
+  );
+
+test('autosaves count play time: none while the menu pauses the game (#107)', async ({ page }) => {
+  const errors = collectErrors(page);
+  // Autosave every 2 s of play (120 ticks).
+  const INTERVAL = 120;
+  await page.goto('./?autosave=2');
+  await ready(page);
+  const tick = () => page.evaluate(() => window.__beltworks!.latestTick());
+  const newest = (slots: { tick: number }[]) => Math.max(0, ...slots.map((s) => s.tick));
+  // The first autosave comes after 2 s of play.
+  await expect.poll(async () => (await autosaves(page)).length).toBeGreaterThan(0);
+  expect(newest(await autosaves(page))).toBeGreaterThanOrEqual(INTERVAL);
+
+  // The menu pauses the game (once a snapshot on its way has landed) for longer than the
+  // interval: no autosave meanwhile.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#game-menu')).toBeVisible();
+  await expect
+    .poll(async () => {
+      const before = await tick();
+      await page.waitForTimeout(250);
+      return (await tick()) - before;
+    })
+    .toBe(0);
+  const before = await autosaves(page);
+  await page.waitForTimeout(3_000);
+  expect(await autosaves(page)).toEqual(before);
+
+  // Playing on, the next one comes 2 s of play after the last.
+  await closeMenu(page);
+  await expect.poll(async () => newest(await autosaves(page))).toBeGreaterThan(newest(before));
+  expect(newest(await autosaves(page)) - newest(before)).toBeGreaterThanOrEqual(INTERVAL);
   expect(errors).toEqual([]);
 });
 

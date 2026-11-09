@@ -7,8 +7,10 @@
  * Every step advances on real game state as the main thread sees it in the
  * snapshots (inventory, crafting queue, the entities around the view and
  * their machine states), never on clicks in the tutorial itself. Progress is
- * UI state in `localStorage`, per browser and never in a save (D54): the
- * step conditions read the game, so a loaded game catches up on its own.
+ * UI state, never in a save (D54): whether the player closed it is kept per
+ * browser in `localStorage`, the current step per world, next to each save
+ * in its slot (#107). The step conditions read the game, so a loaded game
+ * catches up on its own.
  *
  * This module is the pure part (steps, conditions, progress parsing),
  * unit-tested in Node; onboardingPanel.ts draws it.
@@ -140,7 +142,7 @@ export interface OnboardingState {
   resourceAt: (x: number, y: number) => number | null;
 }
 
-/** Stored progress: the current step (`STEPS.length` once done), and whether the player closed it. */
+/** Progress: the current step (`STEPS.length` once done), and whether the player closed it. */
 export interface OnboardingProgress {
   step: number;
   dismissed: boolean;
@@ -148,17 +150,47 @@ export interface OnboardingProgress {
 
 export const NEW_PROGRESS: OnboardingProgress = { step: 0, dismissed: false };
 
-/** Progress from stored data (anything, e.g. parsed JSON); a fresh start for anything invalid. */
-export function parseProgress(raw: unknown): OnboardingProgress {
-  if (typeof raw !== 'object' || raw === null) return NEW_PROGRESS;
+/** A step from stored data (anything), or `null` if it isn't one. */
+export function parseStep(raw: unknown): number | null {
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= STEPS.length
+    ? raw
+    : null;
+}
+
+/**
+ * What the browser stores (one JSON object in `localStorage`): whether the
+ * player closed the objectives, for every world; and `legacyStep`, the one
+ * step every world shared before steps were kept per save (`null` if none).
+ */
+export interface StoredOnboarding {
+  dismissed: boolean;
+  legacyStep: number | null;
+}
+
+/** The stored object from stored data (anything, e.g. parsed JSON); nothing stored for anything invalid. */
+export function parseStored(raw: unknown): StoredOnboarding {
+  if (typeof raw !== 'object' || raw === null) return { dismissed: false, legacyStep: null };
   const { step, dismissed } = raw as Record<string, unknown>;
-  return {
-    step:
-      typeof step === 'number' && Number.isInteger(step) && step >= 0 && step <= STEPS.length
-        ? step
-        : 0,
-    dismissed: dismissed === true,
-  };
+  return { dismissed: dismissed === true, legacyStep: parseStep(step) };
+}
+
+/** The JSON object to store for `stored` (the legacy step stays for older saves). */
+export function storedJson(stored: StoredOnboarding): { step?: number; dismissed: boolean } {
+  return stored.legacyStep === null
+    ? { dismissed: stored.dismissed }
+    : { step: stored.legacyStep, dismissed: stored.dismissed };
+}
+
+/**
+ * The step a game starts the objectives at: the first for a new game; a
+ * loaded save's own (`slotStep`, stored in its slot); for a save without
+ * one (made before steps were kept per save, or imported), the step this
+ * browser showed for every world then, else the first. The tracker then
+ * skips ahead to what the map shows was built already.
+ */
+export function startStep(loaded: boolean, slotStep: unknown, legacyStep: number | null): number {
+  if (!loaded) return 0;
+  return parseStep(slotStep) ?? legacyStep ?? 0;
 }
 
 /** Whether the tracker shows with `progress`: not closed by the player. */

@@ -104,6 +104,11 @@ test('an assembling machine makes gears from plates fed by hand', async ({ page 
   const gear = panel.locator('button.recipe[data-recipe="iron-gear-wheel"]');
   await expect(gear).toHaveAttribute('data-selected', 'false');
   await expect(panel.locator('button.recipe[data-recipe="iron-plate"]')).toHaveCount(0);
+  // Its buttons have the rich tooltip, with the time a craft takes in this machine.
+  await gear.hover();
+  const tooltip = page.locator('#tooltip');
+  await expect(tooltip.locator('.tooltip-title')).toHaveText('Iron gear wheel');
+  await expect(tooltip).toContainText('In Assembling machine 1: 1 s');
   await gear.click();
   await expect(gear).toHaveAttribute('data-selected', 'true');
   await expect(panel).toHaveAttribute('data-status', 'no-input');

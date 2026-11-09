@@ -58,6 +58,26 @@ describe('tooltips', () => {
     expect(assembler.lines).toContain('Making Iron gear wheel: 1 s');
   });
 
+  it('show how long a recipe takes in the machine picking it (the assembler recipe picker)', () => {
+    const tip = `recipe:${String(RecipeId.IronGearWheel)}@${String(EntityTypeId.AssemblingMachine2)}`;
+    const gear = tooltipFor(tip)!;
+    expect(gear.title).toBe('Iron gear wheel');
+    expect(gear.lines).toContain('In Assembling machine 2: 0.7 s');
+    expect(recipeTooltip(RecipeId.IronGearWheel, EntityTypeId.AssemblingMachine1)!.lines).toContain(
+      'In Assembling machine 1: 1 s',
+    );
+    // Without a machine (hand recipes), or with one that doesn't craft, no such line.
+    expect(recipeTooltip(RecipeId.IronGearWheel)!.lines.some((l) => l.startsWith('In '))).toBe(
+      false,
+    );
+    expect(
+      recipeTooltip(RecipeId.IronGearWheel, EntityTypeId.StoneFurnace)!.lines.some((l) =>
+        l.startsWith('In '),
+      ),
+    ).toBe(false);
+    expect(tooltipFor(`item:${String(ItemId.Coal)}@1`)).toBeNull();
+  });
+
   it('cover every item and recipe, and parse data-tip values', () => {
     for (const id of ITEM_IDS) expect(itemTooltip(id)?.title).toBeTruthy();
     for (const id of RECIPE_IDS) expect(recipeTooltip(id)?.lines.length).toBeGreaterThan(1);

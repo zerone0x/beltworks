@@ -742,7 +742,9 @@ export class EntityPanel {
     button.className = 'recipe';
     button.dataset.recipe = view.name;
     button.dataset.selected = String(selected);
-    button.title = `${view.label}: ${view.text}`;
+    // The rich tooltip (tooltip.ts), with the time a craft takes in this machine.
+    button.dataset.tip = `recipe:${String(id)}@${String(this.type)}`;
+    button.setAttribute('aria-label', `${view.label}: ${view.text}`);
     Object.assign(button.style, {
       position: 'relative',
       boxSizing: 'border-box',
