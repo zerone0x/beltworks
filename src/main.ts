@@ -19,6 +19,8 @@ import {
   type ResearchData,
   type SlotData,
 } from './sim/snapshot';
+import { BlueprintLibrary } from './blueprint/library';
+import { BlueprintInput } from './render/blueprintInput';
 import { BuildInput } from './render/buildInput';
 import { TILE_PX } from './render/camera';
 import { GameView } from './render/gameView';
@@ -26,6 +28,7 @@ import { PlayerInput } from './render/playerInput';
 import { SPRITE_ATLASES, loadSpriteAtlases } from './render/sprites';
 import { loadTerrainArt, type TerrainArt } from './render/terrainArt';
 import { loadItemIcons } from './render/itemIcons';
+import { BlueprintPanel } from './ui/blueprintPanel';
 import { CraftQueueStrip, CraftingPanel } from './ui/crafting';
 import { CursorStack } from './ui/cursorStack';
 import { DebugOverlay } from './ui/debugOverlay';
@@ -113,6 +116,8 @@ async function main(): Promise<void> {
   let hoveredSlot: number | null = null;
   // The cursor (what the build input holds) exists once the canvas does.
   let build: BuildInput | null = null;
+  // So does the blueprint input (D59); the library panel opens before it.
+  let blueprint: BlueprintInput | null = null;
   const send = (commands: CommandInput[]): void => {
     client.sendCommands(commands);
   };
@@ -243,6 +248,14 @@ async function main(): Promise<void> {
   const techTree = new TechTreePanel(document.body, crafting);
   const help = new HelpPanel(document.body);
   const cursorStack = new CursorStack(document.body);
+  const blueprintPanel = new BlueprintPanel(document.body, new BlueprintLibrary(), {
+    clipboard: () => blueprint?.clipboard ?? null,
+    hold: (bp) => {
+      if (!blueprint) return;
+      blueprint.clipboard = bp;
+      blueprint.hold(bp);
+    },
+  });
   let menu: GameMenu | null = null;
   const saves = new SaveController(
     store,
@@ -312,7 +325,9 @@ async function main(): Promise<void> {
         inventoryPanel.isOpen ||
         powerPanel.isOpen ||
         techTree.isOpen ||
-        help.isOpen,
+        help.isOpen ||
+        blueprintPanel.isOpen ||
+        (blueprint?.active ?? false),
     },
     settingsPanel,
   );
@@ -340,6 +355,7 @@ async function main(): Promise<void> {
   uiScale.register(menu.button, '100% 0');
   uiScale.register(menu.panel, '50% 50%');
   uiScale.register(settingsPanel.element, '50% 50%');
+  uiScale.register(blueprintPanel.element, '50% 0');
   // Above the controls hint: it scales around the hint's corner, like the help panel.
   if (onboarding) uiScale.register(onboarding.element, '0 calc(100% + 36px)');
   client.onLoaded = (msg) => {
@@ -497,6 +513,8 @@ async function main(): Promise<void> {
     canPlace: (proto, x, y, dir) => view.canPlace(proto, x, y, dir),
     hotbarPin: (index) => pins[index] ?? 0,
     onSelect: (slot, hotbarSlot) => {
+      // Taking an item puts a held blueprint away.
+      if (slot !== null) blueprint?.clear();
       hotbar.select(hotbarSlot);
       inventoryPanel.select(slot);
       entityPanel.selectInventorySlot(slot);
@@ -523,6 +541,33 @@ async function main(): Promise<void> {
     },
   });
   build = buildInput;
+  // Created after the game menu, whose Escape handler must see a held blueprint first.
+  const blueprintInput = new BlueprintInput({
+    element: app.canvas,
+    playerId: LOCAL_PLAYER_ID,
+    send: (commands) => {
+      client.sendCommands(commands);
+    },
+    commandsSent: () => client.commandBatchesSent,
+    blocked: () => menu?.isOpen ?? false,
+    pointer: () => view.input.pointer,
+    screenToWorld: (sx, sy) => view.camera.screenToWorld(sx, sy),
+    entities: () => view.entityIndex.entities,
+    entityAt: (x, y) => view.entityIndex.at(x, y),
+    undergroundAt: (x, y) => view.belts.undergroundAt(x, y),
+    canPlace: (proto, x, y, dir) => view.canPlace(proto, x, y, dir),
+    inventory: () => inventory,
+    onActivate: () => {
+      buildInput.select(null);
+    },
+    onCopied: () => {
+      blueprintPanel.render();
+    },
+    notify: (message) => {
+      menu?.notify(message);
+    },
+  });
+  blueprint = blueprintInput;
   // Every snapshot must reach the view, in order, or its chunk cache drifts from
   // what the worker thinks was sent. Snapshots before this point carry no
   // chunks: the worker only sends them once it has a viewport, and the first
@@ -537,6 +582,7 @@ async function main(): Promise<void> {
     // Autosaves count ticks of play (none run while the menu pauses the game).
     saves.onTick(snapshot.tick);
     inventory = decodeInventory(snapshot.inventory);
+    blueprintInput.onSnapshot(snapshot.commandBatches);
     research = decodeResearch(snapshot.research);
     techTree.update(research);
     hotbar.update(inventory, pins);
@@ -580,7 +626,9 @@ async function main(): Promise<void> {
     if (minimap.isOpen) minimap.update(minimapState(view.camera, view.localPlayerPosition()));
     input.update();
     buildInput.update();
-    view.drawGhost(buildInput.ghost);
+    blueprintInput.update();
+    if (blueprintInput.active) view.drawBlueprint(blueprintInput.ghosts, blueprintInput.box);
+    else view.drawGhost(buildInput.ghost);
     // The held stack shows at the cursor in windows with slots (the ghost shows it over the game).
     const windowOpen = inventoryPanel.isOpen || entityPanel.isOpen;
     cursorStack.show(cursorItem(), windowOpen ? buildInput.handCount() : 0);
@@ -590,7 +638,7 @@ async function main(): Promise<void> {
     // An entity's tooltip once the pointer rests on it with nothing in hand.
     const pointer = view.input.pointer;
     const entity =
-      pointer && hovered && buildInput.selection === null
+      pointer && hovered && buildInput.selection === null && !blueprintInput.active
         ? view.entityIndex.at(hovered.x, hovered.y)
         : null;
     const now = performance.now();
@@ -609,6 +657,7 @@ async function main(): Promise<void> {
       client,
       view,
       build: buildInput,
+      blueprint: blueprintInput,
       entityPanel,
       powerPanel,
       techTree,

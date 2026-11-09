@@ -9,7 +9,14 @@
 import { expect, type Page } from '@playwright/test';
 
 /** The game's windows that `Escape` closes (the game menu aside). */
-const WINDOWS = ['#entity-panel', '#inventory-panel', '#power-panel', '#tech-tree', '#help-panel'];
+const WINDOWS = [
+  '#entity-panel',
+  '#inventory-panel',
+  '#power-panel',
+  '#tech-tree',
+  '#help-panel',
+  '#blueprint-panel',
+];
 
 /** Which of `WINDOWS` are open, in one round trip. */
 const openWindows = (page: Page) =>

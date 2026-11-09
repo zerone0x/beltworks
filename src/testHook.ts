@@ -16,6 +16,7 @@ import {
   type ProfileOptions,
   type ProfileReport,
 } from './profile/renderProfile';
+import type { BlueprintInput } from './render/blueprintInput';
 import type { BuildInput } from './render/buildInput';
 import { ghostDrillDropTile, ghostInserterTiles } from './render/entityLayer';
 import { TILE_PX } from './render/camera';
@@ -141,6 +142,18 @@ export interface GhostState {
   underground?: { mode: number; partner: { x: number; y: number } | null };
 }
 
+/** The blueprint input (D59): its mode, the selection box, the clipboard and the held blueprint's ghosts. */
+export interface BlueprintTestState {
+  mode: 'idle' | 'select' | 'paste';
+  box: { x0: number; y0: number; x1: number; y1: number } | null;
+  /** Entities in the clipboard blueprint (0 for none). */
+  clipboard: number;
+  /** The held blueprint's size and ghosts as last drawn (empty when none is held). */
+  width: number;
+  height: number;
+  ghosts: { name: string; x: number; y: number; dir: number; valid: boolean }[];
+}
+
 /** Map mode and the map store (src/render/mapLayer.ts, mapStore.ts). */
 export interface MapViewState {
   /** Whether the zoom (or an override) asks for map mode. */
@@ -229,6 +242,8 @@ export interface BeltworksTestHook {
   powerFocus(): PowerFocusState | null;
   /** The ghost preview, or `null` when none is shown. */
   ghost(): GhostState | null;
+  /** The blueprint input's state. */
+  blueprint(): BlueprintTestState;
   /**
    * The inventory slot the cursor takes from (an unpinned hotbar slot is the
    * inventory slot of the same index), or `null`.
@@ -474,6 +489,7 @@ export interface TestHookContext {
   client: SimClient;
   view: GameView;
   build: BuildInput;
+  blueprint: BlueprintInput;
   entityPanel: EntityPanel;
   powerPanel: PowerPanel;
   techTree: TechTreePanel;
@@ -498,6 +514,7 @@ export function installTestHook({
   client,
   view,
   build,
+  blueprint,
   entityPanel,
   powerPanel,
   techTree,
@@ -662,6 +679,20 @@ export function installTestHook({
         }),
       };
     },
+    blueprint: () => ({
+      mode: blueprint.mode,
+      box: blueprint.box && { ...blueprint.box },
+      clipboard: blueprint.clipboard?.entities.length ?? 0,
+      width: blueprint.held?.width ?? 0,
+      height: blueprint.held?.height ?? 0,
+      ghosts: (blueprint.ghosts ?? []).map((g) => ({
+        name: g.proto.name,
+        x: g.x,
+        y: g.y,
+        dir: g.dir,
+        valid: g.valid,
+      })),
+    }),
     selectedSlot: () => build.selected,
     cursorCount: () => build.handCount(),
     hotbarPins: () => hotbarPins().map((item) => itemPrototype(item)?.name ?? ''),

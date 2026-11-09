@@ -58,6 +58,7 @@ Press **H** in the game (or click the hint in the bottom-left corner) for a list
 - **Middle-drag** or **arrow keys**: pan the camera freely; **F**: follow the player again.
 - **Mouse wheel**: zoom (towards the cursor with a free camera, around the player while following). Zoomed out past 0.25×, the view fades into the **map view**: flat colours for the terrain, ore, trees, buildings and belts, down to 0.125×.
 - **M**: show or hide the **minimap** in the bottom-right corner: what you have seen around the camera, the part on screen (white rectangle) and you (orange dot). **Click** or **drag** on it to move the camera there; **F** follows the player again.
+- **Blueprints**: **C** and a **drag** with the left mouse button copies everything the box touches (type, position, direction, an assembling machine's recipe, whether an underground belt is an entrance or an exit; not what they hold) and puts the copy on the cursor; **V** takes the last copy again. While you hold one, its ghosts follow the cursor (red where an entity can't go or you don't have its item), **R** turns the whole blueprint, and a **left click** pastes it: whatever you have the items for and can place is built, the rest is skipped with a message saying what was missing. **Q**, a **right click** or **Esc** puts it away. **B** opens the **blueprint library**: save the copy under a name, paste, export (a `BW1.` string to share, copied to the clipboard) or delete a blueprint, and import a string someone shared by pasting it into the text field. The library is kept in the browser.
 - **H**: show or hide the list of controls (with the keys as currently bound).
 - **Esc** with no window open (or the **Menu** button in the top-right corner): the **game menu**. Save the game under a name (saving under an existing name replaces that save), load, export (download a `.bwsave` file) or delete a save, import a save file, start a new game (back on the title screen, to pick a seed), copy the world seed, restart the **Tutorial** objectives, or open the **settings**: rebind every key (click it, press the new key; a key another action has swaps with it; reset to defaults), graphics (rendered or flat terrain, terrain detail, shadows, animations), the UI scale (75–200%), lettered item icons, and the master, effects and music volumes. Settings are kept in the browser. The game also **autosaves** every 5 minutes of play (not while paused in the menu), rotating through three autosave slots. Saves live in the browser (IndexedDB); the game always opens on the title screen, whose **Continue** (shown once there is a save) loads the newest one.
 
@@ -66,6 +67,10 @@ Items show as rendered icons, the same on belts, in inserter hands and in the in
 ![The tech tree while four labs research automation](docs/screenshots/m3-research.png)
 
 ![The map view at 0.125× around the 1k benchmark factory, with the minimap in the corner](docs/screenshots/m5-map-mode.png)
+
+![A small factory copied as a blueprint, its ghost following the cursor](docs/screenshots/m5-blueprint-ghost.png)
+
+![The blueprint library after exporting a blueprint string and importing it again](docs/screenshots/m5-blueprint-library.png)
 
 ![Belts carrying items of the starting kit, an inserter holding one, and the hotbar](docs/screenshots/ux-items.png)
 

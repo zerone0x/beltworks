@@ -183,6 +183,12 @@ export interface SnapshotMessage {
   tick: number;
   /** Ticks run since the previous snapshot. */
   ticksRun: number;
+  /**
+   * `commands` messages received so far. Each one runs on the tick after it
+   * arrives, so a snapshot counting the main thread's nth message shows what
+   * those commands did (see `SimClient.commandBatchesSent`).
+   */
+  commandBatches: number;
   /** Last viewport received from the main thread, or `null` before the first one. */
   viewport: Viewport | null;
   /** Players as int32 records; see `PLAYER_STRIDE` in src/sim/snapshot.ts. */
