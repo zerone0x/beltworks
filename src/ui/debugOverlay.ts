@@ -1,7 +1,9 @@
 /**
  * A small DOM overlay with simulation stats: tick count, updates per second
  * (measured on the main thread from `stats` messages), and mean tick time,
- * plus a readout of the tile under the mouse.
+ * plus a readout of the tile under the mouse. Hidden unless the player
+ * turns it on (F3 or the settings; test builds always show it, D61); it
+ * keeps updating while hidden, so it is current the moment it shows.
  */
 
 import { RESOURCES, type OreId } from '../data/resources';
@@ -83,6 +85,14 @@ export class DebugOverlay {
     el.append(this.statsLine, this.tileLine);
     parent.appendChild(el);
     this.element = el;
+  }
+
+  get visible(): boolean {
+    return !this.element.hidden;
+  }
+
+  set visible(on: boolean) {
+    this.element.hidden = !on;
   }
 
   update(stats: DebugStats): void {

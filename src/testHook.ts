@@ -297,6 +297,8 @@ export interface BeltworksTestHook {
   setTimeScale(scale: number): void;
   /** Autosaves now (into the next slot of the rotation); resolves with the slot's id, or null. */
   autosave(): Promise<string | null>;
+  /** Makes the simulation's next tick throw, as a bug would (D61): the game shows its crash message. */
+  crash(): void;
   /**
    * Runs the scripted render profile (src/profile/renderProfile.ts,
    * docs/TOOLING.md "Render profile") and resolves with its report; the
@@ -722,6 +724,9 @@ export function installTestHook({
       client.setTimeScale(scale);
     },
     autosave: async () => (await saves.autosave())?.id ?? null,
+    crash: () => {
+      client.crashForTest();
+    },
     renderProfile,
     lastRenderProfile: () => lastProfile,
   };

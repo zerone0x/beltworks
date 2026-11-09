@@ -4,9 +4,9 @@
  * - The game menu (`Esc` when no other window is open, or the corner
  *   button) saves the game under a name, lists the save slots (newest
  *   first) with Load, Export and Delete, imports a save file, starts a
- *   new game, and opens the settings (src/ui/settingsPanel.ts) in its
- *   place (`Esc` there goes back to the menu). Deleting and starting over
- *   ask for a second click. The game pauses while it is open (`onToggle`;
+ *   new game, and opens the settings (src/ui/settingsPanel.ts) or About
+ *   (src/ui/about.ts) in its place (`Esc` there goes back to the menu).
+ *   Deleting and starting over ask for a second click. The game pauses while it is open (`onToggle`;
  *   main.ts pauses the worker, single-player only).
  * - The title screen (titleScreen.ts) shares its styles.
  *
@@ -14,6 +14,8 @@
  */
 
 import { formatPlayTime, sortSlots, type SaveSlot } from '../save/slots';
+import { VERSION_LABEL } from '../version';
+import type { AboutPanel } from './about';
 import type { SettingsPanel } from './settingsPanel';
 
 export interface GameMenuActions {
@@ -199,6 +201,7 @@ export class GameMenu {
     parent: HTMLElement,
     private readonly actions: GameMenuActions,
     private readonly settings: SettingsPanel | null = null,
+    private readonly about: AboutPanel | null = null,
   ) {
     const overlay = document.createElement('div');
     overlay.id = 'game-menu';
@@ -243,6 +246,17 @@ export class GameMenu {
       top.append(open);
       settings.onBack = () => {
         this.showSettings(false);
+      };
+    }
+    if (about) {
+      const open = button('About', 'menu-about');
+      open.title = 'Controls, credits and licenses';
+      open.addEventListener('click', () => {
+        this.showAbout(true);
+      });
+      top.append(open);
+      about.onBack = () => {
+        this.showAbout(false);
       };
     }
 
@@ -337,12 +351,18 @@ export class GameMenu {
     panel.append(title, top, seed.row, heading('Save'), saveRow, status, heading('Saves'));
     panel.append(slotTable);
     panel.append(importRow);
+    const version = document.createElement('div');
+    version.id = 'menu-version';
+    version.textContent = `Beltworks ${VERSION_LABEL}`;
+    Object.assign(version.style, { marginTop: '10px', fontSize: '11px', opacity: '0.5' });
+    panel.append(version);
     overlay.append(panel);
     isolateKeys(panel);
-    if (settings) {
-      Object.assign(settings.element.style, PANEL_STYLE, { display: 'none' });
-      isolateKeys(settings.element);
-      overlay.append(settings.element);
+    for (const sub of [settings, about]) {
+      if (!sub) continue;
+      Object.assign(sub.element.style, PANEL_STYLE, { display: 'none' });
+      isolateKeys(sub.element);
+      overlay.append(sub.element);
     }
 
     const corner = button('Menu (Esc)', 'menu-button');
@@ -394,6 +414,8 @@ export class GameMenu {
     window.addEventListener(
       'keydown',
       (e) => {
+        // A full-screen message (a crash, D61) is shown: the keys are its own.
+        if (document.querySelector('.fatal') !== null) return;
         if (this.isOpen && this.settings?.capturing) {
           // The settings wait for a new key binding: the key is theirs alone.
           e.preventDefault();
@@ -404,6 +426,7 @@ export class GameMenu {
         if (e.key === 'Escape') {
           if (e.repeat) return;
           if (this.settingsOpen) this.showSettings(false);
+          else if (this.aboutOpen) this.showAbout(false);
           else if (this.isOpen) this.close();
           else if (!this.actions.otherWindowOpen()) this.open();
           return;
@@ -448,6 +471,7 @@ export class GameMenu {
   close(): void {
     const was = this.isOpen;
     this.showSettings(false);
+    this.showAbout(false);
     this.element.style.display = 'none';
     if (was) this.onToggle?.(false);
     // Give the keyboard back to the game (keys in the menu don't reach it).
@@ -464,6 +488,20 @@ export class GameMenu {
   openSettings(): void {
     if (!this.isOpen) this.open();
     this.showSettings(true);
+  }
+
+  /** Whether About shows in place of the menu. */
+  get aboutOpen(): boolean {
+    return this.about !== null && this.about.element.style.display !== 'none';
+  }
+
+  /** Shows About (`true`, with the keys as bound now) or the menu in the overlay. */
+  private showAbout(on: boolean): void {
+    if (!this.about) return;
+    if (on) this.about.refresh();
+    this.about.element.style.display = on ? 'block' : 'none';
+    this.panel.style.display = on ? 'none' : 'block';
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   }
 
   /** Shows the settings (`true`) or the menu in the overlay. */

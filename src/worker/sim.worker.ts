@@ -60,6 +60,13 @@ let commandBatches = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
 /** Whether the main thread paused the game (`setPaused`): no ticks run, no wake-ups are scheduled. */
 let paused = false;
+/**
+ * Set once a tick threw (D61): the state may be half-updated, so no tick,
+ * snapshot or save runs again; the main thread offers the last save.
+ */
+let crashed = false;
+/** Dev and test builds only (`crashForTest`): the next tick throws. */
+let crashNextTick = false;
 /** Dev and test builds only: the scripted render scene sent instead of the simulation's entities. */
 let scene: RenderScene | null = null;
 /** What the main thread has of each delta section, and the writers they are encoded into. */
@@ -78,15 +85,29 @@ function post(msg: WorkerToMain, transfer: Transferable[] = []): void {
 
 function wake(): void {
   timer = null;
-  if (!sim || paused) {
+  if (!sim || paused || crashed) {
     return;
   }
+  try {
+    runDueTicks(sim);
+  } catch (err) {
+    crashed = true;
+    console.error('Simulation crashed:', err);
+    post({ type: 'crashed', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  schedule();
+}
+
+/** Runs the ticks due by now, then sends their snapshot (and stats, when due). */
+function runDueTicks(current: Sim): void {
   const { ticks, dropped } = clock.advance(scaledNow());
   statDropped += dropped;
   if (ticks > 0) {
     const start = performance.now();
     for (let i = 0; i < ticks; i++) {
-      sim.step();
+      if (crashNextTick) throw new Error('crash requested by a test (crashForTest)');
+      current.step();
     }
     statStepMs += performance.now() - start;
     sendSnapshot(ticks);
@@ -95,7 +116,7 @@ function wake(): void {
     if (statTicks >= STATS_INTERVAL_TICKS) {
       post({
         type: 'stats',
-        tick: sim.tick,
+        tick: current.tick,
         tickMs: statStepMs / statTicks,
         droppedTicks: statDropped,
         at: performance.now(),
@@ -105,11 +126,10 @@ function wake(): void {
       statDropped = 0;
     }
   }
-  schedule();
 }
 
 function schedule(): void {
-  if (timer === null && !paused) {
+  if (timer === null && !paused && !crashed) {
     // Sped up, wake at most once per normal step and run the ticks due in one
     // batch, so the main thread still gets one snapshot per 1/60 s.
     const ms = clock.msUntilNextTick() / timeScale;
@@ -278,6 +298,13 @@ async function handle(msg: MainToWorker): Promise<void> {
       if (sim) schedule();
       break;
     }
+    case 'crashForTest':
+      // Production builds never send it, and reject it (a compile-time check).
+      if (!(import.meta.env.DEV || import.meta.env.MODE === 'test')) {
+        throw new Error('crashForTest is only available in dev and test builds');
+      }
+      crashNextTick = true;
+      break;
     case 'setViewport':
       viewport = sanitizeViewport(msg.viewport);
       streamer?.setViewport(viewport);
@@ -321,6 +348,10 @@ function setPaused(next: boolean): void {
  */
 function saveGame(id: number): void {
   if (!sim) throw new Error('save requested before init');
+  if (crashed) {
+    post({ type: 'saved', id, data: null, meta: null, error: 'the simulation crashed' });
+    return;
+  }
   let bytes: Uint8Array;
   const meta = saveMetaOf(sim);
   try {
@@ -381,9 +412,19 @@ function validateResearched(techs: unknown): number[] | undefined {
 let inbox: Promise<void> = Promise.resolve();
 
 self.onmessage = (event: MessageEvent<MainToWorker>) => {
+  const isInit = (event.data as { type?: unknown } | null)?.type === 'init';
   inbox = inbox
     .then(() => handle(event.data))
     .catch((err: unknown) => {
-      post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+      const message = err instanceof Error ? err.message : String(err);
+      if (isInit) {
+        // No game to go on with (D61): the main thread shows the crash
+        // message instead of waiting for a game that never starts.
+        crashed = true;
+        console.error('Simulation failed to start:', err);
+        post({ type: 'crashed', message });
+        return;
+      }
+      post({ type: 'error', message });
     });
 };

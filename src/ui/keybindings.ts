@@ -39,6 +39,7 @@ export const ACTIONS = [
   { id: 'copy', label: 'Copy a blueprint (then drag a box)', key: 'KeyC' },
   { id: 'paste', label: 'Paste the copied blueprint', key: 'KeyV' },
   { id: 'blueprints', label: 'Blueprint library', key: 'KeyB' },
+  { id: 'debugInfo', label: 'Debug info (ticks, UPS, tile)', key: 'F3' },
   { id: 'panUp', label: 'Pan up', key: 'ArrowUp' },
   { id: 'panLeft', label: 'Pan left', key: 'ArrowLeft' },
   { id: 'panDown', label: 'Pan down', key: 'ArrowDown' },

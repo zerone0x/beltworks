@@ -128,6 +128,14 @@ describe('settings', () => {
     expect(parseSettings({ uiScale: 3 }).uiScale).toBe(1);
   });
 
+  it('hide the debug overlay unless the player turned it on (F3)', () => {
+    expect(DEFAULT_SETTINGS.debugInfo).toBe(false);
+    expect(parseSettings({ debugInfo: true }).debugInfo).toBe(true);
+    expect(parseSettings({ debugInfo: 'yes' }).debugInfo).toBe(false);
+    expect(DEFAULT_BINDINGS.debugInfo).toBe('F3');
+    expect(controls().some((c) => c.keys === 'F3')).toBe(true);
+  });
+
   it('round-trip through JSON', () => {
     const s = parseSettings({
       keys: { ...DEFAULT_BINDINGS, techTree: 'KeyY' },

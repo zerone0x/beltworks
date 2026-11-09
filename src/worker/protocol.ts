@@ -2,8 +2,8 @@
  * Messages between the main thread and the simulation worker.
  *
  * Main → worker: `init`, `commands`, `setViewport`, `inspect`, `save`,
- * `setPaused`, and in dev and test builds `setTimeScale`.
- * Worker → main: `snapshot`, `stats`, `saved`, `loaded`, `error`.
+ * `setPaused`, and in dev and test builds `setTimeScale` and `crashForTest`.
+ * Worker → main: `snapshot`, `stats`, `saved`, `loaded`, `error`, `crashed`.
  *
  * Commands include the build commands `Place`, `Remove` and `Rotate` and the
  * entity GUI's `Insert`, `Take` and `SetRecipe`, the crafting commands `Craft` and
@@ -134,6 +134,15 @@ export interface SetTimeScaleMessage {
 }
 
 /**
+ * Dev and test builds only: makes the next tick throw, as a bug in the
+ * simulation would, so the end-to-end tests can check what a crash shows
+ * (`crashed`, D61). Production builds reject it.
+ */
+export interface CrashForTestMessage {
+  type: 'crashForTest';
+}
+
+/**
  * Asks for a save of the current state (after the latest tick, with the
  * commands queued for the next one). The worker serializes and gzips it and
  * answers with `saved` and the same `id`.
@@ -162,6 +171,7 @@ export type MainToWorker =
   | SetViewportMessage
   | InspectMessage
   | SetTimeScaleMessage
+  | CrashForTestMessage
   | SaveRequestMessage
   | SetPausedMessage;
 
@@ -296,8 +306,20 @@ export interface StatsMessage {
   at: number;
 }
 
+/** A message the worker rejected (it keeps running): an invalid command, an unknown scene. */
 export interface ErrorMessage {
   type: 'error';
+  message: string;
+}
+
+/**
+ * The simulation threw during a tick, or starting the game (`init`) threw
+ * (D61): the worker has stopped running ticks for good, since the state may
+ * be half-updated, and won't save it. The main thread offers to load the
+ * last save.
+ */
+export interface CrashedMessage {
+  type: 'crashed';
   message: string;
 }
 
@@ -318,4 +340,4 @@ export interface LoadedMessage {
 }
 
 export type WorkerToMain =
-  SnapshotWireMessage | StatsMessage | ErrorMessage | SavedMessage | LoadedMessage;
+  SnapshotWireMessage | StatsMessage | ErrorMessage | CrashedMessage | SavedMessage | LoadedMessage;

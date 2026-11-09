@@ -1,20 +1,57 @@
 # Beltworks
 
-A factory-automation game for the browser, inspired by Factorio. All art and names are original.
+A factory-automation game for the browser: start by mining ore by hand, then build drills, belts, furnaces, steam power, assembling machines and labs until the factory runs (and researches) on its own. Inspired by Factorio; all art, sound, names and code are original.
 
-> Status: in development (M1, the core automation loop, M2, power, and M3, production chains and research, are done). Live build: https://zerone0x.github.io/beltworks-play/
+**Play the public beta: https://zerone0x.github.io/beltworks-play/** (v1.0.0-beta.1; free, no account, no download, no server: everything runs and is saved in your browser).
 
-## Playing
+![Automated science: assembling machines making gears, red and green science packs, fed by inserters from chests and a belt, and a lab researching on steam power](docs/screenshots/m3-science.png)
 
-The game opens on the **title screen**: **Continue** (the newest save), **New game** on a world seed (a random one is suggested; type a number, or any word or phrase, to get the same world every time, and **Copy** its number, the one the game menu shows, to share it), **Load** (any save) and **Settings**. The game menu (**Esc**) shows the seed of the game you are playing, with a copy button.
+## Quick start
+
+1. Open the link above on a desktop browser and click **New game**.
+2. Follow the **Getting started** objectives in the bottom-left corner: they walk you through your first automated iron plate line in about five minutes.
+3. Press **H** at any time for the controls, **Esc** for the game menu (save, load, settings, About).
+
+| Key | Action |
+|---|---|
+| **WASD** | Walk |
+| **Hold right mouse** | Mine ore or fell a tree (a **right click** on a building picks it up) |
+| **E** | Inventory and hand crafting |
+| **1–0** | Select a hotbar item; **left click** builds it, **R** rotates, **Q** puts it away |
+| **Left click** on a machine | Open its window (fuel, inputs, recipe) |
+| **T** | Tech tree |
+| **Mouse wheel** / **middle drag** | Zoom / pan; **F** follows the player again |
+| **M** | Minimap |
+| **C** + drag, **V**, **B** | Copy a blueprint, paste it again, blueprint library |
+| **H** | All controls |
+| **F3** | Debug info (ticks, UPS, the tile under the cursor) |
+| **Esc** | Close windows, else the game menu |
+
+Every key can be rebound in **Esc → Settings**, which also has graphics options (flat terrain and low detail for slower machines), the UI scale and the volumes.
+
+### What you need
+
+A recent desktop version of Chrome, Edge, Firefox or Safari (16.4 or later) with hardware acceleration (WebGL) on, a keyboard and a mouse. The game checks on start and says what is missing if your browser can't run it. Touch screens and phones are not supported.
+
+### Saves
+
+The game saves into your browser's storage (IndexedDB): your own saves from the game menu, and an autosave every 5 minutes of play (three rotating slots). They stay on this computer, in this browser: clearing site data deletes them, and private windows may not keep them at all (the game tells you when saves are off). Use **Export** in the game menu to download a `.bwsave` file as a backup, and **Import** to load it anywhere.
+
+If the game ever stops with "The game stopped", it offers to continue from your last save.
+
+### Public beta: what to expect
+
+v1 covers the start of the game: hand mining, burner and electric machines, belts (three tiers, undergrounds, splitters), steam power, assembling machines, labs and red and green science. Not in yet: oil and fluids, blue science and beyond, enemies, trains and multiplayer (see [the roadmap](docs/ROADMAP.md)). Saves carry a format version and are migrated when the format changes, so beta saves should keep loading in later versions. Found a bug or have an idea? [Open an issue](https://github.com/zerone0x/beltworks/issues). What changed between versions is in [CHANGELOG.md](CHANGELOG.md).
+
+## Playing in detail
+
+The game opens on the **title screen**: **Continue** (the newest save), **New game** on a world seed (a random one is suggested; type a number, or any word or phrase, to get the same world every time, and **Copy** its number, the one the game menu shows, to share it), **Load** (any save), **Settings** and **About** (the version, the controls as bound, credits, the game's MIT license and the third-party licenses). The game menu (**Esc**) shows the seed of the game you are playing, with a copy button.
 
 A new game starts between four ore patches (iron, copper, coal, stone) with a kit of belts, burner inserters, burner mining drills, stone furnaces, wooden chests and coal in the hotbar. The first goal: a drill on iron ore drops ore onto a belt, an inserter feeds it into a furnace, and another inserter moves the plates into a chest, all on their own once fuelled with coal. From there: steam power, assembling machines, and labs researching technologies from red and then green science packs, made by machines.
 
 ![Pre-rendered sprites of assembling machines 1 and 2, a lit stone furnace, an iron and a wooden chest, and burner mining drills facing all four ways](docs/screenshots/art-first.png)
 
 ![A belt loop with curves, burner, electric, fast and long-handed inserters moving coal on and off it, and wooden poles wired to steam power](docs/screenshots/art-logistics.png)
-
-![Automated science: assembling machines making gears, red and green science packs, fed by inserters from chests and a belt, and a lab researching on steam power](docs/screenshots/m3-science.png)
 
 ![The M1 chain: a burner mining drill on iron ore, a belt, an inserter, a furnace, an inserter and a chest filling with iron plates](docs/screenshots/m1-chain.png)
 
@@ -60,7 +97,8 @@ Press **H** in the game (or click the hint in the bottom-left corner) for a list
 - **M**: show or hide the **minimap** in the bottom-right corner: what you have seen around the camera, the part on screen (white rectangle) and you (orange dot). **Click** or **drag** on it to move the camera there; **F** follows the player again.
 - **Blueprints**: **C** and a **drag** with the left mouse button copies everything the box touches (type, position, direction, an assembling machine's recipe, whether an underground belt is an entrance or an exit; not what they hold) and puts the copy on the cursor; **V** takes the last copy again. While you hold one, its ghosts follow the cursor (red where an entity can't go or you don't have its item), **R** turns the whole blueprint, and a **left click** pastes it: whatever you have the items for and can place is built, the rest is skipped with a message saying what was missing. **Q**, a **right click** or **Esc** puts it away. **B** opens the **blueprint library**: save the copy under a name, paste, export (a `BW1.` string to share, copied to the clipboard) or delete a blueprint, and import a string someone shared by pasting it into the text field. The library is kept in the browser.
 - **H**: show or hide the list of controls (with the keys as currently bound).
-- **Esc** with no window open (or the **Menu** button in the top-right corner): the **game menu**. Save the game under a name (saving under an existing name replaces that save), load, export (download a `.bwsave` file) or delete a save, import a save file, start a new game (back on the title screen, to pick a seed), copy the world seed, restart the **Tutorial** objectives, or open the **settings**: rebind every key (click it, press the new key; a key another action has swaps with it; reset to defaults), graphics (rendered or flat terrain, terrain detail, shadows, animations), the UI scale (75–200%), lettered item icons, and the master, effects and music volumes. Settings are kept in the browser. The game also **autosaves** every 5 minutes of play (not while paused in the menu), rotating through three autosave slots. Saves live in the browser (IndexedDB); the game always opens on the title screen, whose **Continue** (shown once there is a save) loads the newest one.
+- **F3**: show or hide the **debug info** in the top-left corner (also in the settings): the simulation's tick, updates per second and tick time, and the tile under the mouse.
+- **Esc** with no window open (or the **Menu** button in the top-right corner): the **game menu**. Save the game under a name (saving under an existing name replaces that save), load, export (download a `.bwsave` file) or delete a save, import a save file, start a new game (back on the title screen, to pick a seed), copy the world seed, restart the **Tutorial** objectives, open **About**, or open the **settings**: rebind every key (click it, press the new key; a key another action has swaps with it; reset to defaults), graphics (rendered or flat terrain, terrain detail, shadows, animations), the UI scale (75–200%), lettered item icons, the debug info, and the master, effects and music volumes. Settings are kept in the browser. The game also **autosaves** every 5 minutes of play (not while paused in the menu), rotating through three autosave slots. Saves live in the browser (IndexedDB); the game always opens on the title screen, whose **Continue** (shown once there is a save) loads the newest one.
 
 Items show as rendered icons, the same on belts, in inserter hands and in the inventory; the settings offer the placeholder icons instead: the item's color with a one- or two-letter label (**FE** iron, **CU** copper, **C** coal, **S** stone, ...). Ores are rough chunks, plates and bricks bevelled squares, and everything else rounded squares.
 
@@ -74,7 +112,7 @@ Items show as rendered icons, the same on belts, in inserter hands and in the in
 
 ![Belts carrying items of the starting kit, an inserter holding one, and the hotbar](docs/screenshots/ux-items.png)
 
-The debug overlay shows the tile under the mouse: its terrain, then a tree or the resource on it with the amount left (e.g. `grass · tree`, `grass · iron ore 1 594`).
+The debug info (**F3**) shows the tile under the mouse: its terrain, then a tree or the resource on it with the amount left (e.g. `grass · tree`, `grass · iron ore 1 594`).
 
 ![The player mining copper ore with the inventory open](docs/screenshots/m0-player.png)
 
@@ -128,6 +166,7 @@ npm run bench      # headless tick-time benchmark (see docs/TOOLING.md, "Benchma
 npm run build      # production build into dist/ (set BASE_PATH to change the base URL, default /)
 npm run preview    # serve dist/
 npm run test:e2e   # Playwright tests against a fresh test-mode build (Chromium)
+npm run test:release # the release check: the production build played with real input (docs/TOOLING.md)
 npm run art        # re-render the Blender sprite models into public/sprites/ (needs Blender 4.2; see docs/ART.md)
 ```
 
@@ -135,11 +174,13 @@ Run `npx playwright install chromium` once before the first `npm run test:e2e`. 
 
 ## Deployment
 
-The source repo is private. CI builds `main` and pushes `dist/` to the `gh-pages` branch of the public repo
+CI builds `main` and pushes `dist/` to the `gh-pages` branch of the public repo
 [`zerone0x/beltworks-play`](https://github.com/zerone0x/beltworks-play), which serves it with GitHub Pages.
 The build uses the base path `/beltworks-play/`, and pushes authenticate with the `DEPLOY_KEY` Actions secret, an SSH deploy key with write access to that repo.
-This is done by `.github/workflows/deploy.yml` on every push to `main` (or manually via `workflow_dispatch`). The build ships without sourcemaps, since the deploy repo is public.
+This is done by `.github/workflows/deploy.yml` on every push to `main` (or manually via `workflow_dispatch`). The build ships without sourcemaps. The version shown in the game is `version` in package.json; the build also writes `third-party-licenses.txt` (the bundled packages' licenses, linked from About).
 
-## Copyright
+## Credits and licenses
 
-This project does not use any Factorio assets, names, sounds, or code. All art and audio is original or CC0.
+Made by zerone0x. This project does not use any Factorio assets, names, sounds, or code: the art is rendered in Blender from the project's own procedural models (no image textures, models or fonts from elsewhere), and the sound and music are synthesized in the browser (no samples). The only third-party code in the game is [PixiJS](https://pixijs.com) (MIT) and the small libraries it includes (earcut, ISC; tiny-lru, BSD-3-Clause; eventemitter3, @pixi/colord, ismobilejs, parse-svg-path, MIT); their license texts ship with every build as `third-party-licenses.txt` and are linked from the in-game About.
+
+Beltworks itself is released under the [MIT License](LICENSE), copyright 2026 zerone0x.

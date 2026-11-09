@@ -28,13 +28,16 @@ import { PlayerInput } from './render/playerInput';
 import { SPRITE_ATLASES, loadSpriteAtlases } from './render/sprites';
 import { loadTerrainArt, type TerrainArt } from './render/terrainArt';
 import { loadItemIcons } from './render/itemIcons';
+import { AboutPanel } from './ui/about';
 import { BlueprintPanel } from './ui/blueprintPanel';
 import { CraftQueueStrip, CraftingPanel } from './ui/crafting';
 import { CursorStack } from './ui/cursorStack';
 import { DebugOverlay } from './ui/debugOverlay';
 import { EntityPanel, hasEntityGui } from './ui/entityPanel';
-import { GameMenu } from './ui/gameMenu';
+import { browserProbe, missingFeatures, showFatal, showUnsupported } from './ui/fatal';
+import { GameMenu, savedLabel } from './ui/gameMenu';
 import { HelpPanel } from './ui/help';
+import { actionFor } from './ui/keybindings';
 import { startStep } from './ui/onboarding';
 import { OnboardingPanel, loadStored } from './ui/onboardingPanel';
 import { Tooltips, entityTooltip } from './ui/tooltip';
@@ -71,8 +74,17 @@ const WORLD_TOOLTIP_MS = 600;
  */
 const DEFAULT_SEED = 1;
 
+/** The simulation worker once `main` started it, so a failed start can stop it. */
+let startedClient: SimClient | null = null;
+
 async function main(): Promise<void> {
   const root = document.getElementById('app') ?? document.body;
+  // Before anything else: a browser without what the game needs gets a message, not a broken page.
+  const missing = missingFeatures(browserProbe());
+  if (missing.some((m) => m.required)) {
+    showUnsupported(missing);
+    return;
+  }
 
   // Dev and test builds only: the test hook (installed below), its `?kit=` starting kit and
   // `?research=` researched technologies.
@@ -82,6 +94,7 @@ async function main(): Promise<void> {
   // Settings (keys, graphics, UI scale, volumes), per browser (D50); the title screen opens them too.
   const settings = new SettingsStore();
   const settingsPanel = new SettingsPanel(settings);
+  const about = new AboutPanel();
   // A save to continue or a new game on a seed (the title screen, or the menu's Load before it
   // reloaded the page); a `?scene=` render scene (render profile) is always a fresh game: no
   // title screen, no autosaves, no onboarding.
@@ -93,6 +106,7 @@ async function main(): Promise<void> {
         mode: testHook?.titleModeFromUrl(search, import.meta.env.MODE) ?? 'always',
         defaultSeed: DEFAULT_SEED,
         settings: settingsPanel,
+        about,
       });
   const client = new SimClient(
     start.seed,
@@ -101,7 +115,11 @@ async function main(): Promise<void> {
     start.save,
     renderScene,
   );
+  startedClient = client;
   const overlay = new DebugOverlay(document.body);
+  // Players turn the debug overlay on (F3, or the settings); test builds always show it (specs read it).
+  const debugAlways = testHook !== null;
+  overlay.visible = debugAlways || settings.value.debugInfo;
   /** The local player's inventory as of the latest snapshot. */
   let inventory: SlotData[] = [];
   /** The local player's force's research as of the latest snapshot. */
@@ -256,18 +274,6 @@ async function main(): Promise<void> {
       blueprint.hold(bp);
     },
   });
-  let menu: GameMenu | null = null;
-  const saves = new SaveController(
-    store,
-    client,
-    (message) => {
-      menu?.notify(message);
-      if (menu?.isOpen) menu.setStatus(message);
-    },
-    () => pinNames(pins),
-    // The objectives' step goes with each save (#107); `onboarding` exists by the first save.
-    () => onboarding?.progress.step,
-  );
   const tooltips = new Tooltips(document.body);
   /** The local player's position in tiles as of the latest snapshot. */
   let playerAt: { x: number; y: number } | null = null;
@@ -301,6 +307,18 @@ async function main(): Promise<void> {
         },
       )
     : null;
+  let menu: GameMenu | null = null;
+  // Created after the onboarding, whose step goes with each save (#107).
+  const saves = new SaveController(
+    store,
+    client,
+    (message) => {
+      menu?.notify(message);
+      if (menu?.isOpen) menu.setStatus(message);
+    },
+    () => pinNames(pins),
+    () => onboarding?.progress.step,
+  );
   menu = new GameMenu(
     document.body,
     {
@@ -330,8 +348,55 @@ async function main(): Promise<void> {
         (blueprint?.active ?? false),
     },
     settingsPanel,
+    about,
   );
   menu.setSeed(start.seed);
+  if (!store && !renderScene) {
+    menu.notify(
+      'Saves are off: this browser gives the game no storage (IndexedDB), e.g. in a private window.',
+      10_000,
+    );
+  }
+  // The simulation stopped for good (D61): say so and offer the newest save (or the title screen).
+  client.onCrash = (message) => {
+    saves.stopAutosave();
+    menu?.close();
+    const offer = (slot: Awaited<ReturnType<SaveController['latest']>>): void => {
+      showFatal(
+        'sim-crashed',
+        'The game stopped',
+        `The simulation ran into an error and can't go on (${message}). ` +
+          (slot
+            ? 'You can continue from your last save; play since then is lost.'
+            : 'There is no save to continue from.'),
+        {
+          actions: [
+            ...(slot
+              ? [
+                  {
+                    label: `Load “${slot.name}” (${savedLabel(slot.savedAt)})`,
+                    id: 'crash-load',
+                    run: () => {
+                      saves.load(slot);
+                    },
+                  },
+                ]
+              : []),
+            {
+              label: 'Title screen',
+              id: 'crash-title',
+              run: () => {
+                saves.newGame();
+              },
+            },
+          ],
+        },
+      );
+    };
+    saves.latest().then(offer, () => {
+      offer(null);
+    });
+  };
   // Single-player: the game pauses behind the menu (the simulation just runs no ticks).
   menu.onToggle = (open) => {
     client.setPaused(open);
@@ -355,6 +420,7 @@ async function main(): Promise<void> {
   uiScale.register(menu.button, '100% 0');
   uiScale.register(menu.panel, '50% 50%');
   uiScale.register(settingsPanel.element, '50% 50%');
+  uiScale.register(about.element, '50% 50%');
   uiScale.register(blueprintPanel.element, '50% 0');
   // Above the controls hint: it scales around the hint's corner, like the help panel.
   if (onboarding) uiScale.register(onboarding.element, '0 calc(100% + 36px)');
@@ -420,6 +486,7 @@ async function main(): Promise<void> {
   /** Applies the settings (all of them at startup, with `previous` null). */
   function applySettings(next: Settings, previous: Settings | null): void {
     uiScale.set(next.uiScale);
+    overlay.visible = debugAlways || next.debugInfo;
     minimap.uiScale = next.uiScale;
     view.animate = next.graphics.animation;
     view.setShadows(next.graphics.shadows);
@@ -433,6 +500,12 @@ async function main(): Promise<void> {
   }
   applySettings(settings.value, null);
   settings.subscribe(applySettings);
+  window.addEventListener('keydown', (e) => {
+    if (actionFor(e.code) !== 'debugInfo' || e.ctrlKey || e.metaKey || e.altKey) return;
+    // F3 also means "find next" in browsers.
+    e.preventDefault();
+    if (!e.repeat) settings.update((s) => ({ ...s, debugInfo: !s.debugInfo }));
+  });
   // Pre-rendered sprites (docs/ART.md); placeholders until (or unless) they load.
   // The game runs with its placeholders until (or unless) each part loads.
   void Promise.allSettled([
@@ -680,4 +753,23 @@ async function main(): Promise<void> {
 
 main().catch((err: unknown) => {
   console.error('Failed to start Beltworks', err);
+  // The game behind the message never runs: stop its simulation.
+  startedClient?.terminate();
+  showFatal(
+    'start-failed',
+    "Beltworks couldn't start",
+    `Something went wrong while starting the game: ${err instanceof Error ? err.message : String(err)}. ` +
+      'Reloading the page may help; if it keeps happening, please report it.',
+    {
+      actions: [
+        {
+          label: 'Reload',
+          id: 'start-failed-reload',
+          run: () => {
+            window.location.reload();
+          },
+        },
+      ],
+    },
+  );
 });

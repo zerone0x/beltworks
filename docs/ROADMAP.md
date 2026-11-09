@@ -70,7 +70,7 @@ Met: `tests/e2e/science.spec.ts` starts from a test kit (assembling machines, a 
 
 **Done when:** 10k entities and 50k items on belts hold a steady 60 UPS / 60 FPS.
 
-## M5 — Polish
+## M5 — Polish (done)
 
 - [x] Save and load (IndexedDB), autosave, save-version migrations
 - [x] Blueprints: box-select copy, paste, string import and export, a library (D59)
@@ -78,8 +78,11 @@ Met: `tests/e2e/science.spec.ts` starts from a test kit (assembling machines, a 
 - [x] Sound effects and music (original, synthesized in code; D55)
 - [x] Onboarding for the first 5 minutes: title screen (seed, continue, load, settings), objectives, tooltips
 - [x] Settings: keybindings, graphics, UI scale; hotbar management and the cursor stack
+- [x] Public beta readiness: the version in the UI, About (controls, credits, licenses), a player-facing README and a changelog, messages for unsupported browsers and simulation crashes (with the newest save to load), the debug info behind F3, and a release check of the production build (#92, D61)
 
 **Done when:** v1 is ready for a public beta.
+
+Met: `npm run test:release` plays the production build as it deploys (base path `/beltworks-play/`, no test hook) with real input only: from the title screen a new game follows the objectives by their directions to the stone patch, mines stone and crafts a furnace, saves from the game menu and continues after a reload; then the `m3` factory (1 170 entities, labs on red and green science) imported as a save file researches logistics 2 with no input ([screenshot](screenshots/m5-release-science.png)). From nothing to automated green science is covered end to end by `tests/e2e/science.spec.ts` and `onboarding.spec.ts` on the test build and in Node by `tests/sim/research.test.ts`; the live site loads to the title screen and into a new game at 60 UPS without errors. `tests/e2e/release.spec.ts` checks the crash message (it loads the newest save, [screenshot](screenshots/m5-crash.png)), the unsupported-browser message ([screenshot](screenshots/m5-unsupported.png)), and the version and About on the title screen and in the menu ([screenshot](screenshots/m5-about.png)). The simulation is as fast as at the M4 baseline: on one machine, back to back, the baseline commit and this build run the 10k scene at 0.44–0.49 ms and 0.47 ms a tick (the 50k scene at 7.7 and 8.0 ms on a busy machine; 3.0 ms on CI). The owner kept the name Beltworks (Q5, D61), and the game is MIT-licensed (#110). Deviations and additions are recorded in [DECISIONS.md](DECISIONS.md) (D46–D61). M4's open items (the complete sleep/wake system, CI-reported benchmarks for every size, the WASM evaluation) remain open and don't block the beta.
 
 ## Later (v1.x / v2)
 

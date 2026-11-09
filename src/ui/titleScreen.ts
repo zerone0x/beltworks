@@ -1,14 +1,17 @@
 /**
  * The title screen (plain DOM, D39), shown before the game starts: Continue
  * (the newest save), New game with a world seed (shown, editable, random or
- * copied), Load (any save slot) and Settings (#98's settings panel in its
- * place; Esc goes back). It resolves with what to start; main.ts (through
+ * copied), Load (any save slot), Settings (#98's settings panel in its
+ * place; Esc goes back) and About (src/ui/about.ts, the same way), with the
+ * version under them. It resolves with what to start; main.ts (through
  * `chooseStart` in saves.ts) does the rest. Nothing here touches the worker
  * or IndexedDB.
  */
 
 import { formatPlayTime, type SaveSlot } from '../save/slots';
 import { SAVE_VERSION } from '../sim/save/container';
+import { VERSION_LABEL } from '../version';
+import type { AboutPanel } from './about';
 import { OVERLAY_STYLE, PANEL_STYLE, button, copyText, isolateKeys, savedLabel } from './gameMenu';
 import { parseSeed, randomSeed } from './seed';
 import type { SettingsPanel } from './settingsPanel';
@@ -22,6 +25,7 @@ export interface TitleScreenOptions {
   /** The seed the New game field suggests (random when absent). */
   seed?: number;
   settings?: SettingsPanel | null;
+  about?: AboutPanel | null;
 }
 
 const BIG_BUTTON: Partial<CSSStyleDeclaration> = {
@@ -39,7 +43,7 @@ function slotInfo(slot: SaveSlot): string {
 /** Shows the title screen in `parent`; resolves once the player picks, and removes it. */
 export function showTitleScreen(
   parent: HTMLElement,
-  { slots, seed = randomSeed(), settings = null }: TitleScreenOptions,
+  { slots, seed = randomSeed(), settings = null, about = null }: TitleScreenOptions,
 ): Promise<TitleChoice> {
   const overlay = document.createElement('div');
   overlay.id = 'start-screen';
@@ -90,6 +94,7 @@ export function showTitleScreen(
       settings.hidden();
       settings.element.remove();
     }
+    about?.element.remove();
     overlay.remove();
     resolvePick(choice);
   };
@@ -234,10 +239,36 @@ export function showTitleScreen(
       showSettings(false);
     };
   }
+  // About, in the panel's place too.
+  const showAbout = (on: boolean): void => {
+    if (!about) return;
+    if (on) about.refresh();
+    about.element.style.display = on ? 'block' : 'none';
+    panel.style.display = on ? 'none' : 'block';
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  };
+  if (about) {
+    const open = button('About', 'title-about');
+    Object.assign(open.style, BIG_BUTTON);
+    open.addEventListener('click', () => {
+      showAbout(true);
+    });
+    panel.append(open);
+    Object.assign(about.element.style, PANEL_STYLE, { display: 'none' });
+    about.onBack = () => {
+      showAbout(false);
+    };
+  }
   panel.append(status);
+  const version = document.createElement('div');
+  version.id = 'title-version';
+  version.textContent = VERSION_LABEL;
+  Object.assign(version.style, { textAlign: 'center', fontSize: '11px', opacity: '0.5' });
+  panel.append(version);
 
   overlay.append(panel);
   if (settings) overlay.append(settings.element);
+  if (about) overlay.append(about.element);
   isolateKeys(overlay);
   parent.append(overlay);
   (first ?? fresh).focus();
@@ -252,6 +283,8 @@ export function showTitleScreen(
     }
     if (e.key === 'Escape' && settings && settings.element.style.display !== 'none') {
       showSettings(false);
+    } else if (e.key === 'Escape' && about && about.element.style.display !== 'none') {
+      showAbout(false);
     }
   }
   window.addEventListener('keydown', onKey, { capture: true });

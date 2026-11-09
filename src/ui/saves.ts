@@ -26,20 +26,23 @@ import { SaveStore } from '../save/store';
 import { SAVE_VERSION, readSaveMeta } from '../sim/save/container';
 import type { SimClient } from '../worker/client';
 import type { GameMenuActions } from './gameMenu';
+import type { AboutPanel } from './about';
 import type { SettingsPanel } from './settingsPanel';
 import { showTitleScreen } from './titleScreen';
 
 /** What the page reload after "Load" or "New game" in the menu should start with. */
 const NEXT_KEY = 'beltworks.next';
 
-/** What a page starts with: a save to continue (and its slot), or a new game; and the world seed. */
+/**
+ * What a page starts with: a save to continue (and its slot), or a new game
+ * (no `save`); and the world seed. A new game's onboarding starts at its
+ * first step, a save's at its slot's (D60).
+ */
 export interface StartChoice {
   save?: Uint8Array;
   slot?: SaveSlot;
   /** The world seed: the new game's, or the save's. */
   seed: number;
-  /** Whether this is a new game picked on the title screen (the onboarding starts again). */
-  fresh?: boolean;
 }
 
 /**
@@ -77,7 +80,13 @@ export async function chooseStart(
     mode = 'always',
     defaultSeed,
     settings = null,
-  }: { mode?: TitleMode; defaultSeed: number; settings?: SettingsPanel | null },
+    about = null,
+  }: {
+    mode?: TitleMode;
+    defaultSeed: number;
+    settings?: SettingsPanel | null;
+    about?: AboutPanel | null;
+  },
 ): Promise<StartChoice> {
   const next = sessionStorage.getItem(NEXT_KEY);
   sessionStorage.removeItem(NEXT_KEY);
@@ -90,8 +99,9 @@ export async function chooseStart(
       slots,
       ...(mode !== 'always' && { seed: defaultSeed }),
       settings,
+      about,
     });
-    if (choice.kind === 'new') return { seed: choice.seed, fresh: true };
+    if (choice.kind === 'new') return { seed: choice.seed };
     slot = choice.slot;
   }
   const save = await store?.read(slot.id);
@@ -156,7 +166,20 @@ export class SaveController implements Omit<
     const slots = await this.store.list();
     // Saving under the name of an existing save replaces it.
     const same = slots.find((s) => !s.autosave && s.name === name);
-    await this.write(same?.id ?? newSlotId(Date.now(), slots), name, false);
+    const slot = await this.write(same?.id ?? newSlotId(Date.now(), slots), name, false);
+    // A save the player just made is as good as an autosave: the next one is a full interval later.
+    this.autosaveClock?.restart(slot.tick);
+  }
+
+  /** Stops autosaving for good (the simulation crashed: there is nothing safe left to save). */
+  stopAutosave(): void {
+    this.autosaveClock = null;
+  }
+
+  /** The newest save of any kind (what a crash offers to load), or `null` if there is none. */
+  async latest(): Promise<SaveSlot | null> {
+    const slots = sortSlots(await this.list()).filter((s) => s.version <= SAVE_VERSION);
+    return slots[0] ?? null;
   }
 
   async list(): Promise<SaveSlot[]> {
