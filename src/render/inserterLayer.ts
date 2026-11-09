@@ -31,7 +31,7 @@ import { TICKS_PER_SECOND } from '../worker/protocol';
 import { TILE_PX } from './camera';
 import { EVERYWHERE, overlaps, type TileRect } from './cull';
 import type { InserterPoses } from './entitySprites';
-import { itemIconAtlas } from './itemIcons';
+import { itemIconAtlas } from './itemIconAtlas';
 import type { SpriteAtlas } from './sprites';
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;

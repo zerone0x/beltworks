@@ -1,4 +1,3 @@
-import { Application } from 'pixi.js';
 import { AudioEngine } from './audio/engine';
 import { GameAudio, createAudioContext } from './audio/gameAudio';
 import { followVolumeSettings } from './audio/volume';
@@ -23,10 +22,9 @@ import { BlueprintLibrary } from './blueprint/library';
 import { BlueprintInput } from './render/blueprintInput';
 import { BuildInput } from './render/buildInput';
 import { TILE_PX } from './render/camera';
-import { GameView } from './render/gameView';
+import { RendererLoadError, loadRenderer } from './render/loadRenderer';
 import { PlayerInput } from './render/playerInput';
-import { SPRITE_ATLASES, loadSpriteAtlases } from './render/sprites';
-import { loadTerrainArt, type TerrainArt } from './render/terrainArt';
+import type { TerrainArt } from './render/terrainArt';
 import { loadItemIcons } from './render/itemIcons';
 import { AboutPanel } from './ui/about';
 import { BlueprintPanel } from './ui/blueprintPanel';
@@ -38,6 +36,7 @@ import { browserProbe, missingFeatures, showFatal, showUnsupported } from './ui/
 import { GameMenu, savedLabel } from './ui/gameMenu';
 import { HelpPanel } from './ui/help';
 import { actionFor } from './ui/keybindings';
+import { whileLoading } from './ui/loading';
 import { startStep } from './ui/onboarding';
 import { OnboardingPanel, loadStored } from './ui/onboardingPanel';
 import { Tooltips, entityTooltip } from './ui/tooltip';
@@ -85,6 +84,8 @@ async function main(): Promise<void> {
     showUnsupported(missing);
     return;
   }
+  // PixiJS and the game view load in the background (D64): the title screen doesn't wait for them.
+  const rendererCode = loadRenderer();
 
   // Dev and test builds only: the test hook (installed below), its `?kit=` starting kit and
   // `?research=` researched technologies.
@@ -116,6 +117,9 @@ async function main(): Promise<void> {
     renderScene,
   );
   startedClient = client;
+  // The worker starts the world while the renderer's code finishes loading (if it hasn't yet).
+  const { Application, GameView, SPRITE_ATLASES, loadSpriteAtlases, loadTerrainArt } =
+    await whileLoading(rendererCode);
   const overlay = new DebugOverlay(document.body);
   // Players turn the debug overlay on (F3, or the settings); test builds always show it (specs read it).
   const debugAlways = testHook !== null;
@@ -758,8 +762,11 @@ main().catch((err: unknown) => {
   showFatal(
     'start-failed',
     "Beltworks couldn't start",
-    `Something went wrong while starting the game: ${err instanceof Error ? err.message : String(err)}. ` +
-      'Reloading the page may help; if it keeps happening, please report it.',
+    err instanceof RendererLoadError
+      ? "The game's files couldn't be downloaded. Check your internet connection and reload " +
+          'the page (if a new version came out since you opened it, reloading gets that too).'
+      : `Something went wrong while starting the game: ${err instanceof Error ? err.message : String(err)}. ` +
+          'Reloading the page may help; if it keeps happening, please report it.',
     {
       actions: [
         {
