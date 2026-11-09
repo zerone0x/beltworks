@@ -20,7 +20,7 @@ import { MachineState } from '../sim/entities/machine';
 import { TILE_PX } from './camera';
 import { EVERYWHERE, overlaps, type TileRect } from './cull';
 import type { EntityIndex, EntityView } from './entityIndex';
-import { itemIconAtlas } from './itemIcons';
+import { itemIconAtlas } from './itemIconAtlas';
 import { modelDirection, type SpriteAtlas } from './sprites';
 
 /** Seconds per turn of the working animation at full speed. */

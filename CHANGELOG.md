@@ -7,6 +7,7 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 ### Changed
 
 - Idle machines cost (almost) nothing per tick: an incremental power solve, logarithmic belt lane queries and per-system activity counters in the benchmarks and the debug overlay (#73, D62).
+- The title screen shows without waiting for the renderer (#112, D64): PixiJS loads in the background while it is up, in a chunk of its own that stays cached across releases; the first download before the title screen drops from about 170 kB to 64 kB (gzipped). If the game's files can't be downloaded (offline), a message says so and offers Reload.
 
 ### Fixed
 
