@@ -732,7 +732,8 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * half keeps its free slots) and across hand-overs: no closer than 64 to
    * the last item of the line this one hands on to (as `minFront` counts
    * it), nor to the first item of the line handing on to this one's start
-   * (`backLimit`). O(log items) on a
+   * (`backLimit`); on a loop of one line, whose end hands on to its own
+   * start, across that seam both ways. O(log items) on a
    * long lane (`Lane.fitBetween`).
    */
   dropSpot(belt: number, x: number, y: number, lane: number): number {
@@ -754,6 +755,14 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     else if (mode === UndergroundMode.Exit) hi = middle;
     lo = Math.max(lo, this.frontLimit(line, l));
     hi = Math.min(hi, this.backLimit(line, l, l.spacing));
+    if (line.out === line && line.outLane < 0 && l.count > 0) {
+      // A loop of one line (#73): an item dropped near its start must stay
+      // the spacing ahead of the first item, and one dropped near its end
+      // the spacing behind the last item, counted across the seam where
+      // the end hands items on to the start (`output`).
+      hi = Math.min(hi, line.length + l.gap(0) - l.spacing);
+      lo = Math.max(lo, l.spacing - (line.length - l.total));
+    }
     return l.fitBetween(lo, hi, middle);
   }
 

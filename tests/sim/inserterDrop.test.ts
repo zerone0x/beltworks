@@ -175,6 +175,57 @@ describe('where an inserter drops (dropSpot)', () => {
     checkLanes(w.table);
   });
 
+  it('keeps the spacing across the seam of a loop that is one line (#73)', () => {
+    const w = world();
+    // A 2×2 loop, clockwise: one line of 4 belts (1 024 long) whose end
+    // hands on to its own start.
+    const ids = [
+      w.place(TIERS[0].belt, 0, 0, East),
+      w.place(TIERS[0].belt, 1, 0, South),
+      w.place(TIERS[0].belt, 1, 1, Direction.West),
+      w.place(TIERS[0].belt, 0, 1, North),
+    ];
+    const line = w.lineOf(ids[0]!);
+    expect(line.out).toBe(line);
+    expect(line.length).toBe(4 * BELT_LENGTH);
+    const start = line.belts[3]!;
+    const end = line.belts[0]!;
+    const s = tileOf(w.entities, start);
+    const e = tileOf(w.entities, end);
+    // Items at 0, 768, 832 and 900: the start tile [768, 1023] has room
+    // from 964 on within the lane, but 964 is only 60 behind the item at 0
+    // across the seam. Nothing fits there.
+    for (const pos of [0, 768, 832, 900])
+      expect(w.table.insertAt(line.id, Left, pos, IRON)).toBe(true);
+    expect(w.table.dropSpot(start, s.x, s.y, Left)).toBe(-1);
+    expect(w.table.dropOnTile(start, s.x, s.y, Left, COAL)).toBe(false);
+    // With the first item 40 from the end, up to 1 024 + 40 − 64 = 1 000 is far enough.
+    expect(w.table.takeAt(line.id, Left, 0, 0)).toBe(IRON);
+    expect(w.table.insertAt(line.id, Left, 40, IRON)).toBe(true);
+    expect(w.table.dropSpot(start, s.x, s.y, Left)).toBe(964);
+    // The other way round: the last item 24 short of the start edge, items at
+    // 100, 164 and 228 on the end tile. Its free spot [0, 36] is closer than 64
+    // to that last item across the seam (36 + 24 = 60): nothing fits; with
+    // the last item further back, from 40 on it does.
+    const right = [100, 164, 228, 1000];
+    for (const pos of right) expect(w.table.insertAt(line.id, Right, pos, IRON)).toBe(true);
+    expect(w.table.dropSpot(end, e.x, e.y, Right)).toBe(-1);
+    expect(w.table.takeAt(line.id, Right, 1000, 1000)).toBe(IRON);
+    expect(w.table.insertAt(line.id, Right, 980, IRON)).toBe(true);
+    expect(w.table.dropSpot(end, e.x, e.y, Right)).toBe(36);
+    // And moving on, items dropped there keep the spacing across the seam.
+    expect(w.table.dropOnTile(end, e.x, e.y, Right, COAL)).toBe(true);
+    for (let t = 0; t < 300; t++) {
+      w.step();
+      for (const lane of line.lanes) {
+        if (lane.count > 1) {
+          expect(line.length - lane.total + lane.gap(0)).toBeGreaterThanOrEqual(BELT_ITEM_SPACING);
+        }
+      }
+      checkLanes(w.table);
+    }
+  });
+
   it('drops onto the half of a splitter on the tile it reaches, behind the belt in front', () => {
     const w = world();
     // A splitter facing east on (1, 0)-(1, 1), a belt in front of its left half only.
