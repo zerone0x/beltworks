@@ -507,6 +507,7 @@ export function installTestHook({
       { name, software: view.softwareRendering(), ...screen() },
       options,
       minimap,
+      client.meter,
     );
     return lastProfile;
   };

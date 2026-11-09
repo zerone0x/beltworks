@@ -14,6 +14,8 @@ import type {
   Viewport,
   WorkerToMain,
 } from './protocol';
+import { SnapshotDecoder } from './snapshotDelta';
+import { SnapshotMeter, sharedNow } from './snapshotMeter';
 
 export interface SimStats {
   tick: number;
@@ -41,6 +43,10 @@ export class SimClient {
   >();
 
   latestSnapshot: SnapshotMessage | null = null;
+  /** What snapshots cost (the render profile reads it). */
+  readonly meter = new SnapshotMeter();
+  /** Rebuilds whole snapshot sections from the worker's deltas. */
+  private readonly sections = new SnapshotDecoder();
   onStats: ((stats: SimStats) => void) | null = null;
   onSnapshot: ((snapshot: SnapshotMessage) => void) | null = null;
   /** The answer to a `save` given to the constructor: loaded, or why not (a new game runs). */
@@ -134,10 +140,18 @@ export class SimClient {
 
   private receive(msg: WorkerToMain): void {
     switch (msg.type) {
-      case 'snapshot':
-        this.latestSnapshot = msg;
-        this.onSnapshot?.(msg);
+      case 'snapshot': {
+        const received = sharedNow();
+        const start = performance.now();
+        // Every snapshot goes through the decoder, in order, even with no
+        // handler: the next one's patches apply to these sections.
+        const snapshot: SnapshotMessage = { ...msg, ...this.sections.decode(msg) };
+        this.latestSnapshot = snapshot;
+        this.onSnapshot?.(snapshot);
+        const applyMs = performance.now() - start;
+        this.meter.record(msg.encodeMs, msg.bytes, received - msg.sentAt, applyMs, msg.ticksRun);
         break;
+      }
       case 'stats':
         if (!this.paused) this.onStats?.(this.measure(msg));
         break;

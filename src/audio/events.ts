@@ -25,8 +25,12 @@ import { recipePrototype } from '../data/recipes';
 import { MachineState } from '../sim/entities/machine';
 import { CHUNK_SIZE } from '../sim/world/chunk';
 import {
+  BELT_HEADER,
   BELT_ITEM_STRIDE,
-  BELT_RECORD_HEADER,
+  BELT_STRIDE,
+  BeltField,
+  beltItemMoved,
+  beltLayout,
   isResearchedIn,
   type CraftQueueData,
   type InserterData,
@@ -295,18 +299,19 @@ export function machineSources(entities: readonly AudioEntity[]): LoopSource[] {
 export function beltSources(buffer: ArrayBuffer): { x: number; y: number }[] {
   const v = new Int32Array(buffer);
   const out: { x: number; y: number }[] = [];
-  const count = v[0] ?? 0;
-  let o = 1;
-  for (let b = 0; b < count && o + BELT_RECORD_HEADER <= v.length; b++) {
-    const x = v[o]!;
-    const y = v[o + 1]!;
-    const n = v[o + 4]!;
-    o += BELT_RECORD_HEADER;
+  const layout = beltLayout(v);
+  if (!layout) return out;
+  let o = layout.items;
+  for (let b = 0; b < layout.count; b++) {
+    const n = v[layout.counts + b]!;
     let moving = false;
     for (let i = 0; i < n && o + BELT_ITEM_STRIDE <= v.length; i++, o += BELT_ITEM_STRIDE) {
-      if (v[o + 2]! > 0) moving = true;
+      if (beltItemMoved(v[o + 1]!) > 0) moving = true;
     }
-    if (moving) out.push({ x: x + 0.5, y: y + 0.5 });
+    if (moving) {
+      const h = BELT_HEADER + b * BELT_STRIDE;
+      out.push({ x: v[h + BeltField.x]! + 0.5, y: v[h + BeltField.y]! + 0.5 });
+    }
   }
   return out;
 }

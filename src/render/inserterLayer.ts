@@ -21,7 +21,12 @@
 
 import { Container, Graphics, Sprite } from 'pixi.js';
 import { EntityTypeId, entityPrototype, inserterReach } from '../data/entities';
-import { decodeInserters, type InserterData } from '../sim/snapshot';
+import {
+  INSERTER_STRIDE,
+  InserterField,
+  decodeInserters,
+  type InserterData,
+} from '../sim/snapshot';
 import { TICKS_PER_SECOND } from '../worker/protocol';
 import { TILE_PX } from './camera';
 import { EVERYWHERE, overlaps, type TileRect } from './cull';
@@ -91,12 +96,36 @@ export function swingFraction(inserter: InserterData, alpha: number): number {
   return Math.min(1, Math.max(0, arm / inserter.span));
 }
 
+/**
+ * Whether buffer `v` (`encodeInserters`) lists the inserters of `list`, in
+ * order, on the same tiles, facing the same ways, of the same types.
+ */
+function sameInserters(v: Int32Array, list: readonly InserterData[]): boolean {
+  if (v[0] !== list.length || v.length < 1 + list.length * INSERTER_STRIDE) return false;
+  for (let i = 0; i < list.length; i++) {
+    const o = 1 + i * INSERTER_STRIDE;
+    const ins = list[i]!;
+    if (
+      v[o + InserterField.x] !== ins.x ||
+      v[o + InserterField.y] !== ins.y ||
+      v[o + InserterField.dir] !== ins.dir ||
+      v[o + InserterField.span] !== ins.span ||
+      v[o + InserterField.type] !== ins.type
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export class InserterLayer {
   readonly container = new Container({ label: 'inserters' });
   private readonly graphics = new Graphics({ label: 'inserter-arms' });
   /** Icons of held items (the same as on belts), above the arms; reused from frame to frame. */
   private readonly held: Sprite[] = [];
   private inserters: InserterData[] = [];
+  /** The latest snapshot's inserter buffer. */
+  private buffer: ArrayBuffer | null = null;
   /** The latest snapshot's inserters by tile. */
   private byTile = new Map<number, InserterData>();
   private receivedAt = 0;
@@ -128,11 +157,31 @@ export class InserterLayer {
     this.modelled.clear();
   }
 
-  /** Takes the inserters of a snapshot received at `nowMs`. */
+  /**
+   * Takes the inserters of a snapshot received at `nowMs`. The same buffer
+   * as last time (an unchanged snapshot section, src/worker/snapshotDelta.ts)
+   * only moves the clock on; the same inserters as last time with only their
+   * arms and hands changed (every tick in a busy factory) are updated in
+   * place, without new objects or a new index.
+   */
   apply(buffer: ArrayBuffer, nowMs: number): void {
+    this.receivedAt = nowMs;
+    if (buffer === this.buffer) return;
+    this.buffer = buffer;
+    const v = new Int32Array(buffer);
+    const list = this.inserters;
+    if (sameInserters(v, list)) {
+      for (let i = 0; i < list.length; i++) {
+        const o = 1 + i * INSERTER_STRIDE;
+        const ins = list[i]!;
+        ins.arm = v[o + InserterField.arm]!;
+        ins.held = v[o + InserterField.held]!;
+        ins.swing = v[o + InserterField.swing]!;
+      }
+      return;
+    }
     this.inserters = decodeInserters(buffer);
     this.byTile = new Map(this.inserters.map((ins) => [tileKey(ins.x, ins.y), ins]));
-    this.receivedAt = nowMs;
   }
 
   /** The inserters of the latest snapshot. */

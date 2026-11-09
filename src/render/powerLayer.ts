@@ -206,6 +206,8 @@ export class PowerLayer {
 
   /** Takes the power records of a snapshot. */
   apply(buffer: ArrayBuffer): void {
+    // An unchanged snapshot section is the same buffer (src/worker/snapshotDelta.ts).
+    if (buffer === this.records.buffer) return;
     const records = new Int32Array(buffer);
     if (sameRecords(records, this.records)) return;
     this.records = records;

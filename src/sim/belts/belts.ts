@@ -288,6 +288,14 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     return [a, b];
   }
 
+  /** The line of splitter `belt`'s left (0) or right (1) half. */
+  halfLine(belt: number, half: number): TransportLine {
+    const row = this.row(belt);
+    const line = this.lineMap.get(half === 0 ? this.lineCol[row]! : this.line2Col[row]!);
+    if (!line) throw new RangeError(`belt ${String(belt)} is no splitter`);
+    return line;
+  }
+
   /** The half (0 left, 1 right) whose output lane `lane` of splitter `belt` sends its next item to. */
   splitterNext(belt: number, lane: number): number {
     return (this.nextCol[this.row(belt)]! >> lane) & 1;

@@ -60,7 +60,18 @@ import {
   type UndergroundInfo,
 } from '../sim/belts/underground';
 import type { Direction } from '../sim/entities/direction';
-import { BELT_ITEM_STRIDE, BELT_RECORD_HEADER, decodeBelts, type BeltData } from '../sim/snapshot';
+import {
+  BELT_HEADER,
+  BELT_ITEM_STRIDE,
+  BELT_STRIDE,
+  BeltField,
+  beltItemId,
+  beltItemLane,
+  beltItemMoved,
+  beltLayout,
+  decodeBelts,
+  type BeltData,
+} from '../sim/snapshot';
 import { TICKS_PER_SECOND } from '../worker/protocol';
 import { beltPoint, beltPointInto, laneLateral, progressOf } from './beltPath';
 import { beltSprites, surfaceFrame, type BeltSprites } from './beltSprites';
@@ -222,6 +233,12 @@ export class BeltLayer {
   };
   private count = 0;
   private itemTotal = 0;
+  /** The belts block of the buffer `records` was put in draw order for (see `parse`). */
+  private headers = new Int32Array(0);
+  /** Draw order: the belt in the buffer drawn `i`-th. */
+  private order: readonly number[] = [];
+  /** Scratch: where each belt's items start in the buffer, in buffer order. */
+  private itemAt = new Int32Array(0);
   /** Belts drawn by the latest `draw` (indices into `records`). */
   private visible = new Int32Array(0);
   /** Puts the belts of each snapshot in draw order (north to south). */
@@ -283,13 +300,17 @@ export class BeltLayer {
     return set;
   }
 
-  /** Takes the belts of a snapshot of tick `tick`, received at `nowMs`. */
+  /**
+   * Takes the belts of a snapshot of tick `tick`, received at `nowMs`. The
+   * same buffer as the latest one (a snapshot whose belts didn't change,
+   * src/worker/snapshotDelta.ts) only moves the clock on.
+   */
   apply(buffer: ArrayBuffer, tick: number, nowMs: number): void {
-    this.buffer = buffer;
-    this.decoded = null;
-    this.undergrounds = null;
     this.tick = tick;
     this.receivedAt = nowMs;
+    if (buffer === this.buffer) return;
+    this.buffer = buffer;
+    this.decoded = null;
     this.parse(new Int32Array(buffer));
   }
 
@@ -297,53 +318,66 @@ export class BeltLayer {
    * Reads a belt buffer (`encodeBelts`) straight into flat arrays, belts in
    * draw order (`BeltDrawOrder`) and each belt's items from its back to its
    * front: no object per item, so 50 000 items cost a few copies per snapshot.
+   * The belts block rarely changes (items move, belts don't): while it stays
+   * the same, the draw order and the belts' fields are kept and only the
+   * items are read again.
    */
   private parse(v: Int32Array): void {
-    const declared = Math.max(0, v[0] ?? 0);
-    const starts: number[] = [];
-    const positions: number[] = [];
-    let items = 0;
-    let o = 1;
-    for (let b = 0; b < declared && o + BELT_RECORD_HEADER <= v.length; b++) {
+    const layout = beltLayout(v) ?? { count: 0, counts: BELT_HEADER, items: BELT_HEADER };
+    const { count, counts } = layout;
+    const r = this.records;
+    const headers = v.subarray(BELT_HEADER, counts);
+    if (!sameWords(headers, this.headers)) {
+      this.headers = headers.slice();
+      this.undergrounds = null;
+      const positions = new Int32Array(2 * count);
+      for (let b = 0; b < count; b++) {
+        positions[2 * b] = headers[b * BELT_STRIDE + BeltField.x]!;
+        positions[2 * b + 1] = headers[b * BELT_STRIDE + BeltField.y]!;
+      }
+      this.order = this.drawOrder.indices(positions);
+      if (r.x.length < count) {
+        const size = Math.max(count, r.x.length * 2);
+        for (const key of BELT_FIELDS) r[key] = new Int32Array(size);
+        r.itemStart = new Int32Array(size + 1);
+      }
+      for (let i = 0; i < count; i++) {
+        const h = this.order[i]! * BELT_STRIDE;
+        r.x[i] = headers[h + BeltField.x]!;
+        r.y[i] = headers[h + BeltField.y]!;
+        r.dir[i] = headers[h + BeltField.dir]!;
+        r.shape[i] = headers[h + BeltField.shape]!;
+        r.type[i] = headers[h + BeltField.type]!;
+        r.mode[i] = headers[h + BeltField.mode]!;
+      }
+    }
+    // Where each belt's items start (buffer order), clamped to the buffer.
+    if (this.itemAt.length < count + 1) this.itemAt = new Int32Array(count + 1);
+    const at = this.itemAt;
+    let o = layout.items;
+    for (let b = 0; b < count; b++) {
+      at[b] = o;
       const n = Math.max(
         0,
-        Math.min(v[o + 4]!, Math.floor((v.length - o - BELT_RECORD_HEADER) / BELT_ITEM_STRIDE)),
+        Math.min(v[counts + b]!, Math.floor((v.length - o) / BELT_ITEM_STRIDE)),
       );
-      starts.push(o);
-      positions.push(v[o]!, v[o + 1]!);
-      items += n;
-      o += BELT_RECORD_HEADER + n * BELT_ITEM_STRIDE;
+      o += n * BELT_ITEM_STRIDE;
     }
-    const count = starts.length;
-    const order = this.drawOrder.indices(Int32Array.from(positions));
-    const r = this.records;
-    if (r.x.length < count) {
-      const size = Math.max(count, r.x.length * 2);
-      for (const key of BELT_FIELDS) r[key] = new Int32Array(size);
-      r.itemStart = new Int32Array(size + 1);
-    }
+    at[count] = o;
+    const items = (o - layout.items) / BELT_ITEM_STRIDE;
     if (r.itemLane.length < items) {
       const size = Math.max(items, r.itemLane.length * 2);
       for (const key of ITEM_FIELDS) r[key] = new Int32Array(size);
     }
     let m = 0;
     for (let i = 0; i < count; i++) {
-      const s = starts[order[i]!]!;
-      r.x[i] = v[s]!;
-      r.y[i] = v[s + 1]!;
-      r.dir[i] = v[s + 2]!;
-      r.shape[i] = v[s + 3]!;
-      r.type[i] = v[s + 5]!;
-      r.mode[i] = v[s + 6]!;
+      const b = this.order[i]!;
       r.itemStart[i] = m;
-      const n = Math.max(
-        0,
-        Math.min(v[s + 4]!, Math.floor((v.length - s - BELT_RECORD_HEADER) / BELT_ITEM_STRIDE)),
-      );
       const first = m;
-      for (let k = 0, p = s + BELT_RECORD_HEADER; k < n; k++, p += BELT_ITEM_STRIDE) {
+      for (let p = at[b]!, end = at[b + 1]!; p < end; p += BELT_ITEM_STRIDE) {
         // Insertion sort by offset, largest first: each lane from its back to its front.
-        const offset = v[p + 1]!;
+        const offset = v[p]!;
+        const packed = v[p + 1]!;
         let j = m++;
         while (j > first && r.itemOffset[j - 1]! < offset) {
           r.itemLane[j] = r.itemLane[j - 1]!;
@@ -352,10 +386,10 @@ export class BeltLayer {
           r.itemId[j] = r.itemId[j - 1]!;
           j--;
         }
-        r.itemLane[j] = v[p]!;
+        r.itemLane[j] = beltItemLane(packed);
         r.itemOffset[j] = offset;
-        r.itemMoved[j] = v[p + 2]!;
-        r.itemId[j] = v[p + 3]!;
+        r.itemMoved[j] = beltItemMoved(packed);
+        r.itemId[j] = beltItemId(packed);
       }
     }
     r.itemStart[count] = m;
@@ -670,6 +704,13 @@ export class BeltLayer {
  * tick to tick, so the order found for one set of positions is reused until
  * they change: a pass over the belts instead of a sort per snapshot.
  */
+/** Whether `a` and `b` hold the same words. */
+function sameWords(a: Int32Array, b: Int32Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 export class BeltDrawOrder {
   private positions = new Int32Array(0);
   private order: number[] = [];
