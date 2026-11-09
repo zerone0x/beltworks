@@ -79,28 +79,55 @@ function fitBetween(p: number[], lo: number, hi: number, near: number, spacing: 
   return best;
 }
 
-function checkQueries(lane: Lane, rng: Rng, length: number): void {
+/** Asks `lane` random queries; returns the first one it answers differently from the walks, or null. */
+function checkQueries(lane: Lane, rng: Rng, length: number): string | null {
   const p = positions(lane);
+  const differ = (what: string, got: number | boolean, want: number | boolean): string | null =>
+    got === want ? null : `${what}: ${String(got)}, walking: ${String(want)}`;
   for (let q = 0; q < 40; q++) {
     const pos = rng.nextInt(length + 200) - 100;
     const spacing = [64, 96, 128][rng.nextInt(3)]!;
-    expect(lane.canInsert(pos)).toBe(pos >= 0 && slotFor(p, pos, lane.spacing) !== null);
     const from = rng.nextInt(length + 64);
     const to = from + rng.nextInt(320);
-    expect(lane.find(from, to)).toBe(find(p, from, to));
     const slack = rng.nextInt(160);
-    expect(lane.fitNear(pos, slack, spacing)).toBe(fitNear(p, pos, slack, spacing));
     const lo = rng.nextInt(length + 64) - 32;
     const hi = lo + rng.nextInt(320) - 16;
     const near = lo + rng.nextInt(300) - 20;
-    expect(lane.fitBetween(lo, hi, near, spacing)).toBe(fitBetween(p, lo, hi, near, spacing));
-    for (let i = 0; i < p.length; i += 1 + rng.nextInt(7)) expect(lane.position(i)).toBe(p[i]);
+    const bad =
+      differ(
+        `canInsert(${String(pos)})`,
+        lane.canInsert(pos),
+        pos >= 0 && slotFor(p, pos, lane.spacing) !== null,
+      ) ??
+      differ(`find(${String(from)}, ${String(to)})`, lane.find(from, to), find(p, from, to)) ??
+      differ(
+        `fitNear(${String(pos)}, ${String(slack)}, ${String(spacing)})`,
+        lane.fitNear(pos, slack, spacing),
+        fitNear(p, pos, slack, spacing),
+      ) ??
+      differ(
+        `fitBetween(${String(lo)}, ${String(hi)}, ${String(near)}, ${String(spacing)})`,
+        lane.fitBetween(lo, hi, near, spacing),
+        fitBetween(p, lo, hi, near, spacing),
+      );
+    if (bad !== null) return bad;
+    for (let i = 0; i < p.length; i += 1 + rng.nextInt(7)) {
+      if (lane.position(i) !== p[i]) return `position(${String(i)})`;
+    }
   }
+  return null;
 }
 
 describe('Lane searches', () => {
   it('answer exactly what walking the gaps answers, through moves, inserts and removals', () => {
     const rng = Rng.fromSeed(73);
+    let first: string | null = null;
+    let checks = 0;
+    const check = (lane: Lane, length: number, where: string) => {
+      const bad = checkQueries(lane, rng, length);
+      checks++;
+      if (bad !== null && first === null) first = `${where}: ${bad}`;
+    };
     for (let round = 0; round < 60; round++) {
       const lane = new Lane(64);
       // Short lanes (walked) and long ones (searched), sparse and packed.
@@ -111,7 +138,7 @@ describe('Lane searches', () => {
         gap = 64 + (rng.nextInt(3) === 0 ? rng.nextInt(300) : 0);
       }
       const length = lane.total + 256;
-      checkQueries(lane, rng, length);
+      check(lane, length, `round ${String(round)}`);
       for (let step = 0; step < 30; step++) {
         switch (rng.nextInt(4)) {
           case 0:
@@ -126,8 +153,10 @@ describe('Lane searches', () => {
           default:
             lane.setSpacing(rng.nextInt(2) === 0 ? 64 : 128);
         }
-        checkQueries(lane, rng, length);
+        check(lane, length, `round ${String(round)} step ${String(step)}`);
       }
     }
-  });
+    expect(first).toBeNull();
+    expect(checks).toBe(60 * 31);
+  }, 30_000);
 });
