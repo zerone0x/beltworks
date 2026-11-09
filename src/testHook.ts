@@ -202,6 +202,12 @@ export interface BeltworksTestHook {
   following(): boolean;
   /** The local player from the latest snapshot, or `null` before the first one. */
   player(): PlayerState | null;
+  /**
+   * How the local player is drawn (D67): its sprite pose (`idle`, `walk`,
+   * `mine`), facing (0 north, clockwise in eighths) and frame; `null` while
+   * it is the placeholder ball (no atlas yet) or unknown.
+   */
+  playerSprite(): { pose: string; facing: number; frame: number } | null;
   /** The local player's inventory from the latest snapshot. */
   inventory(): SlotData[];
   /** The local player's crafting queue from the latest snapshot (empty before the first one). */
@@ -555,6 +561,10 @@ export function installTestHook({
       view.camera.set(x, y, zoom);
     },
     following: () => view.following,
+    playerSprite: () => {
+      const pose = view.players.poses[LOCAL_PLAYER_ID];
+      return pose ? { ...pose } : null;
+    },
     player: () => {
       const records = view.track.latest;
       const o = LOCAL_PLAYER_ID * PLAYER_STRIDE;

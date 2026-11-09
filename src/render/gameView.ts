@@ -163,6 +163,7 @@ export class GameView {
     this.inserters.setAtlas(atlas);
     this.power.setAtlas(atlas);
     this.generators.setAtlas(atlas);
+    this.players.setAtlas(atlas);
   }
 
   /**
@@ -181,13 +182,14 @@ export class GameView {
 
   /**
    * Shows or hides every shadow (the shadows setting): buildings', inserter
-   * arms', wires', underground hoods' and, baked again, trees'.
+   * arms', wires', underground hoods', the players' and, baked again, trees'.
    */
   setShadows(on: boolean): void {
     this.entities.shadowContainer.visible = on;
     this.power.shadowContainer.visible = on;
     this.belts.setShadows(on);
     this.terrain.setShadows(on);
+    this.players.setShadows(on);
   }
 
   /** Whether WebGL runs on a software renderer (as in headless browsers and CI). */
