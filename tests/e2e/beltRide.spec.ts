@@ -12,6 +12,9 @@ import { SUBTILES_PER_TILE } from '../../src/sim/fixed';
 import { player, waitUntilStill } from './walk';
 
 const KIT = 'transport-belt:10';
+/** The belts run east along row 0 from `FIRST` to `LAST` (all within build reach of the spawn). */
+const FIRST = 2;
+const LAST = 9;
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -58,20 +61,23 @@ test('a belt carries the player standing on it to its end', async ({ page }) => 
     timeout: 10_000,
   });
 
-  // The player stands at (0, 0); belts east along row 0 from x = 2 to 7.
+  // The player stands at (0, 0); belts east along row 0.
   expect(await player(page)).toMatchObject({ x: 0, y: 0 });
   await page.keyboard.press('1');
-  for (let x = 2; x <= 7; x++) await placeBelt(page, x, 0, Direction.East);
+  for (let x = FIRST; x <= LAST; x++) await placeBelt(page, x, 0, Direction.East);
   await page.keyboard.press('q');
 
-  // Walk east onto the first belt, then let go of the key.
+  // Walk east onto the first belt, then let go of the key at once. On a
+  // slow page the release takes effect a few frames later; the long run of
+  // belts leaves room for that.
   await page.keyboard.down('d');
-  await page.waitForFunction(() => window.__beltworks!.player()!.x >= 2.2, undefined, {
+  await page.waitForFunction((x) => window.__beltworks!.player()!.x >= x, FIRST + 0.05, {
     timeout: 30_000,
   });
   await page.keyboard.up('d');
+  await page.waitForTimeout(100);
   const released = await player(page);
-  expect(released.x).toBeLessThan(7);
+  expect(released.x, 'the walk overshot the belts (a very slow page?)').toBeLessThan(LAST - 0.5);
 
   // Without any input the belt keeps carrying the player east, along row 0...
   await expect
@@ -82,8 +88,8 @@ test('a belt carries the player standing on it to its end', async ({ page }) => 
   // ...to just past the end of the last belt, where it stops.
   const still = await waitUntilStill(page);
   const speed = ENTITIES[EntityTypeId.TransportBelt].beltSpeed! / SUBTILES_PER_TILE;
-  expect(still.x).toBeGreaterThanOrEqual(8);
-  expect(still.x).toBeLessThan(8 + speed);
+  expect(still.x).toBeGreaterThanOrEqual(LAST + 1);
+  expect(still.x).toBeLessThan(LAST + 1 + speed);
   expect(still.y).toBe(0);
   expect(errors).toEqual([]);
 });
