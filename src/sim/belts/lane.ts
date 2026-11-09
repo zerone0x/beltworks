@@ -25,6 +25,8 @@ import { SaveError, type SaveReader, type SaveWriter } from '../save/codec';
 /** The bits of a stored item that hold its id; the top bit is its mark (`Lane.marked`). */
 const ITEM_BITS = 0x7fff;
 const MARK = 0x8000;
+/** Lanes of at most this many items are searched by walking their gaps rather than `posBuf`. */
+const SHORT_LANE = 12;
 
 /** Where the items reaching the end of a lane can go (see `Lane.move`). */
 export interface LaneOutlet {
@@ -64,6 +66,19 @@ export class Lane {
    * are exactly `spacing`. `move` extends it lazily.
    */
   private run = 1;
+  /**
+   * The items' distances from the end (`posBuf[i]` for item `i`), cached for
+   * the binary searches of the queries below while `posValid`: every change
+   * to the gaps clears it, and the next query of a long lane rebuilds it
+   * (O(items)). Lanes that only move pay nothing; the inserters asking one
+   * lane where they may drop or pick up in a tick share one rebuild. Derived
+   * from the gaps, so neither saved nor hashed.
+   */
+  private posBuf = new Int32Array(0);
+  private posValid = false;
+  /** Scratch for `seek`: the distances of the item found and of the one in front of it. */
+  private seekAt = 0;
+  private seekPrev = 0;
   /** Whether the lane is on its table's active list (see BeltTable). */
   active = false;
   /**
@@ -128,6 +143,7 @@ export class Lane {
 
   /** Distance from the end of the line to item `i` (O(i)). */
   position(i: number): number {
+    if (this.posValid) return this.posBuf[i]!;
     let d = 0;
     for (let k = 0; k <= i; k++) d += this.gap(k);
     return d;
@@ -141,6 +157,7 @@ export class Lane {
     this.itemBuf[at] = mark ? item | MARK : item;
     this.count++;
     this.total += gap;
+    this.posValid = false;
   }
 
   /**
@@ -149,18 +166,73 @@ export class Lane {
    * or `null` when it would come closer than `spacing` to a neighbour.
    */
   private slotFor(pos: number, spacing: number): { index: number; before: number } | null {
-    let d = 0;
-    for (let i = 0; i < this.count; i++) {
-      const next = d + this.gap(i);
-      if (next >= pos) {
-        if (next - pos < spacing) return null;
-        if (i > 0 && pos - d < spacing) return null;
-        return { index: i, before: d };
-      }
-      d = next;
+    const i = this.seek(pos);
+    if (i === this.count) {
+      // Behind the last item, or on an empty lane.
+      if (this.count > 0 && pos - this.total < spacing) return null;
+      return { index: i, before: this.total };
     }
-    if (this.count > 0 && pos - d < spacing) return null;
-    return { index: this.count, before: d };
+    const d = i > 0 ? this.seekPrev : 0;
+    if (this.seekAt - pos < spacing) return null;
+    if (i > 0 && pos - d < spacing) return null;
+    return { index: i, before: d };
+  }
+
+  /**
+   * Index of the first item (closest to the end) at least `pos` from the
+   * end, or `count` if there is none; leaves that item's distance in
+   * `seekAt` and the distance of the item in front of it in `seekPrev`
+   * (the last item's where there is no such item; meaningless for index 0
+   * and in `seekAt` for `count`). A binary
+   * search through `posBuf` on a long lane, a short walk on a short one.
+   */
+  private seek(pos: number): number {
+    const n = this.count;
+    if (n === 0 || this.total < pos) {
+      // The item in front of "none" is the last one, `total` from the end.
+      this.seekPrev = this.total;
+      return n;
+    }
+    if (n <= SHORT_LANE) {
+      let d = 0;
+      for (let i = 0; i < n; i++) {
+        const next = d + this.gap(i);
+        if (next >= pos) {
+          this.seekAt = next;
+          this.seekPrev = d;
+          return i;
+        }
+        d = next;
+      }
+      return n;
+    }
+    const p = this.positions();
+    // The last item is `total` from the end, at least `pos`: the answer is below `n`.
+    let lo = 0;
+    let hi = n - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (p[mid]! < pos) lo = mid + 1;
+      else hi = mid;
+    }
+    this.seekAt = p[lo]!;
+    this.seekPrev = lo > 0 ? p[lo - 1]! : 0;
+    return lo;
+  }
+
+  /** `posBuf`, rebuilt first if a change cleared it. */
+  private positions(): Int32Array {
+    if (!this.posValid) {
+      if (this.posBuf.length < this.count) this.posBuf = new Int32Array(this.gapBuf.length);
+      const buf = this.posBuf;
+      let d = 0;
+      for (let i = 0; i < this.count; i++) {
+        d += this.gapBuf[(this.head + i) & this.mask]!;
+        buf[i] = d;
+      }
+      this.posValid = true;
+    }
+    return this.posBuf;
   }
 
   /** Whether an item fits at distance `pos` from the end (`pos >= 0`). */
@@ -176,8 +248,10 @@ export class Lane {
   fitNear(pos: number, slack: number, spacing = this.spacing): number {
     if (pos < 0) return -1;
     let p = pos;
-    let d = 0;
-    for (let i = 0; i < this.count; i++) {
+    // Items `spacing` or more in front of `pos` can't be in the way: start behind them.
+    const start = this.seek(pos - spacing + 1);
+    let d = start > 0 ? this.seekPrev : 0;
+    for (let i = start; i < this.count; i++) {
       d += this.gap(i);
       if (d + spacing <= p) continue;
       if (d >= p + spacing) break;
@@ -200,10 +274,13 @@ export class Lane {
     if (lo > hi) return -1;
     let best = -1;
     let bestDist = Number.MAX_SAFE_INTEGER;
+    // Every stretch in front of the first item at least `lo + spacing` from
+    // the end ends before `lo`: start the walk at that item.
+    const start = this.seek(lo + spacing);
     // The free stretch between the item in front (`prev`) and the next one.
-    let prev = Number.MIN_SAFE_INTEGER;
-    let d = 0;
-    for (let i = 0; i <= this.count; i++) {
+    let prev = start > 0 ? this.seekPrev : Number.MIN_SAFE_INTEGER;
+    let d = start > 0 ? this.seekPrev : 0;
+    for (let i = start; i <= this.count; i++) {
       let next = Number.MAX_SAFE_INTEGER;
       if (i < this.count) {
         d += this.gap(i);
@@ -261,6 +338,7 @@ export class Lane {
 
   /** Removes item `i` and returns its id; the gap it leaves goes to the item behind it. */
   removeAt(i: number): number {
+    this.posValid = false;
     const item = this.item(i);
     const g = this.gap(i);
     if (i + 1 < this.count) {
@@ -295,11 +373,12 @@ export class Lane {
    * it accepts.
    */
   find(from: number, to: number, accept?: (item: number) => boolean): number {
-    let d = 0;
-    for (let i = 0; i < this.count; i++) {
+    const start = this.seek(from);
+    let d = start > 0 ? this.seekPrev : 0;
+    for (let i = start; i < this.count; i++) {
       d += this.gap(i);
       if (d > to) return -1;
-      if (d >= from && (!accept || accept(this.item(i)))) return i;
+      if (!accept || accept(this.item(i))) return i;
     }
     return -1;
   }
@@ -439,11 +518,13 @@ export class Lane {
   }
 
   private setGap(i: number, gap: number): void {
+    this.posValid = false;
     this.gapBuf[(this.head + i) & this.mask] = gap;
   }
 
   /** Opens index `i` for a new item, shifting the items from `i` on one place back. */
   private insertAt(i: number, gap: number, item: number): void {
+    this.posValid = false;
     this.reserve(this.count + 1);
     for (let k = this.count; k > i; k--) {
       const to = (this.head + k) & this.mask;

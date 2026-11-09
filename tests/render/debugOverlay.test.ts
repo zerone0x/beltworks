@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ResourceId } from '../../src/data/resources';
 import { TileId } from '../../src/data/tiles';
-import { formatTile, groupDigits } from '../../src/ui/debugOverlay';
+import { emptyActivity } from '../../src/sim/activity';
+import { formatActivity, formatTile, groupDigits } from '../../src/ui/debugOverlay';
 
 describe('formatTile', () => {
   it('shows coordinates, terrain, resource and amount', () => {
@@ -58,5 +59,16 @@ describe('formatTile', () => {
     expect(formatTile({ x: 1, y: 2, info: { terrain: 99, resource: 42, amount: 7 } })).toBe(
       'tile (1, 2) tile#99 · resource#42 7',
     );
+  });
+});
+
+describe('formatActivity', () => {
+  it('shows what each system stepped out of its entities, leaving out empty systems', () => {
+    const activity = emptyActivity();
+    expect(formatActivity(activity)).toBe('stepped -');
+    activity.power = { entities: 897, awake: 239, stepped: 239 };
+    activity.belts = { entities: 1008, awake: 776, stepped: 776 };
+    activity.inserters = { entities: 876, awake: 40, stepped: 1459 };
+    expect(formatActivity(activity)).toBe('stepped power 239/897 · lane 776/1 008 · ins 1 459/876');
   });
 });

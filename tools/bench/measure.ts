@@ -24,6 +24,14 @@
  * state as the measured runs.
  */
 
+import {
+  ACTIVITY_SYSTEMS,
+  emptyActivity,
+  readActivity,
+  type Activity,
+  type ActivitySystem,
+  type SystemActivity,
+} from '../../src/sim/activity';
 import { beltTable } from '../../src/sim/belts/belts';
 import { SAT_ONE } from '../../src/data/entities';
 import { MachineState } from '../../src/sim/entities/machine';
@@ -91,6 +99,41 @@ export interface SceneActivity {
    * machines slower.
    */
   powerSatisfaction: number[];
+  /**
+   * Per system (src/sim/activity.ts), over the measured ticks: its entities
+   * (belts: lanes) and the mean awake and stepped per tick. Idle entities
+   * should cost nothing, so `stepped` far below `entities` is the point.
+   * Absent from reports made before #73.
+   */
+  systems?: Record<ActivitySystem, SystemActivity>;
+}
+
+/** Sums the systems' activity over the measured ticks (allocation-free per tick). */
+class SystemsMeter {
+  private readonly now: Activity = emptyActivity();
+  private readonly sum: Activity = emptyActivity();
+
+  read(sim: Sim): void {
+    readActivity(sim.state.entities, this.now);
+    for (const s of ACTIVITY_SYSTEMS) {
+      const a = this.now[s];
+      const t = this.sum[s];
+      t.entities = a.entities;
+      t.awake += a.awake;
+      t.stepped += a.stepped;
+    }
+  }
+
+  /** Entities at the end, mean awake and stepped per tick (rounded to 0.1). */
+  result(ticks: number): Activity {
+    const out = emptyActivity();
+    const mean = (v: number): number => (ticks > 0 ? Math.round((v * 10) / ticks) / 10 : 0);
+    for (const s of ACTIVITY_SYSTEMS) {
+      const t = this.sum[s];
+      out[s] = { entities: t.entities, awake: mean(t.awake), stepped: mean(t.stepped) };
+    }
+    return out;
+  }
 }
 
 const STATE_NAMES = new Map<number, string>(
@@ -175,15 +218,18 @@ function runOnce(scene: BenchScene, warmupTicks: number, measuredTicks: number):
   // (`node --expose-gc`, as `npm run bench` does).
   (globalThis as { gc?: () => void }).gc?.();
   const durations = new Float64Array(measuredTicks);
+  const systems = new SystemsMeter();
   for (let i = 0; i < measuredTicks; i++) {
     const start = performance.now();
     sim.step();
     durations[i] = performance.now() - start;
+    // Outside the timed window, and allocation-free.
+    systems.read(sim);
   }
   const result: RunResult = {
     built,
     stats: tickStats(durations),
-    activity: sceneActivity(sim),
+    activity: { ...sceneActivity(sim), systems: systems.result(measuredTicks) },
     hash: hex(sim),
   };
   if (before && scene.probe) {

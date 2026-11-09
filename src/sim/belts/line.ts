@@ -80,6 +80,14 @@ export class TransportLine {
    * are dropped the next time they would be notified.
    */
   readonly watched: number[] = [];
+  /**
+   * Scratch for the belt step (`BeltTable.notifyWatchers`): the stretch of
+   * the line whose watched belts were notified during the step of tick
+   * `notifiedStep`. Lives within one step, so it isn't saved.
+   */
+  notifiedStep = -1;
+  notifiedLo = 0;
+  notifiedHi = -1;
   /** Set once the line has been taken apart by a rebuild. */
   dead = false;
   /**

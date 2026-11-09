@@ -231,9 +231,12 @@ export class Entities {
 
   /** Entity `target` changed: wakes every entity subscribed to it (see wake.ts). */
   notify(target: number): void {
-    for (const watcher of this.wake.watchersOf(target)) {
-      this.wakeOne(watcher);
-    }
+    // Without a copy (belts notify on every tick they move): `wake` hooks only
+    // put the watcher back on its table's active list and never change
+    // subscriptions.
+    const watchers = this.wake.watchersView(target);
+    if (watchers === undefined) return;
+    for (let i = 0; i < watchers.length; i++) this.wakeOne(watchers[i]!);
   }
 
   /** Folds every entity, the occupancy index, the tables and the subscriptions into a hash. */

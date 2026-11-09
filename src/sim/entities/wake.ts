@@ -79,6 +79,15 @@ export class WakeSubscriptions {
     return this.byTarget.get(target)?.slice() ?? [];
   }
 
+  /**
+   * {@link watchersOf} without the copy, for `Entities.notify`: the list
+   * itself (`undefined` when nothing watches `target`), valid until the
+   * subscriptions change.
+   */
+  watchersView(target: number): readonly number[] | undefined {
+    return this.byTarget.get(target);
+  }
+
   /** Drops every subscription of `watcher`. */
   unwatchAll(watcher: number): void {
     for (const target of this.byWatcher.get(watcher) ?? []) {

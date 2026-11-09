@@ -227,6 +227,10 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   private waiting = false;
   /** Ticks the belt system has run (see `LineLane.changedAt`). */
   private tick = 0;
+  /** Whether `update` is running (see `notifyWatchers`). Not state: false between calls. */
+  private stepping = false;
+  /** Lanes stepped by the latest `update` (a diagnostic for the bench and debug overlay; not state). */
+  private stepped = 0;
   /** Lines by id, in creation (= id) order. */
   private readonly lineMap = new Map<number, TransportLine>();
   private nextLine = 1;
@@ -700,10 +704,13 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    */
   dropOnTile(belt: number, x: number, y: number, lane: number, item: number): boolean {
     if (!itemPrototype(item)) return false;
-    const pos = this.dropSpot(belt, x, y, lane);
+    const row = this.set.indexOf(belt);
+    if (row < 0 || (lane !== 0 && lane !== 1)) return false;
+    const line = this.lineMap.get(this.beltLineAt(belt, x, y));
+    if (!line) return false;
+    const l = line.lanes[lane];
+    const pos = this.dropSpotOn(row, line, l);
     if (pos < 0) return false;
-    const line = this.lineMap.get(this.beltLineAt(belt, x, y))!;
-    const l = line.lanes[lane as BeltLane];
     if (!l.insert(pos, item)) return false;
     this.wakeLane(l);
     this.halfChanged(line, lane);
@@ -725,14 +732,19 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * half keeps its free slots) and across hand-overs: no closer than 64 to
    * the last item of the line this one hands on to (as `minFront` counts
    * it), nor to the first item of the line handing on to this one's start
-   * (`backLimit`). O(items from the end of the lane to the tile), like
-   * `insertAt`.
+   * (`backLimit`). O(log items) on a
+   * long lane (`Lane.fitBetween`).
    */
   dropSpot(belt: number, x: number, y: number, lane: number): number {
     const row = this.set.indexOf(belt);
     if (row < 0 || (lane !== 0 && lane !== 1)) return -1;
     const line = this.lineMap.get(this.beltLineAt(belt, x, y));
     if (!line) return -1;
+    return this.dropSpotOn(row, line, line.lanes[lane]);
+  }
+
+  /** `dropSpot` for the belt in row `row`, on lane `l` of its line (or half) `line`. */
+  private dropSpotOn(row: number, line: TransportLine, l: LineLane): number {
     const offset = this.indexCol[row]! * BELT_LENGTH;
     const middle = offset + BELT_LENGTH / 2;
     let lo = offset;
@@ -740,7 +752,6 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     const mode = this.modeCol[row]!;
     if (mode === UndergroundMode.Entrance) lo = middle;
     else if (mode === UndergroundMode.Exit) hi = middle;
-    const l = line.lanes[lane];
     lo = Math.max(lo, this.frontLimit(line, l));
     hi = Math.min(hi, this.backLimit(line, l, l.spacing));
     return l.fitBetween(lo, hi, middle);
@@ -880,8 +891,10 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   /** Steps every awake lane by one tick. */
   update(): void {
     this.tick++;
+    this.stepping = true;
     const list = this.active;
     const n = list.length;
+    this.stepped = n;
     const keep = this.keep;
     keep.length = n;
     // Splitter halves step after every other lane (see `stepHalf`), in list order.
@@ -911,6 +924,12 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     // Lanes woken during the loops were appended after the first `n`.
     for (let i = n; i < list.length; i++) list[w++] = list[i]!;
     list.length = w;
+    this.stepping = false;
+  }
+
+  /** Lanes the latest `update` stepped (0 before the first; a diagnostic, not state). */
+  get steppedLanes(): number {
+    return this.stepped;
   }
 
   /** Scratch for `update`: whether each lane of the active list stays on it. */
@@ -1245,28 +1264,30 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   private refreshMerge(line: TransportLine): void {
     if (line.splitter === 0 || line.dead) return;
     const sib = line.sibling!;
-    for (const [x, y] of [
-      [line, sib],
-      [sib, line],
-    ] as const) {
-      for (const lane of x.lanes) {
-        const other = y.lanes[lane.index];
-        const merging =
-          x.out !== null &&
-          !this.outputOpen(y, lane.index) &&
-          dense(
-            other,
-            y.speed,
-            lane.spacing === MERGE_SPACING || other.gap(0) > this.splitMinFront(other) ? 1 : 2,
-          );
-        const spacing = merging ? MERGE_SPACING : BELT_ITEM_SPACING;
-        if (spacing === lane.spacing) continue;
-        lane.setSpacing(spacing);
-        if (spacing < MERGE_SPACING) {
-          this.wakeLane(lane);
-          this.wakeFeeders(x, lane.index);
-        }
-      }
+    // Called on every change to a half: no arrays allocated per call.
+    this.refreshMergeLane(line, sib, line.lanes[0]);
+    this.refreshMergeLane(line, sib, line.lanes[1]);
+    this.refreshMergeLane(sib, line, sib.lanes[0]);
+    this.refreshMergeLane(sib, line, sib.lanes[1]);
+  }
+
+  /** `refreshMerge` for lane `lane` of half `x`, which half `y` merges into. */
+  private refreshMergeLane(x: TransportLine, y: TransportLine, lane: LineLane): void {
+    const other = y.lanes[lane.index];
+    const merging =
+      x.out !== null &&
+      !this.outputOpen(y, lane.index) &&
+      dense(
+        other,
+        y.speed,
+        lane.spacing === MERGE_SPACING || other.gap(0) > this.splitMinFront(other) ? 1 : 2,
+      );
+    const spacing = merging ? MERGE_SPACING : BELT_ITEM_SPACING;
+    if (spacing === lane.spacing) return;
+    lane.setSpacing(spacing);
+    if (spacing < MERGE_SPACING) {
+      this.wakeLane(lane);
+      this.wakeFeeders(x, lane.index);
     }
   }
 
@@ -1424,6 +1445,27 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   private notifyWatchers(line: TransportLine, lo: number, hi: number): void {
     const list = line.watched;
     if (list.length === 0) return;
+    if (this.stepping) {
+      // During the belt step nothing subscribes, unsubscribes or leaves an
+      // active list (waking only puts entities back on theirs), so notifying
+      // a belt twice changes nothing: skip a stretch inside one already
+      // notified this step (a loop's two lanes usually move as a whole).
+      if (line.notifiedStep === this.tick) {
+        if (lo >= line.notifiedLo && hi <= line.notifiedHi) return;
+        // Overlapping or touching stretches notify what their union would.
+        if (lo <= line.notifiedHi + 1 && hi >= line.notifiedLo - 1) {
+          line.notifiedLo = Math.min(lo, line.notifiedLo);
+          line.notifiedHi = Math.max(hi, line.notifiedHi);
+        } else {
+          line.notifiedLo = lo;
+          line.notifiedHi = hi;
+        }
+      } else {
+        line.notifiedStep = this.tick;
+        line.notifiedLo = lo;
+        line.notifiedHi = hi;
+      }
+    }
     const entities = this.entities!;
     let n = 0;
     for (const belt of list) {

@@ -113,6 +113,13 @@ export class AssemblerTable implements EntityTypeTable {
     return this.active.size;
   }
 
+  /** Entities stepped by the latest `update` (a diagnostic for the bench and debug overlay; not state). */
+  get steppedCount(): number {
+    return this.stepped;
+  }
+
+  private stepped = 0;
+
   /** Working ticks at full power one craft of recipe `recipe` takes in this machine type. */
   craftTicks(recipe: Recipe): number {
     return craftingTicks(recipe.ticks, this.proto.craftingSpeed);
@@ -320,8 +327,14 @@ export class AssemblerTable implements EntityTypeTable {
     return this.mayWork(row, id) ? this.budget.grant(row, this.energyPerTick) : 0;
   }
 
+  /** Asleep, a machine asks for nothing. */
+  powerAwake(): SparseSet {
+    return this.active;
+  }
+
   /** The assembler system for this machine type: steps every active machine by one tick. */
   update(entities: Entities): void {
+    this.stepped = this.active.size;
     // Backwards, so a machine leaving the list only moves one already stepped.
     for (let i = this.active.size - 1; i >= 0; i--) {
       const id = this.active.idAt(i);

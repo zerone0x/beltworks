@@ -22,6 +22,7 @@ import {
   encodeResearch,
 } from '../sim/snapshot';
 import { Sim } from '../sim/tick';
+import { systemActivity } from '../sim/activity';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
 import { BENCH_SCENES, RenderScene, isGridScene, isRenderScene } from './renderScene';
 import { FixedStepClock } from './loop';
@@ -119,6 +120,7 @@ function runDueTicks(current: Sim): void {
         tick: current.tick,
         tickMs: statStepMs / statTicks,
         droppedTicks: statDropped,
+        activity: systemActivity(current.state.entities),
         at: performance.now(),
       });
       statTicks = 0;

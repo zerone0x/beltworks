@@ -4,6 +4,7 @@
  * updates-per-second estimate.
  */
 
+import type { Activity } from '../sim/activity';
 import type { CommandInput } from '../sim/commands';
 import type { SaveMeta } from '../sim/save/container';
 import type {
@@ -23,6 +24,8 @@ export interface SimStats {
   droppedTicks: number;
   /** Ticks per second measured between the last two `stats` messages. */
   ups: number;
+  /** Per system: entities, awake and stepped in the latest tick. */
+  activity: Activity;
 }
 
 /** A save made by the worker: the gzipped bytes and what they hold. */
@@ -220,6 +223,12 @@ export class SimClient {
       ups = ((msg.tick - this.lastStats.tick) * 1000) / (now - this.lastStats.at);
     }
     this.lastStats = { tick: msg.tick, at: now };
-    return { tick: msg.tick, tickMs: msg.tickMs, droppedTicks: msg.droppedTicks, ups };
+    return {
+      tick: msg.tick,
+      tickMs: msg.tickMs,
+      droppedTicks: msg.droppedTicks,
+      ups,
+      activity: msg.activity,
+    };
   }
 }

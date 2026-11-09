@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ItemId } from '../../src/data/items';
+import { emptyActivity } from '../../src/sim/activity';
 import { Direction } from '../../src/sim/entities/direction';
 import { Sim } from '../../src/sim/tick';
 import { Builder } from '../../tools/bench/builder';
@@ -159,6 +160,17 @@ describe('baseline comparison', () => {
     expect(md).toContain('- `b`: beltItems 10 → 12');
     expect(md).toContain('| belts | 0.7500 (75.0%) |');
   });
+
+  it('lists the active entities per system, where the scenes counted them', () => {
+    const systems = emptyActivity();
+    systems.inserters = { entities: 1200, awake: 40.5, stepped: 460.2 };
+    const a = { ...scene('a', 1), activity: { ...scene('a', 1).activity, systems } };
+    const md = reportMarkdown(report(a, scene('old', 1)));
+    expect(md).toContain('| System | a |');
+    expect(md).toContain('| inserters | 1,200 / 40.5 / 460.2 |');
+    expect(md).toContain('| power | 0 / 0 / 0 |');
+    expect(reportMarkdown(report(scene('old', 1)))).not.toContain('Active entities per system');
+  });
 });
 
 describe('builder', () => {
@@ -300,5 +312,13 @@ describe('power scene', () => {
     expect(powerSatisfaction).toHaveLength(4);
     expect(powerSatisfaction.filter((s) => s === 100)).toHaveLength(2);
     expect(powerSatisfaction.filter((s) => s < 60)).toHaveLength(2);
+    // Per-system counters (#73): every electric entity (but the poles) is on
+    // a network; the working inserters and drills are stepped every tick.
+    const systems = result.activity.systems!;
+    expect(systems.power.entities).toBe(383 + 23 + 10);
+    expect(systems.drills).toEqual({ entities: 23, awake: 23, stepped: 23 });
+    expect(systems.inserters.entities).toBe(383);
+    expect(systems.inserters.stepped).toBeGreaterThanOrEqual(350);
+    expect(systems.belts).toEqual({ entities: 0, awake: 0, stepped: 0 });
   });
 });

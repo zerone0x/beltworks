@@ -169,6 +169,16 @@ describe('large scenes', () => {
     expect(activity.machineStates['assembling-machine-1']?.Working).toBeGreaterThan(0);
     expect(activity.activeBeltLanes).toBeGreaterThan(100);
     expect(activity.powerSatisfaction.every((s) => s === 100)).toBe(true);
+    // Idle entities cost nothing (#73): most inserters wait asleep (some are
+    // woken each tick by items moving past and look again), the power system
+    // asks only producers and awake consumers, and the belts step the lanes
+    // of the moving loops.
+    const systems = activity.systems!;
+    expect(systems.inserters.awake).toBeLessThan(systems.inserters.entities / 10);
+    expect(systems.inserters.stepped).toBeLessThan(systems.inserters.entities);
+    expect(systems.power.stepped).toBeLessThan(systems.power.entities / 2);
+    expect(systems.belts.stepped).toBeGreaterThan(100);
+    expect(systems.assemblers.stepped).toBeGreaterThan(0);
     expect(profile!.ticks).toBe(1_800);
     expect(profile!.stages.find((s) => s.name === 'belts')!.meanMs).toBeGreaterThan(0);
   }, 300_000);

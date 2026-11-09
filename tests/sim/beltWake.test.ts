@@ -65,6 +65,33 @@ describe('belt lanes asleep', () => {
     expect(started).toEqual([4, 3, 2, 1, 1]);
   });
 
+  it('wake the feeder when the item nearest the start of a backed-up line is taken', () => {
+    // From the #79 review: random takes take the item nearest the end, which
+    // wakes the lane's feeder anyway as the lane moves; taking the last item
+    // (nearest the start) frees room only at the start, where only the
+    // feeder can use it, so a `takeAt` that didn't wake its feeders would
+    // leave that feeder asleep but movable.
+    for (const index of [1, 2, 3, 4]) {
+      const { w, lines } = chain();
+      const line = lines[index]!;
+      const feeder = lines[index - 1]!;
+      expect(feeder.out).toBe(line);
+      expect(feeder.lanes[Left].active).toBe(false);
+      const lane = line.lanes[Left];
+      const last = lane.total;
+      expect(w.table.takeAt(line.id, Left, last, line.length)).toBe(IRON);
+      expect(lane.total).toBeLessThan(last);
+      checkNoMissedWake(w.table, `after taking from line ${String(index)}`);
+      expect(feeder.lanes[Left].active).toBe(true);
+      for (let t = 0; t < 10; t++) {
+        w.step();
+        checkNoMissedWake(w.table, `line ${String(index)}, tick ${String(t)}`);
+      }
+      // Items of the feeder went on into the room left at the start.
+      expect(lane.count).toBeGreaterThanOrEqual(4);
+    }
+  });
+
   it('are not woken late: waking every lane at once also moves lanes woken this tick', () => {
     // What #79 reported: after one tick of draining, the second line from
     // the end is asleep while the line in front of it is awake. Waking every
