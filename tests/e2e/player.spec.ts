@@ -165,6 +165,32 @@ test('walk to an ore tile, mine it for 2 s, and find the ore in the inventory', 
     contentType: 'image/png',
   });
 
+  // Drawn swinging a pickaxe at the tile (D67), facing it.
+  const sprite = await page.evaluate(() => window.__beltworks!.playerSprite());
+  expect(sprite?.pose).toBe('mine');
+  const view = page.viewportSize()!;
+  for (const zoom of [1, 2]) {
+    const p = await player(page);
+    await page.evaluate(
+      ([x, y, z]) => window.__beltworks!.setCamera(x!, y!, z),
+      [p.x * TILE_PX, p.y * TILE_PX, zoom],
+    );
+    await page.keyboard.press('f');
+    await page.waitForTimeout(300);
+    const size = 140 * zoom;
+    const clip = testInfo.outputPath(`art-player-mine-${zoom}x.png`);
+    await page.screenshot({
+      path: clip,
+      clip: {
+        x: view.width / 2 - size / 2,
+        y: view.height / 2 - size * 0.6,
+        width: size,
+        height: size,
+      },
+    });
+    await testInfo.attach(`player mining at ${zoom}x`, { path: clip, contentType: 'image/png' });
+  }
+
   await page.mouse.up({ button: 'right' });
   await expect.poll(async () => (await player(page)).mining).toBe(false);
   // Every unit in the inventory came out of the tile, as streamed back to the renderer.
