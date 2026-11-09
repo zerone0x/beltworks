@@ -1,5 +1,6 @@
 /**
- * Player settings (D50): key bindings, graphics, UI scale and audio volumes,
+ * Player settings (D50): key bindings, graphics, UI scale, audio volumes
+ * and the debug overlay (D61),
  * kept in `localStorage` (per browser, not per save) and applied by main.ts
  * whenever they change. The lettered-icons option keeps its own key
  * (src/render/itemIcons.ts) and is only shown in the settings panel.
@@ -37,6 +38,8 @@ export interface Settings {
   /** Scale of the DOM interface (panels, hotbar, menus): one of `UI_SCALES`. */
   uiScale: number;
   audio: AudioSettings;
+  /** Whether the debug overlay (ticks, UPS, the tile under the cursor) shows (D61). */
+  debugInfo: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -44,6 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   graphics: { terrain: 'rendered', terrainDetail: 'high', shadows: true, animation: true },
   uiScale: 1,
   audio: { master: 80, sfx: 100, music: 60 },
+  debugInfo: false,
 };
 
 /** The `localStorage` key of the settings (JSON). */
@@ -89,6 +93,7 @@ export function parseSettings(raw: unknown): Settings {
       sfx: volume(a.sfx, d.audio.sfx),
       music: volume(a.music, d.audio.music),
     },
+    debugInfo: flag(r.debugInfo, d.debugInfo),
   };
 }
 

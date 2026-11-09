@@ -1,6 +1,6 @@
 {
   "name": "beltworks",
-  "version": "0.0.0",
+  "version": "1.0.0-beta.1",
   "private": true,
   "type": "module",
   "description": "A factory-automation game for the browser.",
@@ -19,6 +19,7 @@
     "test:bench": "vitest run -c tools/bench/vitest.config.ts",
     "test:e2e": "playwright test",
     "profile:render": "playwright test -c playwright.profile.config.ts",
+    "test:release": "playwright test -c playwright.release.config.ts",
     "bench": "vite build -c tools/bench/vite.config.ts && node --expose-gc node_modules/.cache/beltworks-bench/run.js",
     "art": "node tools/art/art.js"
   },

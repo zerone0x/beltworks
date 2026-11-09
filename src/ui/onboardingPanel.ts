@@ -8,7 +8,9 @@
  * can start it again).
  *
  * Whether it is closed is stored in `localStorage` (D54); the current step
- * goes into each save's slot (`progress.step`, see saves.ts), not in saves.
+ * (`progress.step`) is stored with each save in its slot's metadata in
+ * IndexedDB, next to the hotbar pins (D60, see saves.ts), never in the save
+ * bytes themselves, so the simulation and save format are untouched.
  */
 
 import { keyFor, keyLabel } from './keybindings';

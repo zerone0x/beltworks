@@ -246,14 +246,20 @@ export class SettingsPanel {
     letters.addEventListener('change', () => {
       setLetterIcons(letters.checked);
     });
+    const debug = checkbox('setting-debug-info');
+    debug.addEventListener('change', () => {
+      this.store.update((s) => ({ ...s, debugInfo: debug.checked }));
+    });
     this.refreshers.push(() => {
       scale.value = String(this.store.value.uiScale);
       letters.checked = letterIcons();
+      debug.checked = this.store.value.debugInfo;
     });
     return [
       heading('Interface'),
       row('UI scale', scale),
       row('Lettered item icons (FE, CU, ...) instead of pictures', letters),
+      row('Debug info: ticks, UPS, the tile under the cursor', debug),
     ];
   }
 

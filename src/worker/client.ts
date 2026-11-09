@@ -52,6 +52,14 @@ export class SimClient {
   onSnapshot: ((snapshot: SnapshotMessage) => void) | null = null;
   /** The answer to a `save` given to the constructor: loaded, or why not (a new game runs). */
   onLoaded: ((msg: LoadedMessage) => void) | null = null;
+  /**
+   * The simulation stopped for good (D61): a tick threw (`crashed`), or the
+   * worker itself failed (it couldn't start, or an error escaped it). Called
+   * once, with what went wrong.
+   */
+  onCrash: ((message: string) => void) | null = null;
+  /** Why the simulation stopped, once it has (see `onCrash`). */
+  crashed: string | null = null;
 
   /**
    * `startingKit` replaces the default kit and `researched` technologies are
@@ -76,6 +84,10 @@ export class SimClient {
     };
     this.worker.onerror = (event) => {
       console.error('Simulation worker failed:', event.message);
+      this.crash(event.message || 'the simulation worker failed to run');
+    };
+    this.worker.onmessageerror = () => {
+      this.crash('a message from the simulation worker could not be read');
     };
     const buffer = save?.slice().buffer;
     this.worker.postMessage(
@@ -93,6 +105,7 @@ export class SimClient {
 
   /** Asks the worker for a save of the game as it is now (serialized and gzipped in the worker). */
   save(): Promise<WorkerSave> {
+    if (this.crashed !== null) return Promise.reject(new Error('the simulation stopped'));
     const id = this.nextSaveId++;
     return new Promise((resolve, reject) => {
       this.saves.set(id, { resolve, reject });
@@ -144,6 +157,20 @@ export class SimClient {
     this.worker.terminate();
   }
 
+  /** Dev and test builds only: makes the simulation's next tick throw (see `CrashForTestMessage`). */
+  crashForTest(): void {
+    this.send({ type: 'crashForTest' });
+  }
+
+  private crash(message: string): void {
+    if (this.crashed !== null) return;
+    this.crashed = message;
+    // Saves asked for before the crash will never be answered.
+    for (const pending of this.saves.values()) pending.reject(new Error('the simulation stopped'));
+    this.saves.clear();
+    this.onCrash?.(message);
+  }
+
   private send(msg: MainToWorker): void {
     this.worker.postMessage(msg);
   }
@@ -167,6 +194,9 @@ export class SimClient {
         break;
       case 'error':
         console.error('Simulation worker error:', msg.message);
+        break;
+      case 'crashed':
+        this.crash(msg.message);
         break;
       case 'saved': {
         const pending = this.saves.get(msg.id);
