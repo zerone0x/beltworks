@@ -31,6 +31,13 @@ export class LineLane extends Lane {
   /** The belt system's tick on which the lane last moved or handed an item on. */
   changedAt = -2;
 
+  /**
+   * The belt system's tick while this (splitter half) lane is yet to step
+   * on it: set as the tick's first pass goes by it, cleared when it steps.
+   * Lasts one tick at most, so it isn't saved.
+   */
+  due = -1;
+
   override save(w: SaveWriter): void {
     super.save(w);
     w.u53(this.changedAt + 2);
