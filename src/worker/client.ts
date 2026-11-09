@@ -55,12 +55,25 @@ export class SimClient {
   onSnapshot: ((snapshot: SnapshotMessage) => void) | null = null;
   /** The answer to a `save` given to the constructor: loaded, or why not (a new game runs). */
   onLoaded: ((msg: LoadedMessage) => void) | null = null;
+  private crashListener: ((message: string) => void) | null = null;
+  /** Whether a crash listener has been told about the crash. */
+  private crashReported = false;
+
   /**
    * The simulation stopped for good (D61): a tick threw (`crashed`), or the
    * worker itself failed (it couldn't start, or an error escaped it). Called
-   * once, with what went wrong.
+   * once, with what went wrong — also when the crash happened before the
+   * listener was set (e.g. while the renderer's code was still loading): it is
+   * called right away then.
    */
-  onCrash: ((message: string) => void) | null = null;
+  get onCrash(): ((message: string) => void) | null {
+    return this.crashListener;
+  }
+
+  set onCrash(listener: ((message: string) => void) | null) {
+    this.crashListener = listener;
+    this.reportCrash();
+  }
   /** Why the simulation stopped, once it has (see `onCrash`). */
   crashed: string | null = null;
 
@@ -171,7 +184,14 @@ export class SimClient {
     // Saves asked for before the crash will never be answered.
     for (const pending of this.saves.values()) pending.reject(new Error('the simulation stopped'));
     this.saves.clear();
-    this.onCrash?.(message);
+    this.reportCrash();
+  }
+
+  /** Tells the crash listener about the crash, once, as soon as there are both. */
+  private reportCrash(): void {
+    if (this.crashed === null || this.crashListener === null || this.crashReported) return;
+    this.crashReported = true;
+    this.crashListener(this.crashed);
   }
 
   private send(msg: MainToWorker): void {

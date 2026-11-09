@@ -369,6 +369,7 @@ async function main(): Promise<void> {
     );
   }
   // The simulation stopped for good (D61): say so and offer the newest save (or the title screen).
+  // A crash from before this point (the worker can fail while the renderer loads) is reported now.
   client.onCrash = (message) => {
     saves.stopAutosave();
     menu?.close();
@@ -443,7 +444,10 @@ async function main(): Promise<void> {
       menu?.notify(`Loaded “${start.slot.name}”.`);
     }
   };
-  if (!renderScene) saves.startAutosave(testHook?.autosaveTicksFromUrl(search));
+  // No autosaves for a simulation that already stopped (e.g. while the renderer loaded).
+  if (!renderScene && client.crashed === null) {
+    saves.startAutosave(testHook?.autosaveTicksFromUrl(search));
+  }
   client.onStats = (stats) => {
     overlay.update(stats);
   };
