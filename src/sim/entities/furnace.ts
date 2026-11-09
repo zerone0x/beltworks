@@ -69,6 +69,13 @@ export class FurnaceTable implements EntityTypeTable {
     return this.active.size;
   }
 
+  /** Entities stepped by the latest `update` (a diagnostic for the bench and debug overlay; not state). */
+  get steppedCount(): number {
+    return this.stepped;
+  }
+
+  private stepped = 0;
+
   add(id: number): void {
     const row = this.set.add(id);
     const min = row + 1;
@@ -198,6 +205,7 @@ export class FurnaceTable implements EntityTypeTable {
 
   /** The furnace system: steps every active furnace by one tick. */
   update(entities: Entities): void {
+    this.stepped = this.active.size;
     // Backwards, so a furnace leaving the list only moves one already stepped.
     for (let i = this.active.size - 1; i >= 0; i--) {
       const id = this.active.idAt(i);

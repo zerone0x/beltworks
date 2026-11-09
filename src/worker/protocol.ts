@@ -17,6 +17,7 @@
  * them back into whole sections (`SnapshotMessage`).
  */
 
+import type { Activity } from '../sim/activity';
 import type { CommandInput } from '../sim/commands';
 import type { SaveMeta } from '../sim/save/container';
 
@@ -298,6 +299,8 @@ export interface StatsMessage {
   tickMs: number;
   /** Ticks dropped (not run) since the previous stats message because the worker fell behind. */
   droppedTicks: number;
+  /** Per system: entities, awake and stepped in the latest tick (src/sim/activity.ts; the debug overlay shows them). */
+  activity: Activity;
   /**
    * When the worker sent it (its `performance.now()`, ms): UPS is measured on
    * the worker's clock, so a busy main thread that reads two messages in a

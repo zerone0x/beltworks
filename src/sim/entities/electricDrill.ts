@@ -27,6 +27,7 @@ import { PowerBudget } from '../power/consumer';
 import { MiningDrillTable } from './drill';
 import type { Entities } from './entities';
 import { MachineState } from './machine';
+import type { SparseSet } from './sparseSet';
 import type { EntityDetail, Slot } from './table';
 
 /** Slot indices of an electric mining drill, in the order `slots` lists them. */
@@ -99,6 +100,11 @@ export class ElectricDrillTable extends MiningDrillTable {
     return this.mayWork(row, id, entities)
       ? this.budget.grant(row, ELECTRIC_DRILL_ENERGY_PER_TICK)
       : 0;
+  }
+
+  /** Asleep, a drill asks for nothing. */
+  powerAwake(): SparseSet {
+    return this.active;
   }
 
   protected override beginStep(row: number): void {

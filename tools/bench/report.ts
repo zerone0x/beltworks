@@ -4,6 +4,7 @@
  * comparison against a baseline.
  */
 
+import { ACTIVITY_SYSTEMS } from '../../src/sim/activity';
 import type { SceneResult } from './measure';
 
 export const REPORT_VERSION = 1;
@@ -80,6 +81,23 @@ export function reportMarkdown(report: BenchReport): string {
         (k) => `${k} ${count(before[k] ?? 0)} → ${count(after[k] ?? 0)}`,
       );
       lines.push(`- \`${s.name}\`: ${parts.join(', ')}`);
+    }
+  }
+  const counted = report.scenes.filter((s) => s.activity.systems);
+  if (counted.length > 0) {
+    lines.push(
+      '',
+      'Active entities per system: entities (belts: lanes) / awake after a tick / stepped in a tick, means over the measured ticks:',
+      '',
+      `| System | ${counted.map((s) => s.name).join(' | ')} |`,
+      `|---|${counted.map(() => '---:').join('|')}|`,
+    );
+    for (const system of ACTIVITY_SYSTEMS) {
+      const cells = counted.map((s) => {
+        const a = s.activity.systems![system];
+        return `${count(a.entities)} / ${count(a.awake)} / ${count(a.stepped)}`;
+      });
+      lines.push(`| ${system} | ${cells.join(' | ')} |`);
     }
   }
   const profiled = report.scenes.filter((s) => s.profile);

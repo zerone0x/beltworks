@@ -25,6 +25,7 @@ import type { Direction } from './direction';
 import type { Entities } from './entities';
 import type { MachineState } from './machine';
 import type { SaveReader, SaveWriter } from '../save/codec';
+import type { SparseSet } from './sparseSet';
 
 /** One item slot: item id (0 for an empty slot) and units. */
 export interface Slot {
@@ -116,6 +117,9 @@ export interface EntityTypeTable {
   /**
    * Entity `id` of this type subscribed to an entity that changed (see
    * src/sim/entities/wake.ts): put it back on the system's active list.
+   * Nothing more: it must not change subscriptions (`notify` walks the
+   * subscriber list without copying it) or step the entity (the belt step
+   * relies on waking twice being the same as waking once).
    */
   wake?(id: number, entities: Entities): void;
 
@@ -209,7 +213,8 @@ export interface EntityTypeTable {
   // electric consumer, one implementing `powerMaxOutput` an electric
   // producer; either way its entities join the network of a pole whose
   // supply area covers them. The power system calls these once per tick per
-  // connected entity, before the drills, belts, inserters and machines run.
+  // connected entity (consumers with `powerAwake`: per awake entity), before
+  // the drills, belts, inserters and machines run.
 
   /**
    * Called once per tick on every table that has it, in type id order, at
@@ -226,6 +231,16 @@ export interface EntityTypeTable {
    * satisfaction back (`PowerGrid.satisfaction`) when its own system runs.
    */
   powerDemand?(id: number, entities: Entities): number;
+
+  /**
+   * Consumers: the entities whose `powerDemand` may change from one tick to
+   * the next (the system's active list). An entity outside it must report
+   * the same demand on every tick it stays outside, with no effect, so the
+   * power system asks it once after it leaves and then not again until it
+   * is back (D62). Without this hook every connected entity is asked every
+   * tick.
+   */
+  powerAwake?(): SparseSet;
 
   /** Most joules producer `id` can deliver this tick (a non-negative integer). */
   powerMaxOutput?(id: number, entities: Entities): number;

@@ -216,6 +216,13 @@ export abstract class InserterTableBase implements EntityTypeTable {
     return this.active.size;
   }
 
+  /** Entities stepped by the latest `update` (a diagnostic for the bench and debug overlay; not state). */
+  get steppedCount(): number {
+    return this.stepped;
+  }
+
+  private stepped = 0;
+
   /** New inserters start at the pickup end, on the active list; their first step finds their state. */
   add(id: number): void {
     const row = this.set.add(id);
@@ -313,6 +320,7 @@ export abstract class InserterTableBase implements EntityTypeTable {
 
   /** The inserter system: steps every active inserter of this type by one tick. */
   update(entities: Entities): void {
+    this.stepped = this.active.size;
     // Backwards, so an inserter leaving the list only moves one already stepped
     // (inserters woken during the loop join at the end and wait for the next tick).
     for (let i = this.active.size - 1; i >= 0; i--) {

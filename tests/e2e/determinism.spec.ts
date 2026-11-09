@@ -31,4 +31,6 @@ test('the worker runs the simulation at about 60 UPS and the overlay shows it', 
   const tickB = await page.evaluate(() => window.__beltworks!.latestTick());
   expect(tickB).toBeGreaterThan(tickA);
   await expect(overlay).toContainText(/tick \d+ \| UPS \d+\.\d \| tick \d+\.\d{3} ms/);
+  // What each system stepped in the latest tick (#73); a new game has no entities yet.
+  await expect(overlay.locator('.activity')).toHaveText(/^stepped /);
 });

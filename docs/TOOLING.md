@@ -127,6 +127,8 @@ Other options: `--warmup <ticks>`, `--ticks <ticks>`, `--runs <n>`, `--warmup-ru
 
 **Per-system timings** (`--profile`, `tools/bench/profile.ts`): after the measured runs, one more run builds the scene, warms it up the same way, and runs the measured ticks through `profiledStep`, which does what `Sim.step()` does but runs the systems itself and times each one with `performance.now()`. It lives in the benchmark only, so the game pays nothing for it. Three systems are split finer: drills (burner, electric), machines (furnaces, assembling machines, labs) and players (movement and hand-mining, hand-crafting). The report gets a table of the mean time per tick and share of each stage; the stage times include the timer calls (a dozen per tick, well under a microsecond), which matters for the microsecond-scale 1k and power scenes only, which is why the headline numbers come from the unprofiled runs. The profiled run must end in the same state hash as the measured ones, and the tests check that profiled ticks match `Sim.step()` and that `SYSTEMS` (src/sim/tick.ts) still has the systems the profiler knows: change the tick order and update `STAGES` with it.
 
+**Active entities per system** (#73): after every measured tick (outside the timed window, without allocating) each run reads the systems' activity counters (`src/sim/activity.ts`; docs/ARCHITECTURE.md, "Machine sleep"), and the report's `activity.systems` (and a Markdown table) gives per system its entities (belts: lanes; power: electric entities) and the mean awake after a tick and stepped in a tick (power: asked for their demand or output). A system whose `stepped` approaches `entities` while its machines wait is paying for idle entities. The debug overlay shows the same counts for the latest tick.
+
 **Scenes** (`tools/bench/scenes/`):
 
 | Scene | Contents | Target mean |
@@ -167,7 +169,7 @@ Steady state: the loops keep their items (the only consumers, the assembling mac
 
 **Baseline:** `tools/bench/baseline.json` (quick scenes) and `tools/bench/baseline-nightly.json` (heavy scenes) are reports as `--json` writes them, recorded on GitHub's `ubuntu-latest` runners (local machines are not comparable). To refresh one after an intended change (a new scene, a scene change, a deliberate speed-up or slowdown), download `result.json` from the `bench-results` artifact of the PR's bench run (for the heavy scenes: dispatch the workflow on the PR's branch and use `bench-results-nightly`), copy it over the baseline, and commit it in the same PR. A tick of the 1k scene takes a few microseconds, so expect run-to-run noise on shared runners: a single warning is a reason to look, not proof of a regression. The `ubuntu-latest` pool also mixes CPU models (e.g. AMD EPYC 7763 and 9V74), which alone moved the 1k mean by about 40% on unchanged code; the comparison says so when the run's CPU differs from the baseline's.
 
-**Results** (the committed baselines: the CI `workflow_dispatch` run of PR #80, Node 22 on 2-CPU `ubuntu-latest` runners, AMD EPYC 9V74 for the heavy scenes and 7763 for the quick ones):
+**Results before #73** (the baselines then: the CI `workflow_dispatch` run of PR #80, Node 22 on 2-CPU `ubuntu-latest` runners, AMD EPYC 9V74 for the heavy scenes and 7763 for the quick ones; the committed baselines are now those of #73, below):
 
 | Scene | Entities | Items on belts (end of run) | Mean | p99 | Max | Target |
 |---|---:|---:|---:|---:|---:|---|
@@ -195,3 +197,30 @@ Both large scenes meet their targets by a wide margin on CI hardware; a 50k tick
 - **Power** (9–13%, and 43% of the small power scene): the networks are solved every tick, even though nothing in them changes during the measured ticks.
 
 These are the starting points for #73 (sleep/wake, incremental power solve), #75 (snapshot cost on the 10k scene) and #76 (WASM looks unnecessary for these targets on the current numbers).
+
+**Results after #73** (the committed baselines: the CI `workflow_dispatch` run of #73's branch, Node 22 on `ubuntu-latest`, AMD EPYC 9V74 for the heavy scenes and 7763 for the quick ones; the 10k and 50k scenes end in other states than before, since #73 fixed where inserters drop on a loop of one line, D62):
+
+| Scene | Entities | Items on belts (end of run) | Mean | p99 | Max | Target |
+|---|---:|---:|---:|---:|---:|---|
+| `1k` | 1 000 | 432 | 0.012 ms | 0.033 ms | 0.40 ms | < 1 ms, met |
+| `power` | 959 | 0 | 0.039 ms | 0.110 ms | 0.39 ms | < 1 ms, met |
+| `m3` | 1 170 | 0 | 0.023 ms | 0.067 ms | 0.38 ms | < 1 ms, met |
+| `10k` | 10 037 | 50 262 | 0.40 ms | 0.67 ms | 1.25 ms | < 8 ms, met |
+| `50k` | 49 984 | 260 467 | 2.55 ms | 3.16 ms | 6.90 ms | < 16 ms, met |
+
+Per-system time per tick (`--profile`, ms and share) and active entities per system (entities / awake / stepped per tick, means):
+
+| System | `10k` time | `10k` entities | `50k` time | `50k` entities |
+|---|---:|---:|---:|---:|
+| power | 0.018 (4.5%) | 897 / 239 / 239 | 0.089 (3.5%) | 4 287 / 1 074 / 1 074 |
+| drills | 0.002 (0.4%) | 36 / 36 / 36 | 0.003 (0.1%) | 54 / 43 / 43 |
+| belts | 0.184 (45%) | 1 008 / 776 / 776 | 1.172 (46%) | 5 138 / 4 011 / 4 011 |
+| inserters | 0.191 (47%) | 876 / 44 / 466 | 1.246 (49%) | 4 164 / 191 / 2 366 |
+| furnaces, assemblers, labs | 0.009 (2.2%) | 152 / 137 / 137 | 0.032 (1.2%) | 604 / 580 / 580 |
+| total | 0.406 | | 2.548 | |
+
+Measured against the code before #73 in alternating local runs on one machine (Node 22, a shared 4-core AMD EPYC 9475F; ratios, since the machine is shared), the mean tick time went to 0.74× in 10k, about 0.8× in 50k and 0.54× in m3, with 1k and power unchanged within noise. What changed and what is left:
+
+- **Power** (now 4–5%): only producers and awake consumers are asked (D62), a quarter of the electric entities in both large scenes; on the small power scene, where nearly everything is awake, it asks everyone as before.
+- **Belts**: the loops still move every tick, so their lanes stay awake; that is real work. Each lane's queries are now logarithmic and a line notifies a stretch once per step.
+- **Inserters**: most wait asleep (44 of 876 awake after a tick in 10k), but about half are woken each tick by items moving past the tile they wait on, and look again (now a binary search). Not waking them where they would fail would change the order of their active lists, which the state hash covers, so it is left as is (D62); with every target met by a wide margin, it isn't worth a behaviour change.

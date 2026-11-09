@@ -130,6 +130,27 @@ export class PowerGrid implements EntityTypeTable {
   private memDrawn = new Uint32Array(0);
   private netsDirty = false;
 
+  // What the incremental solve works from (`update`, D62): derived from the
+  // rows above and the tables' awake lists, rebuilt by `pollAll` whenever
+  // `solveFull` is set (also after loading), so none of it is saved.
+  private solveFull = true;
+  /** Per network row: the sum of its members' `memDemand`, unsaturated (exact below 2^53). */
+  private netDemandSum = new Float64Array(0);
+  /** Member rows asked every tick: producers, and consumers without `powerAwake`. */
+  private readonly everyRows: number[] = [];
+  /** Producer rows, in row order (the order the load is shared out in). */
+  private readonly producerRows: number[] = [];
+  /** Consumer tables with `powerAwake`, in the order their members first appear. */
+  private readonly awakeTables: EntityTypeTable[] = [];
+  /** Consumers awake at the latest poll, and a spare list to swap in. */
+  private awake: number[] = [];
+  private awakeNext: number[] = [];
+  /** Per member row: the poll it was last asked in, so no row is asked twice in one. */
+  private pollStamp = new Uint32Array(0);
+  private pollTick = 0;
+  /** Members asked by the latest `update` (a diagnostic). */
+  private polled = 0;
+
   private readonly tables: (EntityTypeTable | null | undefined)[] = [];
 
   /** Number of poles. */
@@ -170,6 +191,7 @@ export class PowerGrid implements EntityTypeTable {
       this.rootNet[root] = this.addNetwork(1);
     }
     this.netsDirty = true;
+    this.solveFull = true;
     // Entities with no pole yet get this one; the rest keep theirs (lower ids).
     for (const m of this.membersAround(id, entities)) {
       const i = this.members.indexOf(m);
@@ -195,6 +217,7 @@ export class PowerGrid implements EntityTypeTable {
     this.removePoleRow(id);
     this.rebuildNetwork(net, neighbours);
     this.netsDirty = true;
+    this.solveFull = true;
     for (const m of around) {
       const i = this.members.indexOf(m);
       if (this.memPole[i] === id) this.memPole[i] = this.coveringPole(m, entities);
@@ -214,6 +237,7 @@ export class PowerGrid implements EntityTypeTable {
     this.memType[i] = entities.store.type(id);
     this.memPole[i] = this.coveringPole(id, entities);
     this.memNet[i] = this.memPole[i] !== 0 ? this.networkOfPole(this.memPole[i]) : 0;
+    this.solveFull = true;
   }
 
   /** A turned entity may cover other tiles (non-square footprints). */
@@ -222,11 +246,13 @@ export class PowerGrid implements EntityTypeTable {
     if (i < 0) return;
     this.memPole[i] = this.coveringPole(id, entities);
     this.memNet[i] = this.memPole[i] !== 0 ? this.networkOfPole(this.memPole[i]) : 0;
+    this.solveFull = true;
   }
 
   entityRemoved(id: number): void {
     const i = this.members.remove(id);
     if (i < 0) return;
+    this.solveFull = true;
     const last = this.members.size;
     const columns = [
       this.memType,
@@ -343,42 +369,39 @@ export class PowerGrid implements EntityTypeTable {
 
   // The power system.
 
-  /** Solves every network for this tick and tells the producers what to deliver. */
+  /**
+   * Solves every network for this tick and tells the producers what to
+   * deliver.
+   *
+   * Incremental (D62): every producer is asked every tick (a boiler's
+   * supply changes as it burns), but a consumer only while it is awake
+   * (`powerAwake`) and once more on the first tick after it fell asleep;
+   * asleep, its demand can't change (0, or an inserter's idle drain), so
+   * the last answer stands. The networks' demand is kept as a running sum
+   * of those answers. Placing, rotating or removing an electric entity or a
+   * pole, and loading, ask everyone again (`pollAll`). The figures are the
+   * same as asking everyone every tick.
+   */
   update(entities: Entities): void {
+    if (this.netsDirty) this.solveFull = true;
     this.refreshNetworks();
     for (const table of entities.tables) table.powerPrepare?.(entities);
     const nNets = this.nets.size;
-    this.netDemand.fill(0, 0, nNets);
-    this.netSupply.fill(0, 0, nNets);
+    if (this.solveFull || this.pollTick >= U32_MAX) this.pollAll(entities);
+    else this.pollChanged(entities);
     this.netCum.fill(0, 0, nNets);
-    const n = this.members.size;
-    // Pass 1: demand and available supply per network.
-    for (let i = 0; i < n; i++) {
-      const id = this.members.idAt(i);
-      const r = this.nets.indexOf(this.memNet[i]!);
-      if (r < 0) {
-        this.memDemand[i] = 0;
-        this.memOutput[i] = 0;
-        continue;
-      }
-      const table = this.tableOf(this.memType[i]!, entities)!;
-      const demand = table.powerDemand ? joules(table.powerDemand(id, entities)) : 0;
-      const output = table.powerMaxOutput ? joules(table.powerMaxOutput(id, entities)) : 0;
-      this.memDemand[i] = demand;
-      this.memOutput[i] = output;
-      this.netDemand[r] = addJoules(this.netDemand[r]!, demand);
-      this.netSupply[r] = addJoules(this.netSupply[r]!, output);
-    }
     for (let r = 0; r < nNets; r++) {
-      const demand = this.netDemand[r]!;
+      const demand = Math.min(U32_MAX, this.netDemandSum[r]!);
       const supply = this.netSupply[r]!;
+      this.netDemand[r] = demand;
       this.netSat[r] = satisfactionFor(demand, supply);
       this.netLoad[r] = Math.min(demand, supply);
     }
-    // Pass 2: each producer's share of its network's load.
-    for (let i = 0; i < n; i++) {
+    // Pass 2: each producer's share of its network's load, in row order.
+    const producers = this.producerRows;
+    for (let k = 0; k < producers.length; k++) {
+      const i = producers[k]!;
       const table = this.tableOf(this.memType[i]!, entities)!;
-      if (!table.powerMaxOutput) continue;
       const r = this.nets.indexOf(this.memNet[i]!);
       let drawn = 0;
       if (r >= 0) {
@@ -390,6 +413,157 @@ export class PowerGrid implements EntityTypeTable {
       this.memDrawn[i] = drawn;
       table.powerDraw?.(this.members.idAt(i), drawn, entities);
     }
+  }
+
+  /**
+   * Makes the next `update` ask every electric entity again, as after a
+   * change to the grid. Changes nothing the solve computes (tests use it to
+   * check that the incremental solve matches a full one).
+   */
+  pollAllNextTick(): void {
+    this.solveFull = true;
+  }
+
+  /** Electric entities asked for their demand or output by the latest `update` (a diagnostic, not state). */
+  get polledMembers(): number {
+    return this.polled;
+  }
+
+  /**
+   * Asks every electric entity for its demand and output, and rebuilds what
+   * `pollChanged` works from: the running demand per network, the rows
+   * asked every tick, the producers in row order, the consumer tables with
+   * awake lists, and who is awake.
+   */
+  private pollAll(entities: Entities): void {
+    this.solveFull = false;
+    const nNets = this.nets.size;
+    if (this.netDemandSum.length < nNets)
+      this.netDemandSum = new Float64Array(this.netPoles.length);
+    const n = this.members.size;
+    this.pollStamp = growTo(this.pollStamp, n);
+    this.pollStamp.fill(0, 0, n);
+    this.pollTick = 0;
+    this.everyRows.length = 0;
+    this.producerRows.length = 0;
+    this.awakeTables.length = 0;
+    for (let i = 0; i < n; i++) {
+      const table = this.tableOf(this.memType[i]!, entities)!;
+      if (table.powerMaxOutput) this.producerRows.push(i);
+      if (table.powerMaxOutput || !table.powerAwake) this.everyRows.push(i);
+      else if (!this.awakeTables.includes(table)) this.awakeTables.push(table);
+    }
+    this.pollEveryone(entities);
+  }
+
+  /**
+   * Asks every electric entity for its demand and output and sums them per
+   * network afresh, then notes who is awake. What `pollAll` does once the
+   * lists are rebuilt, and what `pollChanged` falls back to when nearly
+   * everyone is awake anyway (cheaper than sorting out who isn't).
+   */
+  private pollEveryone(entities: Entities): void {
+    const nNets = this.nets.size;
+    this.netDemandSum.fill(0, 0, nNets);
+    this.netSupply.fill(0, 0, nNets);
+    const n = this.members.size;
+    for (let i = 0; i < n; i++) {
+      const table = this.tableOf(this.memType[i]!, entities)!;
+      const r = this.nets.indexOf(this.memNet[i]!);
+      if (r < 0) {
+        this.memDemand[i] = 0;
+        this.memOutput[i] = 0;
+        continue;
+      }
+      const id = this.members.idAt(i);
+      const demand = table.powerDemand ? joules(table.powerDemand(id, entities)) : 0;
+      const output = table.powerMaxOutput ? joules(table.powerMaxOutput(id, entities)) : 0;
+      this.memDemand[i] = demand;
+      this.memOutput[i] = output;
+      this.netDemandSum[r] = this.netDemandSum[r]! + demand;
+      this.netSupply[r] = addJoules(this.netSupply[r]!, output);
+    }
+    const awake = this.awake;
+    awake.length = 0;
+    for (const table of this.awakeTables) {
+      const set = table.powerAwake!();
+      for (let k = 0; k < set.size; k++) awake.push(set.idAt(k));
+    }
+    this.polled = n;
+  }
+
+  /**
+   * Asks the rows asked every tick (producers) for their demand and output,
+   * and the awake consumers and those awake on the last tick for their
+   * demand; every other consumer's demand stands (see `update`).
+   */
+  private pollChanged(entities: Entities): void {
+    const tick = ++this.pollTick;
+    let polled = 0;
+    const before = this.awake;
+    let awakeNow = 0;
+    for (const table of this.awakeTables) awakeNow += table.powerAwake!().size;
+    if (before.length + awakeNow >= this.members.size) {
+      this.pollEveryone(entities);
+      return;
+    }
+    // Awake on the last tick: asked once more, also if asleep now.
+    for (let k = 0; k < before.length; k++) {
+      const i = this.members.indexOf(before[k]!);
+      if (i >= 0 && this.pollStamp[i] !== tick) {
+        this.pollStamp[i] = tick;
+        this.pollDemand(i, entities);
+        polled++;
+      }
+    }
+    const now = this.awakeNext;
+    now.length = 0;
+    for (const table of this.awakeTables) {
+      const set = table.powerAwake!();
+      for (let k = 0; k < set.size; k++) {
+        const id = set.idAt(k);
+        now.push(id);
+        const i = this.members.indexOf(id);
+        if (i >= 0 && this.pollStamp[i] !== tick) {
+          this.pollStamp[i] = tick;
+          this.pollDemand(i, entities);
+          polled++;
+        }
+      }
+    }
+    this.awakeNext = before;
+    this.awake = now;
+    this.netSupply.fill(0, 0, this.nets.size);
+    const every = this.everyRows;
+    for (let k = 0; k < every.length; k++) {
+      const i = every[k]!;
+      const r = this.pollDemand(i, entities);
+      if (r < 0) continue;
+      const table = this.tableOf(this.memType[i]!, entities)!;
+      const output = table.powerMaxOutput
+        ? joules(table.powerMaxOutput(this.members.idAt(i), entities))
+        : 0;
+      this.memOutput[i] = output;
+      this.netSupply[r] = addJoules(this.netSupply[r]!, output);
+    }
+    this.polled = polled + every.length;
+  }
+
+  /**
+   * Asks member row `i` for its demand and updates its network's running
+   * sum; returns the network's row, or -1 when it isn't connected (its
+   * demand and output stay 0, as `pollAll` left them).
+   */
+  private pollDemand(i: number, entities: Entities): number {
+    const r = this.nets.indexOf(this.memNet[i]!);
+    if (r < 0) return r;
+    const table = this.tableOf(this.memType[i]!, entities)!;
+    const demand = table.powerDemand
+      ? joules(table.powerDemand(this.members.idAt(i), entities))
+      : 0;
+    this.netDemandSum[r] = this.netDemandSum[r]! + demand - this.memDemand[i]!;
+    this.memDemand[i] = demand;
+    return r;
   }
 
   hashInto(h: number): number {
@@ -460,6 +634,8 @@ export class PowerGrid implements EntityTypeTable {
     this.netLoad = r.column(this.netLoad, nNets);
     this.netCum = growTo(this.netCum, nNets);
     this.netsDirty = r.bool();
+    // The incremental solve's lists are derived: rebuilt on the next tick.
+    this.solveFull = true;
     r.sparseSet(this.members);
     const n = this.members.size;
     this.memType = r.column(this.memType, n);

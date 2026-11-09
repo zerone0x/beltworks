@@ -44,6 +44,7 @@ import { PowerBudget } from '../power/consumer';
 import type { Entities } from './entities';
 import { InserterState, InserterTableBase } from './inserter';
 import type { MachineState } from './machine';
+import type { SparseSet } from './sparseSet';
 import type { EntityDetail, Slot } from './table';
 
 /** Slot indices of an electric inserter, in the order `slots` lists them. */
@@ -138,6 +139,11 @@ export class ElectricInserterTable extends InserterTableBase {
   powerDemand(id: number): number {
     const row = this.row(id);
     return this.isActive(id) ? this.budget.grant(row, this.energyPerTick) : this.drainPerTick;
+  }
+
+  /** Asleep, an inserter always asks for its idle drain (if connected). */
+  powerAwake(): SparseSet {
+    return this.active;
   }
 
   protected override beginStep(row: number): void {

@@ -2,6 +2,16 @@
 
 What changed in Beltworks, newest first. Milestones M0–M4 were development builds without version numbers; the first versioned release is the v1 public beta. Numbers in parentheses are pull requests or issues on GitHub. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [semantic versioning](https://semver.org/) from v1 on: a save made by one version loads in every later one (saves are migrated, D46).
 
+## Unreleased
+
+### Changed
+
+- Idle machines cost (almost) nothing per tick: an incremental power solve, logarithmic belt lane queries and per-system activity counters in the benchmarks and the debug overlay (#73, D62).
+
+### Fixed
+
+- An inserter dropping onto a belt loop made of a single line keeps the item spacing across the loop's seam (#73).
+
 ## 1.0.0-beta.1 — M5, polish: public beta
 
 ### Added

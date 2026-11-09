@@ -108,6 +108,13 @@ export class LabTable implements EntityTypeTable {
     return this.active.size;
   }
 
+  /** Entities stepped by the latest `update` (a diagnostic for the bench and debug overlay; not state). */
+  get steppedCount(): number {
+    return this.stepped;
+  }
+
+  private stepped = 0;
+
   /** Units of technology `tech` labs are researching right now. */
   unitsInProgress(tech: number): number {
     return technologyPrototype(tech) ? this.inProgress[tech]! : 0;
@@ -255,6 +262,11 @@ export class LabTable implements EntityTypeTable {
     return this.mayWork(row, id) ? this.budget.grant(row, this.energyPerTick) : 0;
   }
 
+  /** Asleep, a lab asks for nothing. */
+  powerAwake(): SparseSet {
+    return this.active;
+  }
+
   /**
    * Puts every lab back on the active list: the research changed (a new
    * current research, a technology completed, a unit freed), which can let
@@ -269,6 +281,7 @@ export class LabTable implements EntityTypeTable {
 
   /** The lab system: steps every active lab by one tick. */
   update(entities: Entities): void {
+    this.stepped = this.active.size;
     // Backwards, so a lab leaving the list only moves one already stepped.
     for (let i = this.active.size - 1; i >= 0; i--) {
       const id = this.active.idAt(i);

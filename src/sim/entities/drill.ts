@@ -166,6 +166,13 @@ export abstract class MiningDrillTable implements EntityTypeTable {
     return this.active.size;
   }
 
+  /** Entities stepped by the latest `update` (a diagnostic for the bench and debug overlay; not state). */
+  get steppedCount(): number {
+    return this.stepped;
+  }
+
+  private stepped = 0;
+
   /** New drills start on the active list; their first step finds their state. */
   add(id: number): void {
     const row = this.set.add(id);
@@ -244,6 +251,7 @@ export abstract class MiningDrillTable implements EntityTypeTable {
 
   /** The drill system: steps every active drill of this type by one tick. */
   update(entities: Entities, world: World): void {
+    this.stepped = this.active.size;
     // Backwards, so a drill leaving the list only moves one already stepped
     // (drills woken during the loop join at the end and wait for the next tick).
     for (let i = this.active.size - 1; i >= 0; i--) {
