@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Camera, MAX_ZOOM, MIN_ZOOM, TILE_PX } from '../../src/render/camera';
+import { MAC_NOTCH_PX, wheelZoomFactor } from '../../src/render/cameraInput';
 
 function camera(width = 800, height = 600): Camera {
   const c = new Camera();
@@ -83,5 +84,34 @@ describe('Camera', () => {
     const v = c.visibleTiles();
     expect(v.w * TILE_PX * MIN_ZOOM).toBeGreaterThanOrEqual(800);
     expect(v.h * TILE_PX * MIN_ZOOM).toBeGreaterThanOrEqual(600);
+  });
+});
+
+describe('wheelZoomFactor (#119)', () => {
+  const wheel = (deltaY: number, deltaMode = 0, ctrlKey = false) =>
+    wheelZoomFactor({ deltaY, deltaMode, ctrlKey });
+  const NOTCH = Math.exp(0.15);
+
+  it('zooms one step per mouse-wheel notch however the platform reports it', () => {
+    expect(wheel(-100)).toBeCloseTo(NOTCH); // Chromium on Windows and Linux
+    expect(wheel(-3, 1)).toBeCloseTo(Math.exp(0.1485)); // Firefox: 3 lines
+    expect(wheel(-MAC_NOTCH_PX)).toBeCloseTo(NOTCH); // macOS, one notch
+    expect(wheel(3 * MAC_NOTCH_PX)).toBeCloseTo(NOTCH ** -3); // macOS, a fast spin
+    expect(wheel(0)).toBe(1);
+  });
+
+  it('zooms with the distance of a trackpad scroll', () => {
+    expect(wheel(-4)).toBeCloseTo(Math.exp(0.006));
+    expect(wheel(10)).toBeLessThan(1);
+  });
+
+  it('follows the fingers in a pinch (ctrl+wheel), a ctrl+notch zooming by one step', () => {
+    // Browsers send about -100 × ln(scale): a pinch to twice the size zooms twice as far in.
+    let factor = 1;
+    for (let i = 0; i < 10; i++) factor *= wheel(-10 * Math.log(2), 0, true);
+    expect(factor).toBeCloseTo(2);
+    expect(wheel(-100, 0, true)).toBeCloseTo(Math.exp(0.25));
+    expect(wheel(-MAC_NOTCH_PX, 0, true)).toBeCloseTo(Math.exp(0.25));
+    expect(wheel(100, 0, true)).toBeCloseTo(Math.exp(-0.25));
   });
 });

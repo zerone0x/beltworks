@@ -2,7 +2,9 @@
  * Key bindings (D50): every keyboard action of the game has one key, named
  * by its `KeyboardEvent.code` (so a binding stays in the same place on every
  * layout), rebindable in the settings panel. `Escape` (windows and the game
- * menu) and the mouse buttons are fixed.
+ * menu) and the mouse buttons are fixed; so are the numpad's `+` and `-`,
+ * which zoom like the zoom actions' keys unless an action is bound to them
+ * (`zoomStepFor` in src/render/cameraInput.ts).
  *
  * The bindings in use are module state, like the lettered-icons option
  * (src/render/itemIcons.ts): the input handlers ask `actionFor(code)` on
@@ -44,6 +46,8 @@ export const ACTIONS = [
   { id: 'panLeft', label: 'Pan left', key: 'ArrowLeft' },
   { id: 'panDown', label: 'Pan down', key: 'ArrowDown' },
   { id: 'panRight', label: 'Pan right', key: 'ArrowRight' },
+  { id: 'zoomIn', label: 'Zoom in (also numpad +)', key: 'Equal' },
+  { id: 'zoomOut', label: 'Zoom out (also numpad -)', key: 'Minus' },
   { id: 'hotbar1', label: 'Hotbar slot 1', key: 'Digit1' },
   { id: 'hotbar2', label: 'Hotbar slot 2', key: 'Digit2' },
   { id: 'hotbar3', label: 'Hotbar slot 3', key: 'Digit3' },
