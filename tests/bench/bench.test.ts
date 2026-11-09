@@ -264,6 +264,16 @@ describe('1k scene', () => {
     expect(result.meanMs).toBeGreaterThan(0);
     expect(result.hash).toMatch(/^0x[0-9a-f]{8}$/);
   });
+
+  // The end state `npm run bench -- 1k` reports (and tools/bench/baseline.json
+  // records), pinned so that a change to what the belts do, such as a lane
+  // notification wrongly dropped as a duplicate (#73), fails the tests and
+  // not only the bench job. About a second on its own.
+  it('ends a default bench run in the recorded state', () => {
+    const result = measureScene(factory1k, { runs: 1, warmupRuns: 0 });
+    expect(result.warmupTicks + result.measuredTicks).toBe(600 + 3600);
+    expect(result.hash).toBe('0x29b9bf06');
+  }, 30_000);
 });
 
 describe('power scene', () => {
