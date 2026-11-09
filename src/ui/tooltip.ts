@@ -9,8 +9,9 @@
  * `data-tip` attribute (`item:<id>`, `recipe:<id>` or `entity:<type id>`,
  * with `@<id>` after a recipe for the machine making it, e.g. an assembler's
  * recipe picker; slots set it from the item they show, see inventory.ts), and main.ts
- * shows entity tooltips for the world (`showAt`) when the pointer rests on
- * an entity.
+ * shows world tooltips (`showAt`) when the pointer rests on an entity or a
+ * resource tile (`resourceTooltip`: the ore left there), or on a spot with a
+ * mining drill's ghost (`drillAreaTooltip`: the ore in the area it would mine).
  */
 
 import {
@@ -21,7 +22,8 @@ import {
   isInserterPrototype,
   type EntityPrototype,
 } from '../data/entities';
-import { itemPrototype } from '../data/items';
+import { itemPrototype, minedItem } from '../data/items';
+import { ORE_IDS } from '../data/resources';
 import {
   RECIPE_IDS,
   RECIPES,
@@ -31,6 +33,7 @@ import {
   type Recipe,
   type RecipeStack,
 } from '../data/recipes';
+import { groupDigits } from './debugOverlay';
 
 /** What a tooltip shows: a title line and detail lines under it. */
 export interface TooltipContent {
@@ -169,6 +172,72 @@ export function entityTooltip(type: number, recipe = 0): TooltipContent | null {
     lines.push(`Making ${made}: ${formatSeconds(craftingTicks(set.ticks, proto.craftingSpeed))}`);
   }
   return { title: proto.label, lines };
+}
+
+/** The name of resource `resource` (its mined item's), e.g. `Iron ore`. */
+function resourceLabel(resource: number): string {
+  return itemPrototype(minedItem(resource) ?? 0)?.label ?? `resource#${String(resource)}`;
+}
+
+/**
+ * The tooltip of a resource tile: the resource and how much is left on it
+ * (`amount` units), or `null` for a tile without one.
+ */
+export function resourceTooltip(resource: number, amount: number): TooltipContent | null {
+  if (resource === 0) return null;
+  return { title: resourceLabel(resource), lines: [`${groupDigits(amount)} left`] };
+}
+
+/** What a tile holds, as far as the main thread knows (`null` before its chunk arrived). */
+export type ResourceAt = (x: number, y: number) => { resource: number; amount: number } | null;
+
+/**
+ * The ore in the square a mining drill `proto` with its top-left tile at
+ * `(x, y)` would mine (`miningArea` centered on it, else its footprint, as
+ * the simulation does): the units left per resource id, in id order, only
+ * those present. Tiles not received yet count as empty.
+ */
+export function drillAreaOre(
+  proto: EntityPrototype,
+  x: number,
+  y: number,
+  resourceAt: ResourceAt,
+): { resource: number; amount: number }[] {
+  const size = proto.miningArea ?? proto.width;
+  const offset = (proto.width - size) >> 1;
+  const totals = new Map<number, number>();
+  for (let ty = y + offset; ty < y + offset + size; ty++) {
+    for (let tx = x + offset; tx < x + offset + size; tx++) {
+      const tile = resourceAt(tx, ty);
+      if (tile && tile.resource !== 0 && tile.amount > 0) {
+        totals.set(tile.resource, (totals.get(tile.resource) ?? 0) + tile.amount);
+      }
+    }
+  }
+  return ORE_IDS.filter((id) => totals.has(id)).map((id) => ({
+    resource: id,
+    amount: totals.get(id)!,
+  }));
+}
+
+/**
+ * The tooltip of a mining drill's ghost: the ore in the area it would mine
+ * (`ore`, from `drillAreaOre`), or that there is none.
+ */
+export function drillAreaTooltip(
+  proto: EntityPrototype,
+  ore: readonly { resource: number; amount: number }[],
+): TooltipContent {
+  const size = proto.miningArea ?? proto.width;
+  const area = `${String(size)}×${String(size)}`;
+  if (ore.length === 0) return { title: proto.label, lines: [`No ore in its ${area} area`] };
+  return {
+    title: proto.label,
+    lines: [
+      `Ore in its ${area} area:`,
+      ...ore.map((o) => `${resourceLabel(o.resource)} ${groupDigits(o.amount)}`),
+    ],
+  };
 }
 
 /**

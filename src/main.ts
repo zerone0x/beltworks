@@ -40,7 +40,14 @@ import { HelpPanel } from './ui/help';
 import { actionFor } from './ui/keybindings';
 import { startStep } from './ui/onboarding';
 import { OnboardingPanel, loadStored } from './ui/onboardingPanel';
-import { Tooltips, entityTooltip } from './ui/tooltip';
+import {
+  Tooltips,
+  drillAreaOre,
+  drillAreaTooltip,
+  entityTooltip,
+  resourceTooltip,
+  type TooltipContent,
+} from './ui/tooltip';
 import {
   HOTBAR_SLOTS,
   Hotbar,
@@ -66,7 +73,7 @@ import { LOCAL_PLAYER_ID } from './worker/protocol';
 const BACKGROUND = 0x111418;
 /** Snapshots between two updates of the onboarding objectives. */
 const ONBOARDING_EVERY = 6;
-/** Milliseconds the pointer rests on an entity before its tooltip shows. */
+/** Milliseconds the pointer rests on an entity, a resource tile or a drill ghost's spot before its tooltip shows. */
 const WORLD_TOOLTIP_MS = 600;
 /**
  * The world seed of a new game that skips the title screen (test builds,
@@ -647,8 +654,11 @@ async function main(): Promise<void> {
   // one goes out on the first frame below.
   /** Snapshots since startup (the objectives update on every `ONBOARDING_EVERY`th). */
   let onboardingFrame = 0;
-  /** The entity the pointer rests on (0: none), and since when (for its tooltip). */
-  let restingOn = 0;
+  /**
+   * What the pointer rests on, for its tooltip (`''`: nothing with one): an
+   * entity, a resource tile or a drill ghost's spot, and since when.
+   */
+  let restingOn = '';
   let restingSince = 0;
   client.onSnapshot = (snapshot) => {
     view.applySnapshot(snapshot);
@@ -708,20 +718,51 @@ async function main(): Promise<void> {
     const hovered = view.hoveredTile();
     overlay.updateTile(hovered);
     audio.frame();
-    // An entity's tooltip once the pointer rests on it with nothing in hand.
+    // A world tooltip once the pointer rests on something: with nothing in
+    // hand an entity, else the resource tile (the ore left); with a mining
+    // drill in hand the ore in the area its ghost would mine.
     const pointer = view.input.pointer;
-    const entity =
-      pointer && hovered && buildInput.selection === null && !blueprintInput.active
-        ? view.entityIndex.at(hovered.x, hovered.y)
-        : null;
+    let resting = '';
+    let tip: (() => { key: string; content: TooltipContent | null }) | null = null;
+    if (pointer && hovered && !blueprintInput.active) {
+      const ghost = buildInput.ghost;
+      if (buildInput.selection === null) {
+        const entity = view.entityIndex.at(hovered.x, hovered.y);
+        const info = hovered.info;
+        if (entity) {
+          resting = `entity:${String(entity.id)}`;
+          tip = () => ({
+            key: `entity:${String(entity.id)}:${String(entity.recipe)}`,
+            content: entityTooltip(entity.type, entity.recipe),
+          });
+        } else if (info && info.resource !== 0) {
+          resting = `resource:${String(hovered.x)}:${String(hovered.y)}`;
+          tip = () => ({
+            key: `${resting}:${String(info.amount)}`,
+            content: resourceTooltip(info.resource, info.amount),
+          });
+        }
+      } else if (ghost && ghost.proto.miningTicks !== undefined) {
+        resting = `drill:${String(ghost.proto.id)}:${String(ghost.x)}:${String(ghost.y)}`;
+        tip = () => {
+          const ore = drillAreaOre(ghost.proto, ghost.x, ghost.y, (x, y) =>
+            view.terrain.tileAt(x, y),
+          );
+          return {
+            key: `${resting}:${ore.map((o) => `${String(o.resource)}=${String(o.amount)}`).join()}`,
+            content: drillAreaTooltip(ghost.proto, ore),
+          };
+        };
+      }
+    }
     const now = performance.now();
-    if ((entity?.id ?? 0) !== restingOn) {
-      restingOn = entity?.id ?? 0;
+    if (resting !== restingOn) {
+      restingOn = resting;
       restingSince = now;
       tooltips.showAt(null, '', 0, 0);
-    } else if (entity && pointer && now - restingSince >= WORLD_TOOLTIP_MS) {
-      const key = `entity:${String(entity.id)}:${String(entity.recipe)}`;
-      tooltips.showAt(entityTooltip(entity.type, entity.recipe), key, pointer.x, pointer.y);
+    } else if (tip && pointer && now - restingSince >= WORLD_TOOLTIP_MS) {
+      const { key, content } = tip();
+      tooltips.showAt(content, key, pointer.x, pointer.y);
     }
   });
 

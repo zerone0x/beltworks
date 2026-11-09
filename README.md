@@ -57,7 +57,7 @@ A new game starts between four ore patches (iron, copper, coal, stone) with a ki
 
 The **Getting started** panel in the bottom-left corner (above the controls hint) walks a new player through the first five minutes: mine stone, craft a furnace, place a drill on iron ore, lay a belt, place a furnace, feed it with an inserter, collect the plates with a second inserter and a chest, and fuel it all. Each objective is done when the game sees it done, not when you click anything; it names the keys to press (as bound), points the way to the ore patch it needs, and marks the hotbar slot or crafting recipe to use. **Skip** closes it for good; **Tutorial** in the game menu starts it again.
 
-**Tooltips**: hover an item (inventory, hotbar, an entity's window), a crafting recipe or the name of an entity window for its recipe, crafting time and, for a machine, its power use, size and speed. Resting the mouse on a placed entity shows its tooltip too.
+**Tooltips**: hover an item (inventory, hotbar, an entity's window), a crafting recipe or the name of an entity window for its recipe, crafting time and, for a machine, its power use, size and speed. Resting the mouse on a placed entity shows its tooltip too, on an ore tile how much ore is left there, and with a mining drill in hand how much ore its area holds.
 
 ![The title screen: world seed, New game, Load and Settings](docs/screenshots/m5-title.png)
 

@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { MAX_ZOOM, MIN_ZOOM, TILE_PX } from '../../src/render/camera';
 import { DETAIL_FREE_MARGIN, FREE_MARGIN } from '../../src/render/terrainLayer';
 import { startingPatches } from '../../src/sim/world/generate';
-import { formatTile } from '../../src/ui/debugOverlay';
+import { formatTile, groupDigits } from '../../src/ui/debugOverlay';
+import { resourceTooltip } from '../../src/ui/tooltip';
 
 /** Seed used by src/main.ts. */
 const WORLD_SEED = 1;
@@ -198,6 +199,35 @@ test('zoomed in, detail textures follow the view and stay within their bounds', 
   await page.evaluate(() => window.__beltworks!.setCamera(0, 0, 1));
   await waitForTerrain(page);
   expect((await page.evaluate(() => window.__beltworks!.terrainStats())).detailSprites).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('resting the mouse on an ore tile shows the ore left there', async ({ page }, testInfo) => {
+  const errors = collectErrors(page);
+  await open(page);
+  const size = page.viewportSize()!;
+  const patch = startingPatches(WORLD_SEED)[0]!;
+  await page.evaluate(
+    ([x, y]) => window.__beltworks!.setCamera(x!, y!, 1),
+    [(patch.x + 0.5) * TILE_PX, (patch.y + 0.5) * TILE_PX],
+  );
+  await waitForTerrain(page);
+  await page.mouse.move(size.width / 2, size.height / 2);
+  const info = await page.evaluate(
+    ([x, y]) => window.__beltworks!.generatedTile(x!, y!),
+    [patch.x, patch.y],
+  );
+  const tooltip = page.locator('#tooltip');
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip.locator('.tooltip-title')).toHaveText(resourceTooltip(patch.ore, 1)!.title);
+  await expect(tooltip.locator('.tooltip-line')).toHaveText(`${groupDigits(info.amount)} left`);
+  const shot = testInfo.outputPath('resource-tooltip.png');
+  await page.screenshot({ path: shot });
+  await testInfo.attach('the tooltip of an ore tile', { path: shot, contentType: 'image/png' });
+
+  // Leaving the canvas hides it.
+  await page.dispatchEvent('#app > canvas', 'pointerleave');
+  await expect(tooltip).toBeHidden();
   expect(errors).toEqual([]);
 });
 
