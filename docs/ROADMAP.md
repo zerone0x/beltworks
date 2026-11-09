@@ -73,7 +73,7 @@ Met: `tests/e2e/science.spec.ts` starts from a test kit (assembling machines, a 
 ## M5 — Polish
 
 - [x] Save and load (IndexedDB), autosave, save-version migrations
-- [ ] Blueprints: box-select copy, paste, string import and export
+- [x] Blueprints: box-select copy, paste, string import and export, a library (D59)
 - [x] Minimap and map mode (#87)
 - [x] Sound effects and music (original, synthesized in code; D55)
 - [x] Onboarding for the first 5 minutes: title screen (seed, continue, load, settings), objectives, tooltips

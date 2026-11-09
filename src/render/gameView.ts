@@ -28,7 +28,7 @@ import { Camera, TILE_PX, type Point } from './camera';
 import { CameraInput } from './cameraInput';
 import { cullRect } from './cull';
 import { EntityIndex } from './entityIndex';
-import { EntityLayer, GhostLayer, type Ghost } from './entityLayer';
+import { EntityLayer, GhostLayer, type Ghost, type TileBoxLike } from './entityLayer';
 import { GeneratorLayer } from './generatorLayer';
 import { InserterLayer } from './inserterLayer';
 import { MapLayer, stepMapBlend, wantsMapMode } from './mapLayer';
@@ -264,6 +264,16 @@ export class GameView {
     const tile = this.hoveredTile();
     const hovered = tile && this.entityIndex.at(tile.x, tile.y);
     this.power.drawOverlay(powerFocus(ghost, hovered, this.power.data));
+  }
+
+  /**
+   * Shows a blueprint's ghosts (D59) in place of the single ghost preview, or
+   * the box of a selection being dragged; hides both for `null`.
+   */
+  drawBlueprint(ghosts: readonly Ghost[] | null, box: TileBoxLike | null): void {
+    this.belts.drawOverlay(null);
+    this.ghost.draw(ghosts, box);
+    this.power.drawOverlay(null);
   }
 
   /** Locks the camera onto the local player again. */

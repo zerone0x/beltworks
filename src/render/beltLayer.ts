@@ -412,6 +412,11 @@ export class BeltLayer {
     return this.undergrounds.get(`${String(x)},${String(y)}`) ?? null;
   };
 
+  /** The underground belt on tile `(x, y)` in the latest snapshot (`null` for none), as the pairing sees it. */
+  undergroundAt(x: number, y: number): UndergroundInfo | null {
+    return this.lookup(x, y);
+  }
+
   /**
    * What an underground belt of `proto` placed facing `dir` on `(x, y)`
    * would be, judged from the latest snapshot: an entrance or an exit, and

@@ -7,6 +7,7 @@ export default defineConfig({
       'tests/worker/**/*.test.ts',
       'tests/render/**/*.test.ts',
       'tests/audio/**/*.test.ts',
+      'tests/blueprint/**/*.test.ts',
     ],
     environment: 'node',
   },

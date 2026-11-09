@@ -366,6 +366,20 @@ export function ghostInserterTiles(
   };
 }
 
+/** Outline of a blueprint selection box. */
+export const SELECTION_BOX = 0x6fc3ff;
+
+/** A tile rectangle with both corners included (a blueprint selection). */
+export interface TileBoxLike {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+const ghostKey = (g: Ghost): string =>
+  `${String(g.proto.id)}:${String(g.x)}:${String(g.y)}:${String(g.dir)}:${String(g.valid)}:${String(g.mode)}`;
+
 /** Opacity of a ghost's sprite. */
 const GHOST_SPRITE_ALPHA = 0.6;
 
@@ -434,11 +448,17 @@ export class GhostLayer {
     return this.sprites.some((s) => s.visible);
   }
 
-  /** Shows `ghost`, or hides the preview for `null`. Cheap when nothing changed. */
-  draw(ghost: Ghost | null): void {
-    const key = ghost
-      ? `${String(ghost.proto.id)}:${String(ghost.x)}:${String(ghost.y)}:${String(ghost.dir)}:${String(ghost.valid)}:${String(ghost.mode)}`
+  /**
+   * Shows `ghost` (a blueprint's several ghosts for an array), or hides the
+   * preview for `null`, with the box of a blueprint selection (`box`, tile
+   * corners included) when one is being dragged. Cheap when nothing changed.
+   */
+  draw(ghost: Ghost | readonly Ghost[] | null, box: TileBoxLike | null = null): void {
+    const ghosts: readonly Ghost[] = ghost === null ? [] : 'proto' in ghost ? [ghost] : ghost;
+    const boxKey = box
+      ? `${String(box.x0)}:${String(box.y0)}:${String(box.x1)}:${String(box.y1)}`
       : '';
+    const key = `${boxKey}|${ghosts.map(ghostKey).join('|')}`;
     if (key === this.key) {
       return;
     }
@@ -446,22 +466,37 @@ export class GhostLayer {
     const g = this.graphics;
     g.clear();
     for (const s of this.sprites) s.visible = false;
-    if (!ghost) {
-      return;
+    let used = 0;
+    // A single ghost shows its inserter and drill markers; a blueprint's many would only clutter.
+    for (const one of ghosts) used = this.drawOne(one, used, ghosts.length === 1);
+    if (box) {
+      const x = box.x0 * TILE_PX;
+      const y = box.y0 * TILE_PX;
+      const w = (box.x1 - box.x0 + 1) * TILE_PX;
+      const h = (box.y1 - box.y0 + 1) * TILE_PX;
+      g.rect(x, y, w, h)
+        .fill({ color: SELECTION_BOX, alpha: 0.12 })
+        .stroke({ width: 2, color: SELECTION_BOX, alpha: 0.95 });
     }
+  }
+
+  /** Draws one ghost with sprites from index `used` on; returns the next free sprite index. */
+  private drawOne(ghost: Ghost, used: number, markers: boolean): number {
+    const g = this.graphics;
     const { w, h } = footprintSize(ghost.proto, ghost.dir);
     const cx = (ghost.x + w / 2) * TILE_PX;
     const cy = (ghost.y + h / 2) * TILE_PX;
     const frames = ghostFrames(this.atlas, ghost);
     if (frames.length > 0) {
       // The idle sprite, without its shadow.
-      frames.forEach(({ model, frame, arm }, used) => {
+      for (const { model, frame, arm } of frames) {
         let sprite = this.sprites[used];
         if (!sprite) {
           sprite = new Sprite();
           this.sprites.push(sprite);
           this.spriteContainer.addChild(sprite);
         }
+        used++;
         sprite.pivot.set(0, 0);
         sprite.rotation = 0;
         if (arm) {
@@ -472,7 +507,7 @@ export class GhostLayer {
           placeSprite(sprite, frame, model.scale, cx, cy);
         }
         sprite.visible = true;
-      });
+      }
     } else {
       drawEntity(g, ghost.proto, ghost.x, ghost.y, ghost.dir, 0.55);
     }
@@ -480,6 +515,7 @@ export class GhostLayer {
     g.rect(ghost.x * TILE_PX, ghost.y * TILE_PX, w * TILE_PX, h * TILE_PX)
       .fill({ color: tint, alpha: 0.3 })
       .stroke({ width: 2, color: tint, alpha: 0.9 });
+    if (!markers) return used;
     const tiles = ghostInserterTiles(ghost);
     if (tiles) {
       const center = (t: number): number => (t + 0.5) * TILE_PX;
@@ -501,6 +537,7 @@ export class GhostLayer {
         alpha: 0.9,
       });
     }
+    return used;
   }
 
   destroy(): void {

@@ -76,6 +76,11 @@ export function controls(b: Bindings = bindings()): ControlHelp[] {
     { keys: 'Mouse wheel', action: 'Zoom; zoomed far out, the map view (flat colours)' },
     { keys: k('minimap'), action: 'Minimap; click or drag on it to move the camera there' },
     {
+      keys: `${k('copy')} + drag`,
+      action: `Copy a blueprint of the box; ${k('paste')} takes it again, ${k('rotate')} turns it, click pastes`,
+    },
+    { keys: k('blueprints'), action: 'Blueprint library: save, paste, export and import strings' },
+    {
       keys: `Middle drag / ${panLabel}`,
       action: `Pan the camera; ${k('follow')} follows the player again`,
     },
