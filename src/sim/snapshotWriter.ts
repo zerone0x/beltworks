@@ -108,19 +108,36 @@ export class ScratchSet {
     return this.size++;
   }
 
-  /** Sorts `values` ascending in place (insertion sort: meant for a few dozen values). */
+  /**
+   * Sorts `values` ascending in place: a heapsort, O(n log n) and allocating
+   * nothing (`values.subarray(0, size).sort()` would allocate a view per
+   * call, and an insertion sort went quadratic with hundreds of networks).
+   */
   sort(): void {
     const v = this.values;
-    for (let i = 1; i < this.size; i++) {
-      const x = v[i]!;
-      let j = i - 1;
-      while (j >= 0 && v[j]! > x) {
-        v[j + 1] = v[j]!;
-        this.at.set(v[j + 1]!, j + 1);
-        j--;
-      }
-      v[j + 1] = x;
-      this.at.set(x, j + 1);
+    const n = this.size;
+    for (let i = (n >> 1) - 1; i >= 0; i--) siftDown(v, i, n);
+    for (let end = n - 1; end > 0; end--) {
+      const top = v[0]!;
+      v[0] = v[end]!;
+      v[end] = top;
+      siftDown(v, 0, end);
     }
+    // The values are distinct, so each map entry is set again, never added.
+    for (let i = 0; i < n; i++) this.at.set(v[i]!, i);
   }
+}
+
+/** Restores the max-heap property of `v[0..n)` below index `i`. */
+function siftDown(v: Int32Array, i: number, n: number): void {
+  const x = v[i]!;
+  for (;;) {
+    let child = 2 * i + 1;
+    if (child >= n) break;
+    if (child + 1 < n && v[child + 1]! > v[child]!) child++;
+    if (v[child]! <= x) break;
+    v[i] = v[child]!;
+    i = child;
+  }
+  v[i] = x;
 }

@@ -692,7 +692,15 @@ export function encodePower(
   const n = powerScratch.network;
   for (let i = 0; i < nets.size; i++) {
     const net = nets.values[i]!;
-    grid.network(net, n);
+    if (grid.network(net, n) === undefined) {
+      // A pole's network is always in the grid's list (kept as poles and
+      // wires change); should that ever break, send zeros rather than the
+      // previous network's stats left in the scratch.
+      n.poles = 0;
+      n.demand = 0;
+      n.supply = 0;
+      n.satisfaction = 0;
+    }
     w.push(net);
     w.push(n.poles);
     w.push(n.demand | 0);

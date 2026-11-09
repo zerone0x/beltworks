@@ -65,7 +65,7 @@ Met: `tests/e2e/science.spec.ts` starts from a test kit (assembling machines, a 
 - [x] Complete the machine sleep/wake system: incremental power solve, logarithmic lane queries, active-entity counters in the bench and debug overlay (#73, D62)
 - [ ] Benchmarks for 1k / 10k / 50k entities, reported in CI
 - [x] Viewport culling, sprite pools, faster rendering of belt items, terrain bakes spread over frames, a scripted render profile (#74)
-- [x] Faster snapshot transfer: delta snapshots, allocation-free encoders, compact belt items; no SharedArrayBuffer (#75, D56)
+- [x] Faster snapshot transfer: delta snapshots, encoders that allocate about 100 B per call (the view they return), compact belt items; no SharedArrayBuffer (#75, D56)
 - [ ] Evaluate moving hot paths to Rust→WASM
 
 **Done when:** 10k entities and 50k items on belts hold a steady 60 UPS / 60 FPS.
