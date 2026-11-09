@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { EntityTypeId } from '../../src/data/entities';
+import { EntityTypeId, entityPrototype } from '../../src/data/entities';
 import { ITEM_IDS, ItemId } from '../../src/data/items';
 import { RECIPE_IDS, RecipeId } from '../../src/data/recipes';
+import { ResourceId } from '../../src/data/resources';
 import {
+  drillAreaOre,
+  drillAreaTooltip,
   entityTooltip,
   formatPower,
   formatSeconds,
   itemTooltip,
   recipeTooltip,
+  resourceTooltip,
   tooltipFor,
 } from '../../src/ui/tooltip';
 
@@ -85,5 +89,51 @@ describe('tooltips', () => {
     expect(tooltipFor(`entity:${String(EntityTypeId.StoneFurnace)}`)?.title).toBe('Stone furnace');
     expect(tooltipFor('bogus:1')).toBeNull();
     expect(tooltipFor('item:9999')).toBeNull();
+  });
+
+  it('show a resource tile with the amount left', () => {
+    expect(resourceTooltip(ResourceId.IronOre, 1_594)).toEqual({
+      title: 'Iron ore',
+      lines: ['1 594 left'],
+    });
+    expect(resourceTooltip(ResourceId.Coal, 12)).toEqual({ title: 'Coal', lines: ['12 left'] });
+    expect(resourceTooltip(ResourceId.Stone, 1_250_000)?.lines).toEqual(['1 250 000 left']);
+    expect(resourceTooltip(ResourceId.None, 0)).toBeNull();
+  });
+
+  it('sum the ore in the area a mining drill ghost would mine', () => {
+    // Iron on x < 0, copper on 0 ≤ x < 50 between y = 0 and 9 (100 units a tile), stone at
+    // (1, 1); x ≥ 50 not received yet.
+    const world = (x: number, y: number) => {
+      if (x >= 50) return null;
+      if (y < 0 || y > 9) return { resource: 0, amount: 0 };
+      if (x === 1 && y === 1) return { resource: ResourceId.Stone, amount: 7 };
+      return { resource: x < 0 ? ResourceId.IronOre : ResourceId.CopperOre, amount: 100 };
+    };
+    // The electric drill at (-1, 0) mines the 5×5 from (-2, -1): 2 iron columns, 3 copper ones, rows 0–3.
+    const electric = entityPrototype(EntityTypeId.ElectricMiningDrill)!;
+    const ore = drillAreaOre(electric, -1, 0, world);
+    expect(ore).toEqual([
+      { resource: ResourceId.IronOre, amount: 800 },
+      { resource: ResourceId.CopperOre, amount: 1_100 },
+      { resource: ResourceId.Stone, amount: 7 },
+    ]);
+    expect(drillAreaTooltip(electric, ore)).toEqual({
+      title: 'Electric mining drill',
+      lines: ['Ore in its 5×5 area:', 'Iron ore 800', 'Copper ore 1 100', 'Stone 7'],
+    });
+    // The burner drill mines its own 2×2 footprint.
+    const burner = entityPrototype(EntityTypeId.BurnerMiningDrill)!;
+    expect(drillAreaOre(burner, -1, 9, world)).toEqual([
+      { resource: ResourceId.IronOre, amount: 100 },
+      { resource: ResourceId.CopperOre, amount: 100 },
+    ]);
+    // No ore, or tiles not received yet, count as none.
+    expect(drillAreaOre(burner, 49, 20, world)).toEqual([]);
+    expect(drillAreaOre(burner, 50, 5, world)).toEqual([]);
+    expect(drillAreaTooltip(burner, [])).toEqual({
+      title: 'Burner mining drill',
+      lines: ['No ore in its 2×2 area'],
+    });
   });
 });
