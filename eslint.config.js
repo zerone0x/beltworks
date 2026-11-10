@@ -75,6 +75,7 @@ export default defineConfig(
       'test-results/',
       'coverage/',
       'art/build/',
+      'out/',
     ],
   },
   js.configs.recommended,
@@ -97,11 +98,16 @@ export default defineConfig(
     languageOptions: { globals: globals['shared-node-browser'] },
   },
   {
-    files: ['*.config.{js,ts}', 'tests/**/*.ts', 'tools/art/**/*.js'],
+    files: ['*.config.{js,ts}', 'tests/**/*.ts', 'tools/art/**/*.js', 'tools/gpu-demo/**/*.mjs'],
     languageOptions: { globals: globals.node },
   },
   {
-    files: ['**/*.js'],
+    // The capture scripts pass functions to page.evaluate, which run in the browser.
+    files: ['tools/gpu-demo/**/*.mjs'],
+    languageOptions: { globals: globals.browser },
+  },
+  {
+    files: ['**/*.{js,mjs}'],
     ...tseslint.configs.disableTypeChecked,
   },
   simPurity,

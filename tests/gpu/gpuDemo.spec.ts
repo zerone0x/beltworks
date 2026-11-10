@@ -1,7 +1,8 @@
 /**
  * The WebGPU belt demo (#129, demo/gpu/README.md), headless on SwiftShader:
  * the compute shader's result after K ticks matches the pure-TS reference
- * bit for bit, one million items draw and move, and a browser without
+ * bit for bit, one million items draw and move, the capture mode (#130)
+ * steps exactly and draws the same frames every time, and a browser without
  * WebGPU gets a message. Run with `npm run test:gpu`.
  */
 
@@ -12,6 +13,7 @@ import { initItems, referenceCounters, referenceRun } from '../../demo/gpu/sim';
 const net = buildNetwork();
 
 async function open(page: Page, query: string): Promise<{ adapter: string; items: number }> {
+  page.on('pageerror', (e) => console.error(`page error: ${e.message}`));
   await page.goto(`demo/gpu/?${query}`);
   await page.waitForFunction(() => window.__gpuDemo?.state !== 'starting', null, {
     timeout: 120_000,
@@ -87,64 +89,68 @@ test('one quad per instance draws the same picture as batched quads', async ({ p
   expect(shots[0]!.equals(shots[1]!)).toBe(true);
 });
 
-/** Pixels of the screenshot `png` outside `mask` that are bright (items, not belts or background). */
+/** The art tools' PNG reader, imported by URL so TypeScript doesn't look for its types. */
+async function decodePng(
+  png: Buffer,
+): Promise<{ width: number; height: number; data: Uint8Array }> {
+  const { decodePng } = (await import(new URL('../../tools/art/png.js', import.meta.url).href)) as {
+    decodePng: (file: Uint8Array) => { width: number; height: number; data: Uint8Array };
+  };
+  return decodePng(png);
+}
+
+/**
+ * Pixels of the screenshot `png` outside `mask` that are bright (items, not
+ * belts or background). Decoded here in Node, not in the busy page.
+ */
 async function analyze(
-  page: Page,
   png: Buffer,
   mask: { x: number; y: number; width: number; height: number },
-): Promise<{ bright: number; total: number; pixels: number[] }> {
-  return page.evaluate(
-    async ({ b64, mask }) => {
-      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
-      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(bitmap, 0, 0);
-      const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
-      let bright = 0;
-      let total = 0;
-      // A coarse fingerprint for comparing two frames: one brightness bit per pixel.
-      const pixels: number[] = [];
-      for (let y = 0; y < bitmap.height; y++) {
-        for (let x = 0; x < bitmap.width; x++) {
-          const inMask =
-            x >= mask.x && x < mask.x + mask.width && y >= mask.y && y < mask.y + mask.height;
-          const o = (y * bitmap.width + x) * 4;
-          const max = Math.max(data[o]!, data[o + 1]!, data[o + 2]!);
-          const on = !inMask && max > 150;
-          pixels.push(on ? 1 : 0);
-          if (inMask) continue;
-          total++;
-          if (on) bright++;
-        }
+): Promise<{ bright: number; total: number; pixels: Uint8Array }> {
+  const { width, height, data } = await decodePng(png);
+  let bright = 0;
+  let total = 0;
+  // A coarse fingerprint for comparing two frames: one brightness bit per pixel.
+  const pixels = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (x >= mask.x && x < mask.x + mask.width && y >= mask.y && y < mask.y + mask.height) {
+        continue;
       }
-      return { bright, total, pixels };
-    },
-    { b64: png.toString('base64'), mask },
-  );
+      const o = (y * width + x) * 4;
+      total++;
+      if (Math.max(data[o]!, data[o + 1]!, data[o + 2]!) > 150) {
+        pixels[y * width + x] = 1;
+        bright++;
+      }
+    }
+  }
+  return { bright, total, pixels };
 }
 
 test('one million items draw and move', async ({ page }, testInfo) => {
+  // SwiftShader draws one million items at a frame every second or two, much slower on a busy machine.
+  test.setTimeout(600_000);
   const { adapter, items } = await open(page, '');
   expect(items).toBe(1_000_000);
   const tickAtLeast = (t: number) =>
     page.waitForFunction((t) => window.__gpuDemo!.tick() >= t && window.__gpuDemo!.frames >= 2, t, {
-      timeout: 120_000,
+      timeout: 300_000,
     });
   await tickAtLeast(8);
   // Wait for the counters to show in the overlay before the screenshot.
-  await expect(page.locator('#hud')).toContainText('checksum', { timeout: 60_000 });
+  await expect(page.locator('#hud')).toContainText('checksum', { timeout: 300_000 });
   const mask = (await page.locator('#hud').boundingBox())!;
-  const first = await page.screenshot({ timeout: 120_000 });
+  const first = await page.screenshot({ timeout: 300_000 });
   const tick = await page.evaluate(() => window.__gpuDemo!.tick());
   await tickAtLeast(tick + 12);
   const second = await page.screenshot({
     path: testInfo.outputPath('gpu-demo-1m.png'),
-    timeout: 120_000,
+    timeout: 300_000,
   });
 
-  const a = await analyze(page, first, mask);
-  const b = await analyze(page, second, mask);
+  const a = await analyze(first, mask);
+  const b = await analyze(second, mask);
   // Items cover a good part of the picture (the belts are drawn in dark colors only).
   expect(a.bright / a.total).toBeGreaterThan(0.05);
   expect(b.bright / b.total).toBeGreaterThan(0.05);
@@ -160,6 +166,68 @@ test('one million items draw and move', async ({ page }, testInfo) => {
       `${(100 * (changed / a.total)).toFixed(1)}% changed over 12+ ticks ` +
       `(adapter: ${adapter}); screenshot ${testInfo.outputPath('gpu-demo-1m.png')}`,
   );
+});
+
+/** Capture mode: `__step(k)` and a screenshot, as tools/gpu-demo/capture.mjs does it. */
+async function captureFrames(page: Page, n: number, steps: readonly number[]) {
+  await open(page, `capture=1&timing=0&n=${String(n)}`);
+  const shots: Buffer[] = [];
+  const ticks: number[] = [];
+  for (const k of steps) {
+    const r = await page.evaluate((k) => window.__step!(k), k);
+    ticks.push(r.tick);
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+    shots.push(await page.screenshot());
+  }
+  return { shots, ticks };
+}
+
+test('capture mode steps exactly and draws the same frames every time', async ({ browser }) => {
+  const n = 3000;
+  const steps = [0, 7, 64, 1, 100];
+  const pageA = await browser.newPage();
+  const a = await captureFrames(pageA, n, steps);
+  expect(a.ticks).toEqual([0, 7, 71, 72, 172]);
+
+  // The state is exactly the reference's after the ticks asked for: nothing ran on a clock.
+  const gpu = await pageA.evaluate(() => window.__gpuDemo!.read());
+  const ref = referenceRun(initItems(n, net), net, 172);
+  expect(diff(gpu.belt, ref.belt).count).toBe(0);
+  expect(diff(gpu.progress, ref.progress).count).toBe(0);
+  const hud = await pageA.locator('#hud').textContent();
+  expect(hud).toContain('3,000 items');
+  expect(hud).toContain('adapter: ');
+  expect(hud).toContain('tick 172, capture mode: 100 ticks for this frame');
+  expect(hud).toMatch(
+    /simulation ms\/step: hidden \(timing=0\), timed by (GPU timestamps|wall clock)/,
+  );
+  expect(hud).toContain('at tick 172: ');
+  await pageA.close();
+
+  // Every frame shows motion, and a second page draws the same bytes.
+  for (let i = 1; i < steps.length; i++) expect(a.shots[i]!.equals(a.shots[i - 1]!)).toBe(false);
+  const pageB = await browser.newPage();
+  const b = await captureFrames(pageB, n, steps);
+  await pageB.close();
+  expect(b.ticks).toEqual(a.ticks);
+  for (let i = 0; i < steps.length; i++) {
+    expect(b.shots[i]!.equals(a.shots[i]!), `frame ${String(i)}`).toBe(true);
+  }
+});
+
+test('the overlay shows the measured step time', async ({ page }) => {
+  await open(page, 'capture=1&n=2000');
+  const r = await page.evaluate(() => window.__step!(16));
+  expect(r.timing).not.toBeNull();
+  expect(r.timing!.steps).toBe(16);
+  expect(r.timing!.msPerStep).toBeGreaterThan(0);
+  await expect(page.locator('#hud')).toContainText(
+    /simulation ms\/step: \d+\.\d+ \((GPU timestamps|wall clock), over 16 ticks\)/,
+  );
+  // __step(0) draws without stepping.
+  expect((await page.evaluate(() => window.__step!(0))).tick).toBe(16);
 });
 
 test('a browser without WebGPU gets a message', async ({ page }) => {

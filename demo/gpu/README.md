@@ -12,6 +12,8 @@ A standalone technical demo (#129): one million conveyor items that live entirel
 | `?n=` | Item count. Default 1 000 000, capped by the device's limits (the overlay says when it was capped) |
 | `?quads=` | Item quads per instance of the item draw (default 64; `1` is one quad per instance). See "Render" |
 | `?paused=1` | Don't step on its own. The tests step through `window.__gpuDemo` |
+| `?capture=1` | Capture mode: no frame loop and no clock. `window.__step(k)` steps exactly `k` ticks, draws one frame and resolves when the GPU is done. See "Capture and benchmark" |
+| `?timing=0` | Leave the measured step time out of the overlay (it still says which clock would time it), so the same ticks always give the same picture |
 
 ## Files
 
@@ -22,6 +24,7 @@ A standalone technical demo (#129): one million conveyor items that live entirel
 | `shaders.ts` | WGSL: the step and count compute shaders, and the belt and item render shaders |
 | `gpu.ts` | `GpuBeltSim`: buffers, pipelines, bind groups, stepping, drawing and readback |
 | `main.ts` | The page: device setup, the frame loop, the overlay and the test hook |
+| `tools/gpu-demo/` | The capture, assemble and benchmark scripts (Node, Playwright). See "Capture and benchmark" |
 
 ## The belt network
 
@@ -57,10 +60,25 @@ Each frame, `main.ts` steps as many ticks as the elapsed time asks for (60 per s
 1. **Step** (compute, one pass per tick). Thread `i` reads `belt[i]` and `progress[i]` from buffer *k*, adds the segment's speed, and on reaching 65 536 subtracts it and moves to `next0` or `next1`. It writes buffer *1 - k*, and the next tick reads that one. Up to 64 ticks are encoded in one submission. Each tick's number sits in its own 256-byte slot of a uniform buffer, picked with a dynamic offset. The splitter output is `mix32(i ^ mix32(tick)) & 1`: deterministic, and about half the items take each output.
 2. **Render** (one render pass). Belts are drawn first: one instanced quad per segment. Then items: the vertex shader reads `belt`, `progress` and `itemType` of the current buffer *k* through read-only storage bindings, places the item on the straight line or the corner's arc, and spreads items across the belt's width by a per-item hash. Nothing is uploaded per frame except a 32-byte view uniform.
 3. **Counters** (twice a second). A compute pass adds every item's path, type and checksum term into the `counters` buffer with atomic adds, so the order doesn't matter. The buffer is copied to a mappable buffer and read with `mapAsync`, with at most one readback in flight. These 32 bytes are the only data read back. The overlay shows them with the tick they describe.
+4. **Overlay.** Item count, adapter name, tick, and the simulation time per step. About twice a second one step submission is timed: with GPU timestamp queries around the step passes when the device has the `timestamp-query` feature, else with the wall clock from submission to `onSubmittedWorkDone`. The overlay says which (`GPU timestamps` or `wall clock`) and over how many ticks. The wall-clock figure includes the submission and the wait, so it is an upper bound.
 
 **Determinism.** All state is integer, and every speed is below one tile, so an item crosses at most one boundary per tick. Items don't interact (there's no belt compression or blocking), so each item depends only on its own state, and any execution order gives the same result. `sim.ts` implements the same step in TypeScript (`referenceStep`, with `Math.imul` for WGSL's wrapping `u32` multiply), and the tests compare the two bit for bit.
 
 **Render.** The item draw is instanced, and each instance draws `QUADS` items' quads as a triangle list: item `instance * QUADS + vertex / 6`. `?quads=1` is the textbook one quad per instance. Batching 64 per instance gives the same picture (a test checks this) and avoids a per-instance cost: SwiftShader runs an instanced draw as a loop over instances, which made one quad per instance about ten times slower there.
+
+## Capture and benchmark
+
+The demo can be recorded on a machine without a GPU, frame by frame, with the same frames on every run.
+
+- `node tools/gpu-demo/capture.mjs` opens `?capture=1&timing=0` in headless Chromium (WebGPU on SwiftShader) and, for every frame, calls `window.__step(k)` and takes a 1280x720 screenshot. Frames go to `out/gpu-demo/frames/frame-00000.png` onwards. Frame 0 is tick 0, and each later frame is `--steps` ticks on (default 2, so 30 fps plays at the game's 60 ticks/s). It also writes `out/gpu-demo/capture.json` with the adapter, each frame's tick and step time, and the SHA-256 of the first and last frames. Flags: `--n` (items, default 1 000 000), `--frames` (default 60), `--steps`, `--timing` (show the measured step time in the overlay, which makes frames differ between runs), `--url` (a running server; without it the script starts a Vite dev server), `--out`, `--timeout`.
+- `node tools/gpu-demo/assemble.mjs [--fps 30]` turns the frames into `out/gpu-demo/gpu-demo.mp4` (H.264 with libx264, else MPEG-4 part 2, yuv420p). It takes the first ffmpeg that can read PNG and write mp4, looking in `FFMPEG`, then `PATH`, then Playwright's download under `~/.cache/ms-playwright/ffmpeg-*`. Playwright's build only writes VP8 WebM for its video recording, so it is usually found and skipped, and the script says what each candidate lacks.
+- `node tools/gpu-demo/bench.mjs` prints ms per step for 10k, 100k and 1M items, and the adapter it ran on. For each size it waits for the GPU to go idle, then times `--steps` ticks (default 16) without drawing, `--rounds` times (default 3), and reports the median and the best. Flags: `--sizes 10000,100000,1000000`, `--steps`, `--rounds`, `--warmup`, `--url`, `--timeout`.
+
+`GPU_CHROME` points the scripts at another Chromium binary or a wrapper script, as for `npm run test:gpu`. They pass the same Chromium flags as `playwright.gpu.config.ts`.
+
+**Why the frames are identical.** The item state is integer and each step is exact (see "Determinism"). In capture mode nothing runs on a timer: the page steps only when `__step` asks, and draws once per call. The overlay shows the tick, the ticks in this frame and the counters read back for this tick, all deterministic. The one value that varies between runs, the measured step time, is left out by `timing=0`. The script waits two animation frames after `__step` resolves so the compositor shows the new frame before the screenshot.
+
+On SwiftShader, one million items take a few seconds per captured frame, so 60 frames take a few minutes.
 
 ## Tests
 
@@ -69,6 +87,8 @@ Each frame, `main.ts` steps as many ticks as the elapsed time asks for (60 per s
   - For 1, 255, 1000 and 4099 items, the GPU state after 1, 38, 102, 232 and 500 steps (in uneven batches across the 64-step submissions) equals `referenceRun` exactly, and the GPU counters equal `referenceCounters`.
   - One quad per instance and 64 per instance draw identical pictures.
   - At one million items, items cover the picture and move between two screenshots. The second screenshot goes to `test-results/`.
+  - Capture mode: `__step` with 0, 7, 64, 1 and 100 ticks lands on exactly those ticks, the state equals `referenceRun`, every frame differs from the one before, and a second page draws byte-identical frames.
+  - With timing on, the overlay shows the measured ms/step and which clock measured it.
   - Without `navigator.gpu`, the page shows its message.
 
   `GPU_CHROME` points Playwright at another Chromium binary or a wrapper script. The config passes `--enable-unsafe-webgpu --use-angle=swiftshader --use-webgpu-adapter=swiftshader --no-sandbox --ignore-gpu-blocklist`, plus `--enable-features=Vulkan --use-vulkan=swiftshader`. With only the first set, SwiftShader's WebGPU can compute, but presenting a canvas loses the device. It isn't part of CI. On SwiftShader, one million items draw at about 1.5 to 2 frames per second, which the test allows for. Correctness is the point there, not speed.

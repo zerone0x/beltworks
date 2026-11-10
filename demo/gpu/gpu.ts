@@ -24,6 +24,7 @@ const BUFFER = {
   COPY_DST: 0x0008,
   UNIFORM: 0x0040,
   STORAGE: 0x0080,
+  QUERY_RESOLVE: 0x0200,
 } as const;
 const STAGE = { VERTEX: 0x1, FRAGMENT: 0x2, COMPUTE: 0x4 } as const;
 /** `GPUMapMode.READ`. */
@@ -34,6 +35,19 @@ export const MAX_BATCH = 64;
 
 /** Item quads per instance of the item draw, see `itemShader`. */
 export const DEFAULT_QUADS_PER_INSTANCE = 64;
+
+/**
+ * How long a timed `step` took per tick. `gpu timestamps` comes from
+ * timestamp queries around the step passes (the device has the
+ * `timestamp-query` feature); `wall clock` is the time from the submission
+ * until the GPU reported the work done, so it also counts submission
+ * overhead and any work already queued before it.
+ */
+export interface StepTiming {
+  readonly steps: number;
+  readonly msPerStep: number;
+  readonly source: 'gpu timestamps' | 'wall clock';
+}
 
 /** Bytes per item in each of the five item buffers (two belt, two progress, one type). */
 const ITEM_BYTES = 4;
@@ -100,6 +114,13 @@ export class GpuBeltSim {
   private readonly counters: GPUBuffer;
   private readonly countersRead: GPUBuffer;
   private countersPending = false;
+  /** Timestamp queries around a timed step, when the device has `timestamp-query`. */
+  private readonly timestamps: {
+    readonly set: GPUQuerySet;
+    readonly resolve: GPUBuffer;
+    readonly read: GPUBuffer;
+    pending: boolean;
+  } | null;
   /** Which buffer of each pair holds the current state. */
   private current = 0;
 
@@ -166,6 +187,15 @@ export class GpuBeltSim {
       COUNTER_WORDS * 4,
       BUFFER.MAP_READ | BUFFER.COPY_DST,
     );
+
+    this.timestamps = device.features.has('timestamp-query')
+      ? {
+          set: device.createQuerySet({ label: 'step timestamps', type: 'timestamp', count: 2 }),
+          resolve: buffer('timestamps', 16, BUFFER.QUERY_RESOLVE | BUFFER.COPY_SRC),
+          read: buffer('timestamps read', 16, BUFFER.MAP_READ | BUFFER.COPY_DST),
+          pending: false,
+        }
+      : null;
 
     const C = STAGE.COMPUTE;
     const V = STAGE.VERTEX;
@@ -305,27 +335,83 @@ export class GpuBeltSim {
     return Math.ceil(this.items / WORKGROUP_SIZE);
   }
 
-  /** Steps `steps` ticks on the GPU, in batches of `MAX_BATCH` per submission. */
-  step(steps: number): void {
+  /** Whether timed steps use GPU timestamp queries (else the wall clock). */
+  get hasTimestamps(): boolean {
+    return this.timestamps !== null;
+  }
+
+  /**
+   * Steps `steps` ticks on the GPU, in batches of `MAX_BATCH` per submission.
+   * With `timed`, the promise resolves with how long the steps took once the
+   * GPU has done them (`StepTiming`); otherwise, or while an earlier timed
+   * step's timestamps are still being read, it resolves with `null` at once.
+   * It never rejects.
+   */
+  step(steps: number, timed = false): Promise<StepTiming | null> {
+    const ts = timed && this.timestamps && !this.timestamps.pending ? this.timestamps : null;
+    const start = performance.now();
+    let pass = 0;
     for (let done = 0; done < steps;) {
       const batch = Math.min(MAX_BATCH, steps - done);
       const words = new Uint32Array((batch * STEP_UNIFORM_STRIDE) / 4);
       for (let k = 0; k < batch; k++) words[(k * STEP_UNIFORM_STRIDE) / 4] = this.tick + k;
       this.device.queue.writeBuffer(this.stepUniforms, 0, words);
       const encoder = this.device.createCommandEncoder({ label: 'step' });
-      for (let k = 0; k < batch; k++) {
+      for (let k = 0; k < batch; k++, pass++) {
+        // The first pass of the call writes the start timestamp and the last one the end.
+        const first = pass === 0;
+        const last = pass === steps - 1;
         // One pass per tick: a pass boundary orders the storage writes before the next read.
-        const pass = encoder.beginComputePass();
-        pass.setPipeline(this.stepPipeline);
-        pass.setBindGroup(0, this.stepGroups[this.current as 0 | 1], [k * STEP_UNIFORM_STRIDE]);
-        pass.dispatchWorkgroups(this.workgroups);
-        pass.end();
+        const computePass = encoder.beginComputePass(
+          ts && (first || last)
+            ? {
+                timestampWrites: {
+                  querySet: ts.set,
+                  ...(first && { beginningOfPassWriteIndex: 0 }),
+                  ...(last && { endOfPassWriteIndex: 1 }),
+                },
+              }
+            : {},
+        );
+        computePass.setPipeline(this.stepPipeline);
+        computePass.setBindGroup(0, this.stepGroups[this.current as 0 | 1], [
+          k * STEP_UNIFORM_STRIDE,
+        ]);
+        computePass.dispatchWorkgroups(this.workgroups);
+        computePass.end();
         this.current = 1 - this.current;
+      }
+      if (ts && done + batch === steps) {
+        encoder.resolveQuerySet(ts.set, 0, 2, ts.resolve, 0);
+        encoder.copyBufferToBuffer(ts.resolve, 0, ts.read, 0, 16);
       }
       this.device.queue.submit([encoder.finish()]);
       this.tick += batch;
       done += batch;
     }
+    if (!timed || steps === 0) return Promise.resolve(null);
+    if (ts) {
+      ts.pending = true;
+      return ts.read.mapAsync(MAP_MODE_READ).then(
+        () => {
+          const [begin, end] = new BigUint64Array(ts.read.getMappedRange().slice(0));
+          ts.read.unmap();
+          ts.pending = false;
+          const ns = Number(end! - begin!);
+          return { steps, msPerStep: ns / 1e6 / steps, source: 'gpu timestamps' } as const;
+        },
+        () => {
+          ts.pending = false;
+          return null;
+        },
+      );
+    }
+    if (timed && this.timestamps) return Promise.resolve(null);
+    return this.device.queue.onSubmittedWorkDone().then(
+      () =>
+        ({ steps, msPerStep: (performance.now() - start) / steps, source: 'wall clock' }) as const,
+      () => null,
+    );
   }
 
   /** Draws the belts and then every item into `target`. */
