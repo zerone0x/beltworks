@@ -83,8 +83,9 @@ async function inflateCapped(bytes: Uint8Array, maxBytes: number): Promise<Uint8
  * Undoes `gzip`: bytes without a gzip header are returned as they are. A
  * damaged gzip stream throws a `SaveError` with `DAMAGED_SAVE_MESSAGE`.
  * With `maxBytes`, data that inflates to more than that many bytes throws a
- * `TooLargeError` instead, without inflating the rest (saves pass no cap: a
- * save can legitimately be large; blueprint strings do, src/blueprint/string.ts).
+ * `TooLargeError` instead, without inflating the rest (readers of
+ * saves use `gunzipSave`, blueprint strings pass their own cap,
+ * src/blueprint/string.ts).
  */
 export async function gunzip(bytes: Uint8Array, maxBytes?: number): Promise<Uint8Array> {
   if (!isGzip(bytes)) return bytes;
@@ -98,5 +99,27 @@ export async function gunzip(bytes: Uint8Array, maxBytes?: number): Promise<Uint
   } catch (err) {
     if (err instanceof TooLargeError) throw err;
     throw new SaveError(DAMAGED_SAVE_MESSAGE, { cause: err });
+  }
+}
+
+/**
+ * The most a save may inflate to (D69): 128 MiB, about 28 times the largest
+ * real save (the 50k bench scene: 4.7 MB inflated, 0.74 MB gzipped). A bomb
+ * picked in the import dialog, or stored, stops there instead of taking the
+ * tab's memory.
+ */
+export const MAX_SAVE_BYTES = 128 * 1024 * 1024;
+
+/** What `gunzipSave` says about a save that inflates past `MAX_SAVE_BYTES`. */
+export const SAVE_TOO_LARGE_MESSAGE =
+  'The save file is too large to load (its data inflates to more than 128 MiB)';
+
+/** `gunzip` for save files: capped at `MAX_SAVE_BYTES`, an overflow is a `SaveError`. */
+export async function gunzipSave(bytes: Uint8Array): Promise<Uint8Array> {
+  try {
+    return await gunzip(bytes, MAX_SAVE_BYTES);
+  } catch (err) {
+    if (err instanceof TooLargeError) throw new SaveError(SAVE_TOO_LARGE_MESSAGE, { cause: err });
+    throw err;
   }
 }
