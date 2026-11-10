@@ -32,6 +32,7 @@ const TIERS = [
 ] as const;
 const BELT = TIERS[0].belt;
 const CHEST = ENTITIES[EntityTypeId.WoodenChest];
+const INSERTER = ENTITIES[EntityTypeId.ElectricInserter];
 
 /** An area of the spawn with walkable tiles all around (checked). */
 const X0 = 10;
@@ -155,15 +156,19 @@ describe('belts carry the player (D66)', () => {
     expect(belts.shape(corner)).toBe(BeltShape.CurveFromLeft);
     putPlayer(sim, tileCenter(X0), tileCenter(Y0));
     // 2.5 tiles at 8 subtiles per tick take 80 ticks; the first tick on the
-    // curve already carries the player north.
+    // curve already carries the player north, and pulls it toward the
+    // column's center line at 4 subtiles per tick.
     steps(sim, 80);
     expect(pos(sim)).toEqual([tileToFixed(X0 + 3), tileCenter(Y0)]);
     steps(sim, 1);
-    expect(pos(sim)).toEqual([tileToFixed(X0 + 3), tileCenter(Y0) - 8]);
+    expect(pos(sim)).toEqual([tileToFixed(X0 + 3) + 4, tileCenter(Y0) - 8]);
+    // Centered after 32 ticks on the column (128 subtiles), never past it.
+    steps(sim, 31);
+    expect(pos(sim)).toEqual([tileCenter(X0 + 3), tileCenter(Y0) - 8 * 32]);
     // Carried north along the column, to just past the last belt's end.
     steps(sim, 400);
     const [px, py] = pos(sim);
-    expect(px).toBe(tileToFixed(X0 + 3));
+    expect(px).toBe(tileCenter(X0 + 3));
     expect(fixedToTile(py)).toBe(Y0 - 7);
     expect(py).toBeGreaterThan(tileToFixed(Y0 - 6) - 1 - 8);
   });
@@ -190,15 +195,94 @@ describe('belts carry the player (D66)', () => {
     expect(sim.state.players.x[0]).toBeGreaterThan(tileToFixed(X0 + 3));
   });
 
-  it('is stopped by an entity the player box overlaps beside the belt', () => {
+  it('is not stopped by an entity beside the belt, and pulls the player to its center line', () => {
     const sim = newSim();
     beltRun(sim, BELT, X0, Y0, East, 5);
-    add(sim, CHEST, X0 + 2, Y0 + 1, North);
-    // Near the bottom edge of the belt: the box reaches into row Y0 + 1.
+    add(sim, CHEST, X0 + 1, Y0 + 1, North);
+    // Near the bottom edge of the belt: the box reaches into row Y0 + 1,
+    // where the chest is just ahead.
     const y = tileToFixed(Y0 + 1) - 10;
     putPlayer(sim, tileCenter(X0), y);
+    steps(sim, 1);
+    expect(pos(sim)).toEqual([tileCenter(X0) + 8, y - 4]);
+    // 118 subtiles to the center line at 4 a tick: centered after 30 ticks.
+    steps(sim, 29);
+    expect(pos(sim)).toEqual([tileCenter(X0) + 8 * 30, tileCenter(Y0)]);
     steps(sim, 300);
-    expect(pos(sim)).toEqual([tileToFixed(X0 + 2) - PLAYER_HALF_SIZE, y]);
+    expect(pos(sim)).toEqual([tileToFixed(X0 + 5), tileCenter(Y0)]);
+  });
+
+  it('rides past an inserter on the inside of a corner (both curve directions, both ways)', () => {
+    // East (from the west) or west (from the east) along row Y0 into a
+    // corner at column CX, then north or south for five tiles. An inserter
+    // stands on the inside of the corner, diagonally before the curve: the
+    // box comes round the corner half over its column.
+    const CX = X0 + 3;
+    for (const from of [East, West]) {
+      for (const to of [North, South]) {
+        const sim = newSim();
+        const sx = from === East ? -1 : 1;
+        const sy = to === North ? -1 : 1;
+        beltRun(sim, BELT, CX + 3 * sx, Y0, from, 3);
+        beltRun(sim, BELT, CX, Y0, to, 5);
+        const belts = beltTable(sim.state.entities)!;
+        expect(belts.shape(sim.state.entities.at(CX, Y0))).not.toBe(BeltShape.Straight);
+        add(sim, INSERTER, CX + sx, Y0 + sy, to);
+        putPlayer(sim, tileCenter(CX + 3 * sx), tileCenter(Y0));
+        steps(sim, 600);
+        // Centered on the column, just past the last belt's end.
+        const [px, py] = pos(sim);
+        expect(px).toBe(tileCenter(CX));
+        expect(fixedToTile(py)).toBe(Y0 + 5 * sy);
+        if (to === North) expect(py).toBeGreaterThan(tileToFixed(Y0 - 4) - 1 - 8);
+        else expect(py).toBeLessThan(tileToFixed(Y0 + 5) + 8);
+      }
+    }
+  });
+
+  it("the reviewer's repro: east (10..12, 10), north (13, 10..6), an inserter at (12, 9)", () => {
+    const sim = newSim();
+    beltRun(sim, BELT, 10, 10, East, 3);
+    beltRun(sim, BELT, 13, 10, North, 5);
+    add(sim, INSERTER, 12, 9, North);
+    putPlayer(sim, tileCenter(10), tileCenter(10));
+    steps(sim, 600);
+    const [px, py] = pos(sim);
+    expect(px).toBe(tileCenter(13));
+    expect(fixedToTile(py)).toBe(5);
+  });
+
+  it('carries a player who stepped on from a side lined with inserters', () => {
+    for (const side of [North, South]) {
+      const sim = newSim();
+      const sy = side === North ? -1 : 1;
+      beltRun(sim, BELT, X0, Y0, East, 6);
+      for (let x = X0 - 1; x <= X0 + 6; x++) add(sim, INSERTER, x, Y0 + sy, side);
+      // In the middle of the inserter row; walk onto the belt and stop at once.
+      putPlayer(sim, tileCenter(X0), tileCenter(Y0 + sy));
+      move(sim, 0, sy === -1 ? 1 : -1);
+      steps(sim, 4);
+      move(sim, 0, 0);
+      const [x1, y1] = pos(sim);
+      expect(fixedToTile(y1)).toBe(Y0);
+      // The box still reaches into the inserter row.
+      expect(fixedToTile(sy === -1 ? y1 - PLAYER_HALF_SIZE : y1 + PLAYER_HALF_SIZE - 1)).toBe(
+        Y0 + sy,
+      );
+      expect(x1).toBeGreaterThan(tileCenter(X0));
+      steps(sim, 300);
+      expect(pos(sim)).toEqual([tileToFixed(X0 + 6), tileCenter(Y0)]);
+    }
+  });
+
+  it('still stops the push at an entity ahead after a corner', () => {
+    const sim = newSim();
+    beltRun(sim, BELT, X0, Y0, East, 3);
+    beltRun(sim, BELT, X0 + 3, Y0, North, 3);
+    add(sim, CHEST, X0 + 3, Y0 - 3, North);
+    putPlayer(sim, tileCenter(X0), tileCenter(Y0));
+    steps(sim, 600);
+    expect(pos(sim)).toEqual([tileCenter(X0 + 3), tileToFixed(Y0 - 2) + PLAYER_HALF_SIZE]);
   });
 
   it('is stopped by water, flush against it', () => {
@@ -259,9 +343,11 @@ describe('belts carry the player (D66)', () => {
     const b = run();
     expect(a.hash()).toBe(b.hash());
     expect(pos(a)).toEqual(pos(b));
-    // 160 + 540 - 220 + 480 subtiles east: still on the belts, mid-ride. The
-    // copy rides on, round the corner, exactly like the original.
-    expect(pos(a)).toEqual([tileCenter(X0) + 960, tileCenter(Y0) + 37]);
+    // 160 + 540 - 220 + 480 subtiles east, pulled onto the belts' center
+    // line within 5 ticks: still on the belts, mid-ride. The copy rides on,
+    // round the corner (and onto the column's center line), exactly like the
+    // original.
+    expect(pos(a)).toEqual([tileCenter(X0) + 960, tileCenter(Y0)]);
     expect(beltDrift(a.state.entities, ...pos(a))).toBeGreaterThanOrEqual(0);
     expectRoundTrip(a, 120);
   });

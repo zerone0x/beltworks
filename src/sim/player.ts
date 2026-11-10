@@ -9,8 +9,10 @@
  * - Belts carry the player (D66): after its own step, the belt under the
  *   player's center pushes it along the belt's direction at the belt's item
  *   speed (8 / 16 / 24 subtiles/tick), so walking with a belt is faster and
- *   against it slower. The push is stopped by water and by entities that
- *   aren't belts.
+ *   against it slower, and pulls it toward the belt's center line at half
+ *   that speed (unless the player walks along that axis). The push is
+ *   stopped by water under the box and by an entity that isn't a belt on the
+ *   tile ahead of the center.
  * - Hand-mining: while the mining intent is set and the target tile is within
  *   reach, one unit is mined every `HAND_MINING_TICKS` ticks and goes into the
  *   player's inventory. A tree is felled whole after `TREE_MINING_TICKS`
@@ -23,7 +25,14 @@ import { entityPrototype } from '../data/entities';
 import { minedItem } from '../data/items';
 import { TREE_ITEM, TREE_MINING_TICKS, TREE_WOOD } from '../data/trees';
 import type { Axis } from './commands';
-import { HALF_TILE, SUBTILES_PER_TILE, fixedToTile, isInt32, tileToFixed } from './fixed';
+import {
+  HALF_TILE,
+  SUBTILES_PER_TILE,
+  fixedToTile,
+  isInt32,
+  tileCenter,
+  tileToFixed,
+} from './fixed';
 import { DIRECTION_DX, DIRECTION_DY } from './entities/direction';
 import type { Entities } from './entities/entities';
 import { fnv1a32 } from './hash';
@@ -195,21 +204,13 @@ export class PlayerTable {
 }
 
 /**
- * Whether tile `(x, y)` blocks movement: tiles outside the supported map
- * range and non-walkable tiles always do. With `entities` (the belt carrying
- * the player, see `beltDrift`) so does any entity that isn't a belt; players
+ * Whether tile line `line` (a column when `horizontal`, else a row) blocks
+ * movement: any of its tiles `from..to` of the other axis that is outside
+ * the supported map range or not walkable (water) does. With `entities`
+ * (the belt carrying the player, see `beltDrift`) so does an entity that
+ * isn't a belt on its tile `center` (the one in front of the player's
+ * center), but not one the box only reaches into beside the belt; players
  * walk through entities on their own.
- */
-function blocked(world: World, entities: Entities | null, x: number, y: number): boolean {
-  if (!world.isWalkable(x, y)) return true;
-  if (entities === null) return false;
-  const id = entities.at(x, y);
-  return id !== 0 && entityPrototype(entities.store.type(id))?.beltSpeed === undefined;
-}
-
-/**
- * Whether any tile on line `line` (a column when `horizontal`, else a row),
- * across tiles `from..to` of the other axis, blocks movement.
  */
 function lineBlocked(
   world: World,
@@ -218,13 +219,16 @@ function lineBlocked(
   line: number,
   from: number,
   to: number,
+  center: number,
 ): boolean {
   for (let t = from; t <= to; t++) {
-    if (horizontal ? blocked(world, entities, line, t) : blocked(world, entities, t, line)) {
+    if (horizontal ? !world.isWalkable(line, t) : !world.isWalkable(t, line)) {
       return true;
     }
   }
-  return false;
+  if (entities === null) return false;
+  const id = horizontal ? entities.at(line, center) : entities.at(center, line);
+  return id !== 0 && entityPrototype(entities.store.type(id))?.beltSpeed === undefined;
 }
 
 /**
@@ -251,18 +255,22 @@ function moveAxis(
   }
   const from = fixedToTile(across - H);
   const to = fixedToTile(across + H - 1);
+  const center = fixedToTile(across);
   let moved = next;
   if (delta > 0) {
     const line = fixedToTile(next + H - 1);
     if (
       line !== fixedToTile(pos + H - 1) &&
-      lineBlocked(world, entities, horizontal, line, from, to)
+      lineBlocked(world, entities, horizontal, line, from, to, center)
     ) {
       moved = tileToFixed(line) - H;
     }
   } else if (delta < 0) {
     const line = fixedToTile(next - H);
-    if (line !== fixedToTile(pos - H) && lineBlocked(world, entities, horizontal, line, from, to)) {
+    if (
+      line !== fixedToTile(pos - H) &&
+      lineBlocked(world, entities, horizontal, line, from, to, center)
+    ) {
       moved = tileToFixed(line + 1) + H;
     }
   }
@@ -300,8 +308,13 @@ export function beltDrift(entities: Entities, px: number, py: number): number {
 /**
  * Lets the belt under player `i` (after its own step) carry it one tick
  * along the belt's direction (its output side, so a curve carries it round
- * the corner) at the belt's item speed. The push can't move the player into
- * water nor into an entity that isn't a belt: it stops flush against it.
+ * the corner) at the belt's item speed. The push can't move the box into
+ * water nor the center into an entity that isn't a belt: it stops flush
+ * against it. Across the belt, unless the player walks along that axis, the
+ * belt pulls the player toward its center line at half its speed, never
+ * past it, so a player who stepped on at the belt's edge or came round a
+ * curve rides in the middle of the belt. The center stays on the belt's
+ * tile line, so the pull enters no new tile and needs no collision check.
  */
 function ridePlayer(players: PlayerTable, world: World, entities: Entities, i: number): void {
   const drift = beltDrift(entities, players.x[i]!, players.y[i]!);
@@ -309,8 +322,21 @@ function ridePlayer(players: PlayerTable, world: World, entities: Entities, i: n
   const speed = drift >> 2;
   const dir = drift & 3;
   const dx = DIRECTION_DX[dir]!;
-  if (dx !== 0) moveAxis(players, world, entities, i, true, dx * speed);
-  else moveAxis(players, world, entities, i, false, DIRECTION_DY[dir]! * speed);
+  const horizontal = dx !== 0;
+  moveAxis(
+    players,
+    world,
+    entities,
+    i,
+    horizontal,
+    horizontal ? dx * speed : DIRECTION_DY[dir]! * speed,
+  );
+  if ((horizontal ? players.moveY[i]! : players.moveX[i]!) !== 0) return;
+  const across = horizontal ? players.y : players.x;
+  const p = across[i]!;
+  const off = tileCenter(fixedToTile(p)) - p;
+  const pull = speed >> 1;
+  across[i] = p + (off > pull ? pull : off < -pull ? -pull : off);
 }
 
 /** Advances player `i`'s hand-mining by one tick. */
