@@ -76,12 +76,12 @@ export function pixelToTile(
 /**
  * The render transform for `camera` (see `View` in shaders.ts). At the fit
  * camera it equals `fitView`. Items are a twelfth of a tile, at least 1.5
- * pixels and at most 8 pixels across, so a close view still shows single items.
+ * pixels and at most 6 pixels across, so a close view still shows single items.
  */
 export function cameraView(net: Network, camera: Camera, vp: Viewport): ViewTransform {
   const tile = tilePixels(net, camera, vp);
   const [ox, oy] = tileToPixel(net, camera, vp, 0, 0);
-  const halfPx = Math.min(4, Math.max(0.75, tile / 24));
+  const halfPx = Math.min(3, Math.max(0.75, tile / 24));
   return {
     scale: [(2 * tile) / vp.width, (-2 * tile) / vp.height],
     offset: [(2 * ox) / vp.width - 1, 1 - (2 * oy) / vp.height],
@@ -149,7 +149,7 @@ export interface FilmShot {
 }
 
 /** How deep the film zooms into the splitter. */
-export const FILM_ZOOM = 9;
+export const FILM_ZOOM = 6;
 
 /** The film's phases, as fractions of its length in ticks. */
 const PHASES = {
@@ -165,14 +165,16 @@ const smoothstep = (t: number): number => {
   return u * u * (3 - 2 * u);
 };
 
-/** Between `a` and `b` at `t` in [0, 1], the zoom on a log scale so it looks steady. */
+/**
+ * Between `a` and `b` at `t` in [0, 1]: the zoom on a log scale so it looks
+ * steady, and the center moving in step with the view's width (1 / zoom), so
+ * the place zoomed into stays in view all the way rather than drifting out.
+ */
 function between(a: Camera, b: Camera, t: number): Camera {
   const s = smoothstep(t);
-  return {
-    x: a.x + (b.x - a.x) * s,
-    y: a.y + (b.y - a.y) * s,
-    zoom: Math.exp(Math.log(a.zoom) + (Math.log(b.zoom) - Math.log(a.zoom)) * s),
-  };
+  const zoom = Math.exp(Math.log(a.zoom) + (Math.log(b.zoom) - Math.log(a.zoom)) * s);
+  const w = a.zoom === b.zoom ? 1 - s : (1 / zoom - 1 / b.zoom) / (1 / a.zoom - 1 / b.zoom);
+  return { x: b.x + (a.x - b.x) * w, y: b.y + (a.y - b.y) * w, zoom };
 }
 
 /**
@@ -210,7 +212,8 @@ export function filmShot(net: Network, tick: number, total: number, items: strin
   const t = total > 0 ? tick / total : 0;
   const wide = fitCamera(net);
   const [sx, sy] = splitterPoint(net);
-  const close: Camera = { x: sx + 1.5, y: sy + 0.5, zoom: FILM_ZOOM };
+  // A little right of and below the splitter: both outputs and the edited belt are in view.
+  const close: Camera = { x: sx + 3, y: sy + 1.5, zoom: FILM_ZOOM };
   const edits = filmEdits(net, total);
   const clickTicks = Math.max(4, Math.round(total * 0.02));
   const recent = edits.find((e) => tick >= e.tick && tick < e.tick + clickTicks);

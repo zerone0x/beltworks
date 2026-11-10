@@ -395,8 +395,8 @@ async function start(): Promise<void> {
     const name = /swiftshader/i.test(hook.adapter) ? 'SwiftShader' : 'a software adapter';
     note.textContent =
       `Recorded on ${name}: WebGPU running on the CPU, not a GPU. ` +
-      'Captured frame by frame, not in real time: live, this machine draws one million ' +
-      'items at a frame every few seconds.';
+      `Captured frame by frame, not in real time: live, this machine draws ${formatCount(n)} ` +
+      'items far below 60 frames per second.';
   }
   /** Film mode: the camera and overlays the script gives for the current tick. */
   const filmFrame = (): void => {

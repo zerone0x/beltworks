@@ -186,7 +186,7 @@ fn fragmentMain(input: BeltOut) -> @location(0) vec4f {
   }
   let across = abs(input.local.y);
   // Chevrons: three per tile, pointing along the exit direction.
-  let k = fract((input.local.x - across * 0.8) * 3.0);
+  let k = fract((input.local.x + across * 0.8) * 3.0);
   if (across > 0.4) {
     color *= 0.55;
   } else if (k < 0.22) {
