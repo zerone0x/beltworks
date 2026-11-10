@@ -88,7 +88,7 @@ export default defineConfig(
     },
   },
   {
-    files: ['src/**/*.ts'],
+    files: ['src/**/*.ts', 'demo/**/*.ts'],
     ignores: ['src/sim/**'],
     languageOptions: { globals: globals.browser },
   },

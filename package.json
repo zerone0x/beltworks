@@ -21,6 +21,7 @@
     "test:e2e": "playwright test",
     "profile:render": "playwright test -c playwright.profile.config.ts",
     "test:release": "playwright test -c playwright.release.config.ts",
+    "test:gpu": "playwright test -c playwright.gpu.config.ts",
     "bench": "vite build -c tools/bench/vite.config.ts && node --expose-gc node_modules/.cache/beltworks-bench/run.js",
     "art": "node tools/art/art.js"
   },

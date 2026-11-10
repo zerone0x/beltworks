@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Beltworks GPU demo: 1M conveyor items</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #111418;
+        color: #d8dee9;
+        font:
+          13px/1.4 ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+      }
+      #gpu-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #hud {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        padding: 6px 10px;
+        white-space: pre;
+        /* Five lines, so the view below doesn't move when the counters arrive. */
+        min-height: 7em;
+        background: rgba(17, 20, 24, 0.8);
+        border-radius: 4px;
+        pointer-events: none;
+      }
+      #gpu-message {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        max-width: 32em;
+        transform: translate(-50%, -50%);
+        padding: 16px 20px;
+        background: #2b1d1f;
+        border: 1px solid #a34e57;
+        border-radius: 6px;
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gpu-canvas"></canvas>
+    <div id="hud">Starting WebGPU...</div>
+    <div id="gpu-message" role="alert" hidden></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
