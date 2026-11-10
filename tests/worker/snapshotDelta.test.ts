@@ -252,4 +252,21 @@ describe('ScratchSet', () => {
     expect(set.has(307)).toBe(false);
     expect(Array.from(set.values.subarray(0, set.size))).toEqual([5, 1000]);
   });
+
+  it('sorts any number of values, keeping every index right', () => {
+    const next = lcg(7);
+    for (const size of [0, 1, 2, 3, 17, 64, 65, 1000]) {
+      const set = new ScratchSet();
+      const added: number[] = [];
+      while (set.size < size) {
+        const v = (next() % 100_000) - 50_000;
+        if (!set.has(v)) added.push(v);
+        set.add(v);
+      }
+      set.sort();
+      const sorted = Array.from(set.values.subarray(0, set.size));
+      expect(sorted).toEqual(added.sort((a, b) => a - b));
+      sorted.forEach((v, i) => expect(set.indexOf(v)).toBe(i));
+    }
+  });
 });

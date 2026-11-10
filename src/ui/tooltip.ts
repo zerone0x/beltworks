@@ -24,6 +24,7 @@ import {
 } from '../data/entities';
 import { itemPrototype, minedItem } from '../data/items';
 import { ORE_IDS } from '../data/resources';
+import { CHUNK_SHIFT } from '../sim/world/chunk';
 import {
   RECIPE_IDS,
   RECIPES,
@@ -218,6 +219,64 @@ export function drillAreaOre(
     resource: id,
     amount: totals.get(id)!,
   }));
+}
+
+/**
+ * The chunk at chunk coordinates `(cx, cy)` as far as the main thread knows:
+ * an object replaced whenever the chunk changes (`null` before it arrived).
+ */
+export type ChunkAt = (cx: number, cy: number) => object | null;
+
+/**
+ * `drillAreaOre` for the spot the pointer rests on, kept until the drill,
+ * the spot or a chunk under its area changes (the tooltip asks every frame;
+ * the chunks only change when the worker sends them again).
+ */
+export class DrillAreaOreCache {
+  private proto: EntityPrototype | null = null;
+  private x = 0;
+  private y = 0;
+  /** The chunks under the area when `ore` was summed, row by row. */
+  private readonly chunks: (object | null)[] = [];
+  /** The ore in the area, as `drillAreaOre` returns it. */
+  ore: { resource: number; amount: number }[] = [];
+  /** The ore as text (`<resource>=<amount>,...`), for the tooltip's key. */
+  oreKey = '';
+
+  /** Brings `ore` and `oreKey` up to date for drill `proto` at `(x, y)`. */
+  update(
+    proto: EntityPrototype,
+    x: number,
+    y: number,
+    resourceAt: ResourceAt,
+    chunkAt: ChunkAt,
+  ): this {
+    const size = proto.miningArea ?? proto.width;
+    const offset = (proto.width - size) >> 1;
+    const x0 = x + offset;
+    const y0 = y + offset;
+    let fresh = proto === this.proto && x === this.x && y === this.y;
+    let n = 0;
+    for (let cy = y0 >> CHUNK_SHIFT; cy <= (y0 + size - 1) >> CHUNK_SHIFT; cy++) {
+      for (let cx = x0 >> CHUNK_SHIFT; cx <= (x0 + size - 1) >> CHUNK_SHIFT; cx++) {
+        const chunk = chunkAt(cx, cy);
+        if (n >= this.chunks.length || this.chunks[n] !== chunk) {
+          fresh = false;
+          this.chunks[n] = chunk;
+        }
+        n++;
+      }
+    }
+    this.chunks.length = n;
+    if (!fresh) {
+      this.proto = proto;
+      this.x = x;
+      this.y = y;
+      this.ore = drillAreaOre(proto, x, y, resourceAt);
+      this.oreKey = this.ore.map((o) => `${String(o.resource)}=${String(o.amount)}`).join();
+    }
+    return this;
+  }
 }
 
 /**

@@ -10,9 +10,11 @@
  *
  * Each encoder's heap allocation is measured too: the growth of V8's used
  * heap across the call as the median over the ticks, less the median growth
- * across the same measuring steps around nothing (a garbage collection inside the call makes the growth negative, and
- * that tick is left out). Once the writers have grown, the encoders should
- * allocate nothing.
+ * across the same measuring steps around nothing (a garbage collection
+ * inside the call makes the growth negative, and that tick is left out).
+ * Once the writers have grown, an encoder allocates only the `Int32Array`
+ * view of its writer it returns: about 100 bytes a call (96 in Node 22),
+ * whatever the number of entities.
  */
 
 import { getHeapStatistics } from 'node:v8';

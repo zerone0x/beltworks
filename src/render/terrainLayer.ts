@@ -309,6 +309,16 @@ export class TerrainLayer {
     }
   }
 
+  /**
+   * The data of chunk `(cx, cy)`, or `null` if it isn't loaded: a new object
+   * whenever the worker sends the chunk again (so its identity tells whether
+   * the chunk changed).
+   */
+  chunkData(cx: number, cy: number): ChunkData | null {
+    const cached = this.chunks.get(chunkKey(cx, cy));
+    return cached && cached.data.cx === cx && cached.data.cy === cy ? cached.data : null;
+  }
+
   /** Terrain, resource and tree at world tile `(x, y)`, or `null` if that chunk isn't loaded. */
   tileAt(x: number, y: number): TileInfo | null {
     const cx = x >> CHUNK_SHIFT;

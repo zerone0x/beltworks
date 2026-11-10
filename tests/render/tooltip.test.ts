@@ -4,6 +4,7 @@ import { ITEM_IDS, ItemId } from '../../src/data/items';
 import { RECIPE_IDS, RecipeId } from '../../src/data/recipes';
 import { ResourceId } from '../../src/data/resources';
 import {
+  DrillAreaOreCache,
   drillAreaOre,
   drillAreaTooltip,
   entityTooltip,
@@ -135,5 +136,48 @@ describe('tooltips', () => {
       title: 'Burner mining drill',
       lines: ['No ore in its 2×2 area'],
     });
+  });
+
+  it("keep a drill area's ore until the drill, the spot or a chunk under it changes", () => {
+    let amount = 100;
+    let sums = 0;
+    const world = (x: number, y: number) => {
+      sums++;
+      return { resource: ResourceId.IronOre, amount: x === 31 && y === 0 ? amount : 100 };
+    };
+    // One object per chunk, replaced when the chunk changes (as `TerrainLayer.chunkData`).
+    const chunks = new Map<string, object>();
+    const chunkAt = (cx: number, cy: number) => {
+      const key = `${String(cx)},${String(cy)}`;
+      if (!chunks.has(key)) chunks.set(key, {});
+      return chunks.get(key)!;
+    };
+    const electric = entityPrototype(EntityTypeId.ElectricMiningDrill)!;
+    const burner = entityPrototype(EntityTypeId.BurnerMiningDrill)!;
+    const cache = new DrillAreaOreCache();
+    // At (31, 0) the 5×5 area (30-34, -1-3) spans four chunks.
+    cache.update(electric, 31, 0, world, chunkAt);
+    expect(cache.ore).toEqual(drillAreaOre(electric, 31, 0, world));
+    expect(cache.oreKey).toBe(`${String(ResourceId.IronOre)}=2500`);
+    sums = 0;
+    cache.update(electric, 31, 0, world, chunkAt);
+    expect(sums).toBe(0);
+    // A chunk under the area arrives again, with less ore on (31, 0).
+    amount = 40;
+    chunks.set('0,0', {});
+    cache.update(electric, 31, 0, world, chunkAt);
+    expect(sums).toBeGreaterThan(0);
+    expect(cache.ore).toEqual([{ resource: ResourceId.IronOre, amount: 2_440 }]);
+    // A chunk outside it changes: nothing to sum again.
+    sums = 0;
+    chunks.set('5,5', {});
+    cache.update(electric, 31, 0, world, chunkAt);
+    expect(sums).toBe(0);
+    // Another spot, another drill.
+    cache.update(electric, 32, 0, world, chunkAt);
+    expect(sums).toBeGreaterThan(0);
+    expect(cache.update(burner, 32, 0, world, chunkAt).ore).toEqual([
+      { resource: ResourceId.IronOre, amount: 400 },
+    ]);
   });
 });
