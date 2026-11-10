@@ -78,7 +78,7 @@ import { beltSprites, surfaceFrame, type BeltSprites } from './beltSprites';
 import { TILE_PX } from './camera';
 import { EVERYWHERE, overlaps, type TileRect } from './cull';
 import { placeSprite } from './entitySprites';
-import { itemIconAtlas } from './itemIcons';
+import { itemIconAtlas } from './itemIconAtlas';
 import { SHADOW_ALPHA, modelDirection, type SpriteAtlas } from './sprites';
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;

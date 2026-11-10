@@ -100,5 +100,22 @@ export default defineConfig({
     target: 'es2022',
     // No sourcemaps in the deployed build: players download only what runs.
     sourcemap: false,
+    rolldownOptions: {
+      output: {
+        // The bundled packages (PixiJS and what it pulls in) in a chunk of their own, loaded
+        // behind the title screen with the renderer (D64). It changes only with the dependencies
+        // (or the PixiJS features the game uses), so returning players keep it across releases.
+        // Vite's preload helper gets its own small chunk: the main chunk needs it, and in the
+        // packages' chunk it would make the main chunk wait for all of PixiJS.
+        codeSplitting: {
+          groups: [
+            { name: 'preload', test: /preload-helper/, priority: 1 },
+            { name: 'pixi', test: /[\\/]node_modules[\\/]/ },
+          ],
+        },
+      },
+    },
+    // The packages' chunk is about 610 kB (175 kB gzipped); every other chunk stays below 500 kB.
+    chunkSizeWarningLimit: 700,
   },
 });

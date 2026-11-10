@@ -34,7 +34,7 @@ import { AlphaFilter, Container, Sprite } from 'pixi.js';
 import { TILE_PX } from './camera';
 import { EVERYWHERE, overlaps, sameRect, type TileRect } from './cull';
 import type { EntityIndex, EntityView } from './entityIndex';
-import { itemIconAtlas } from './itemIcons';
+import { itemIconAtlas } from './itemIconAtlas';
 import {
   HEIGHT_ON_SCREEN,
   SHADOW_ALPHA,

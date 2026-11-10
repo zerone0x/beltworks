@@ -1,8 +1,8 @@
 /**
  * Item icons. Two kinds, shown everywhere an item is: on belts and in
- * inserter hands (Pixi textures, `ICON_PX` world pixels wide), over
- * assembling machines, and in the inventory, hotbar and entity windows
- * (images scaled 2×).
+ * inserter hands (Pixi textures, `ICON_PX` world pixels wide: see
+ * itemIconAtlas.ts), over assembling machines, and in the inventory, hotbar
+ * and entity windows (images scaled 2×).
  *
  * - Rendered icons (docs/ART.md): a small 3D render of every item from the
  *   `icons` atlas (`npm run art`), `ICON_PX` × 4 texels square, loaded at
@@ -20,9 +20,11 @@
  *
  * Neither depends on a font, so icons look the same on every machine (the
  * hotbar is part of the screenshot tests).
+ *
+ * This module doesn't import PixiJS: the windows (and the settings panel on
+ * the title screen) use it before the renderer's chunk loads (D64).
  */
 
-import { ImageSource, Rectangle, Texture } from 'pixi.js';
 import { ITEM_IDS, ItemId, itemPrototype, type RealItemId } from '../data/items';
 
 /** Edge length of an item icon in pixels (world pixels on belts, so ~0.4 tile). */
@@ -257,16 +259,24 @@ function iconCanvas(item: number): HTMLCanvasElement {
 /** Rendered icon texels per icon pixel (`ICON_PX`): the icons atlas holds 52² renders. */
 export const RENDERED_ICON_SCALE = 4;
 
-/** The rendered icons, once loaded: textures and the sheet they come from, by item id. */
+/** The rendered icons, once loaded: the sheets, and where each item's icon is on them. */
 interface RenderedIcons {
   sheets: ImageBitmap[];
   /** `[sheet, x, y]` of each item's icon in texels. */
   places: Map<number, [number, number, number]>;
-  textures: Map<number, Texture>;
   size: number;
 }
 
+/** Where item `item`'s rendered icon is: its sheet and top-left corner in texels. */
+export interface RenderedIconPlace {
+  sheet: ImageBitmap;
+  x: number;
+  y: number;
+}
+
 let rendered: RenderedIcons | null = null;
+/** Counts the rendered icon sets loaded, so itemIconAtlas.ts knows when its textures are stale. */
+let renderedGeneration = 0;
 const LETTER_KEY = 'beltworks.letterIcons';
 let letters = readLetterSetting();
 const listeners = new Set<() => void>();
@@ -282,6 +292,21 @@ function readLetterSetting(): boolean {
 /** Whether item `item` shows its rendered icon (loaded, has one, and letters aren't preferred). */
 export function hasRenderedIcon(item: number): boolean {
   return !letters && rendered !== null && rendered.places.has(item);
+}
+
+/**
+ * Where item `item`'s rendered icon is (`null` unless `hasRenderedIcon`):
+ * itemIconAtlas.ts makes Pixi textures of it.
+ */
+export function renderedIconPlace(item: number): RenderedIconPlace | null {
+  if (!hasRenderedIcon(item)) return null;
+  const [sheet, x, y] = rendered!.places.get(item)!;
+  return { sheet: rendered!.sheets[sheet]!, x, y };
+}
+
+/** Changes whenever another set of rendered icons loads (their places and sheets change). */
+export function renderedIconsGeneration(): number {
+  return renderedGeneration;
 }
 
 /** Whether the lettered icons are preferred over the rendered ones. */
@@ -355,34 +380,14 @@ export async function loadItemIcons(url: string): Promise<boolean> {
         return createImageBitmap(blob);
       }),
     );
-    const sources = sheets.map(
-      (bitmap) =>
-        new ImageSource({
-          resource: bitmap,
-          resolution: RENDERED_ICON_SCALE,
-          autoGenerateMipmaps: true,
-          scaleMode: 'linear',
-          label: 'item icons',
-        }),
-    );
     const byName = new Map(ITEM_IDS.map((id) => [itemPrototype(id)!.name, id]));
     const places = new Map<number, [number, number, number]>();
-    const textures = new Map<number, Texture>();
     for (const [name, place] of Object.entries(index.icons.items)) {
       const id = byName.get(name);
-      if (id === undefined) continue;
-      const [sheet, x, y] = place;
-      places.set(id, place);
-      const s = RENDERED_ICON_SCALE;
-      textures.set(
-        id,
-        new Texture({
-          source: sources[sheet]!,
-          frame: new Rectangle(x / s, y / s, ICON_PX, ICON_PX),
-        }),
-      );
+      if (id !== undefined) places.set(id, place);
     }
-    rendered = { sheets, places, textures, size: index.icons.size };
+    rendered = { sheets, places, size: index.icons.size };
+    renderedGeneration++;
     urlCache.clear();
     for (const listener of listeners) listener();
     return true;
@@ -390,55 +395,4 @@ export async function loadItemIcons(url: string): Promise<boolean> {
     console.warn('item icons: keeping the lettered ones:', err);
     return false;
   }
-}
-
-/**
- * Pixi textures of the item icons. The lettered ones share one atlas (so
- * items on belts and in hands batch into few draw calls), sampled with
- * nearest filtering: at zoom 1 one texel covers exactly one screen pixel, so
- * labels stay crisp. The rendered ones come from their atlas, mipmapped.
- */
-export class ItemIconAtlas {
-  private readonly textures = new Map<number, Texture>();
-  private readonly base: Texture;
-  /** Icon pitch in the atlas: one transparent pixel between icons so neighbours never bleed. */
-  private static readonly PITCH = ICON_PX + 1;
-
-  constructor() {
-    const ids: number[] = [...ITEM_IDS, 0xffff];
-    const canvas = document.createElement('canvas');
-    canvas.width = ids.length * ItemIconAtlas.PITCH;
-    canvas.height = ICON_PX;
-    const ctx = canvas.getContext('2d')!;
-    ids.forEach((id, i) => {
-      const image = ctx.createImageData(ICON_PX, ICON_PX);
-      image.data.set(iconPixels(id));
-      ctx.putImageData(image, i * ItemIconAtlas.PITCH, 0);
-    });
-    this.base = Texture.from(canvas);
-    this.base.source.scaleMode = 'nearest';
-    ids.forEach((id, i) => {
-      const frame = new Rectangle(i * ItemIconAtlas.PITCH, 0, ICON_PX, ICON_PX);
-      this.textures.set(id, new Texture({ source: this.base.source, frame }));
-    });
-  }
-
-  /** The texture of item `item` (the unknown-item icon for ids without a prototype). */
-  texture(item: number): Texture {
-    if (hasRenderedIcon(item)) return rendered!.textures.get(item)!;
-    return this.textures.get(item) ?? this.textures.get(0xffff)!;
-  }
-
-  destroy(): void {
-    for (const t of this.textures.values()) t.destroy(false);
-    this.base.destroy(true);
-  }
-}
-
-let shared: ItemIconAtlas | null = null;
-
-/** The atlas shared by the belt and inserter layers, created on first use. */
-export function itemIconAtlas(): ItemIconAtlas {
-  shared ??= new ItemIconAtlas();
-  return shared;
 }
