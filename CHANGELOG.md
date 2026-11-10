@@ -9,8 +9,12 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 - Idle machines cost (almost) nothing per tick: an incremental power solve, logarithmic belt lane queries and per-system activity counters in the benchmarks and the debug overlay (#73, D62).
 - The title screen shows without waiting for the renderer (#112, D64): PixiJS loads in the background while it is up, in a chunk of its own that stays cached across releases; the first download before the title screen drops from about 170 kB to 64 kB (gzipped). If the game's files can't be downloaded (offline), a message says so and offers Reload.
 
+- The player is magenta instead of orange, which vanished on copper ore, and the pickaxe is easier to see (#128, D70).
+- Sprite atlases are smaller: the packer drops the noise of the shadow frames (the player's sheet is 38% smaller in texels and its PNG 16%, the other atlases' PNGs 8 to 19%) (#128, D70).
+
 ### Fixed
 
+- The player stands in the buildings' depth order: one north of a building is behind it instead of drawn over it (#128, D70).
 - An inserter dropping onto a belt loop made of a single line keeps the item spacing across the loop's seam (#73).
 - Saved key bindings survive an update that adds several actions at once, or whose new action's default key chains through other rebound keys, instead of resetting to the defaults (#125, D53).
 

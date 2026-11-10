@@ -54,6 +54,53 @@ const ICON_COLUMNS = 8;
 const ALPHA_FLOOR = 6;
 
 /**
+ * A shadow pass is path traced, so besides the shadow it holds faint noise
+ * (alpha up to a few dozen, a few percent on average) scattered over the whole
+ * canvas, which would keep the frame as big as the canvas. A pixel of a shadow
+ * frame is dropped unless the mean alpha of the (2 * NOISE_RADIUS + 1)² texels
+ * around it reaches NOISE_MEAN: noise is sparse, whereas a shadow and its
+ * smooth halo are not (the box filter keeps a tree's ambient halo, and costs a
+ * shadow about 1% of its alpha along the edges).
+ */
+const NOISE_RADIUS = 3;
+const NOISE_MEAN = 8;
+
+/**
+ * Clears the alpha of the pixels of a shadow frame that are no more than noise.
+ * @param {import('./png.js').Image} image
+ */
+function clearNoise(image) {
+  const { width, height, data } = image;
+  // Summed-area table of the alpha, one row and column larger than the image.
+  const stride = width + 1;
+  const sums = new Float64Array(stride * (height + 1));
+  for (let y = 0; y < height; y++) {
+    let row = 0;
+    for (let x = 0; x < width; x++) {
+      row += data[(y * width + x) * 4 + 3];
+      sums[(y + 1) * stride + x + 1] = sums[y * stride + x + 1] + row;
+    }
+  }
+  const dropped = [];
+  for (let y = 0; y < height; y++) {
+    const y0 = Math.max(0, y - NOISE_RADIUS);
+    const y1 = Math.min(height, y + NOISE_RADIUS + 1);
+    for (let x = 0; x < width; x++) {
+      const x0 = Math.max(0, x - NOISE_RADIUS);
+      const x1 = Math.min(width, x + NOISE_RADIUS + 1);
+      const sum =
+        sums[y1 * stride + x1] -
+        sums[y0 * stride + x1] -
+        sums[y1 * stride + x0] +
+        sums[y0 * stride + x0];
+      const mean = sum / (2 * NOISE_RADIUS + 1) ** 2;
+      if (mean < NOISE_MEAN) dropped.push(y * width + x);
+    }
+  }
+  for (const p of dropped) data[p * 4 + 3] = 0;
+}
+
+/**
  * Trims `image` to its pixels above ALPHA_FLOOR on ALIGN boundaries, clearing
  * the others; `shadow` frames become pure black with the alpha as rendered.
  * @param {import('./png.js').Image} image
@@ -63,6 +110,7 @@ const ALPHA_FLOOR = 6;
  * @returns {Frame}
  */
 function trimFrame(image, anchor, shadow, key) {
+  if (shadow) clearNoise(image);
   const { width, height, data } = image;
   let x0 = width;
   let y0 = height;
