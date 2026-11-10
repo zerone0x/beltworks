@@ -221,12 +221,17 @@ async function start(): Promise<void> {
     }
   };
 
-  const timingSource = sim.hasTimestamps ? 'gpu timestamps' : 'wall clock';
+  const label = (source: StepTiming['source']): string =>
+    source === 'gpu timestamps' ? 'GPU timestamps' : 'wall clock';
+  const timingSource = label(sim.hasTimestamps ? 'gpu timestamps' : 'wall clock');
   const stepTime = (): string => {
-    if (!showTiming) return `ms per step not shown (timing=0), measured by ${timingSource}`;
-    if (!timing) return `measuring ms per step (${timingSource})...`;
+    if (!showTiming) return `hidden (timing=0), timed by ${timingSource}`;
+    if (!timing) return `measuring (${timingSource})...`;
     const ms = timing.msPerStep;
-    return `${ms.toFixed(ms < 10 ? 3 : 1)} ms per step (${timing.source}, over ${formatCount(timing.steps)} ticks)`;
+    return (
+      `${ms.toFixed(ms < 10 ? 3 : 1)} ` +
+      `(${label(timing.source)}, over ${formatCount(timing.steps)} ticks)`
+    );
   };
 
   const drawHud = (): void => {
@@ -236,7 +241,7 @@ async function start(): Promise<void> {
       capture
         ? `tick ${formatCount(sim.tick)}, capture mode: ${formatCount(captureSteps)} ticks for this frame`
         : `tick ${formatCount(sim.tick)}${paused ? ' (paused)' : ''}, ${tps.toFixed(0)} ticks/s, ${fps.toFixed(1)} fps`,
-      `simulation: ${stepTime()}`,
+      `simulation ms/step: ${stepTime()}`,
     ];
     if (counters) {
       const groups = ['trunk', 'branch A', 'branch B'].slice(0, GROUP_COUNT);

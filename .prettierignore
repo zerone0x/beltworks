@@ -8,3 +8,4 @@ package-lock.json
 *.md
 art/build/
 public/sprites/
+/out/
