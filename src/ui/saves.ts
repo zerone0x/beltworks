@@ -11,7 +11,7 @@
  * which loads it. Serializing and gzipping happen in the worker.
  */
 
-import { gunzip, gzip, isGzip } from '../save/compress';
+import { gunzipSave, gzip, isGzip } from '../save/compress';
 import {
   AUTOSAVE_TICKS,
   AutosaveClock,
@@ -62,7 +62,7 @@ function newerVersionMessage(version: number): string {
 /** The world seed of save `save` (gzipped or not), or `fallback` if it can't be read. */
 async function seedOf(save: Uint8Array, fallback: number): Promise<number> {
   try {
-    return readSaveMeta(isGzip(save) ? await gunzip(save) : save).seed >>> 0;
+    return readSaveMeta(isGzip(save) ? await gunzipSave(save) : save).seed >>> 0;
   } catch {
     return fallback;
   }
@@ -232,7 +232,7 @@ export class SaveController implements Omit<
     const raw = new Uint8Array(await file.arrayBuffer());
     let meta;
     try {
-      meta = readSaveMeta(await gunzip(raw));
+      meta = readSaveMeta(await gunzipSave(raw));
     } catch (err) {
       throw new Error(`${file.name}: ${err instanceof Error ? err.message : String(err)}`, {
         cause: err,

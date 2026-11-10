@@ -5,7 +5,7 @@
 
 import { MAX_STACK_SIZE, itemPrototype, type ItemStack, type RealItemId } from '../data/items';
 import { technologyPrototype } from '../data/technologies';
-import { gunzip, gzip } from '../save/compress';
+import { gunzipSave, gzip } from '../save/compress';
 import { validateCommandInput } from '../sim/commands';
 import { loadSim, saveMetaOf, saveSim } from '../sim/save/save';
 import {
@@ -241,7 +241,7 @@ async function handle(msg: MainToWorker): Promise<void> {
       let loadError: string | null = null;
       if (msg.save) {
         try {
-          loaded = loadSim(await gunzip(new Uint8Array(msg.save)));
+          loaded = loadSim(await gunzipSave(new Uint8Array(msg.save)));
         } catch (err) {
           loadError = err instanceof Error ? err.message : String(err);
         }
