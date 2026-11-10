@@ -8,10 +8,31 @@
  * (the tests step through `window.__gpuDemo`), `?capture=1` the deterministic
  * capture mode: no frame loop, `window.__step(k)` steps k ticks and draws one
  * frame (tools/gpu-demo/capture.mjs), `?timing=0` leave the measured step time
- * out of the overlay, so the same ticks give the same picture.
+ * out of the overlay, so the same ticks give the same picture,
+ * `?camera=film` (capture mode) the scripted film camera, a function of the
+ * tick (`filmShot` in camera.ts), over `?filmticks=` ticks.
+ *
+ * Drag to pan, the wheel (or + and -) to zoom, 0 to see everything again, the
+ * arrow keys to pan; a click places a belt on an empty tile or rotates the belt
+ * on a tile (edit.ts).
  */
 
-import { DEFAULT_QUADS_PER_INSTANCE, GpuBeltSim, fitView, maxItems, type StepTiming } from './gpu';
+import {
+  cameraView,
+  clampCamera,
+  filmEdits,
+  filmShot,
+  fitCamera,
+  panBy,
+  pixelToTile,
+  tileToPixel,
+  zoomAt,
+  type Camera,
+  type FilmShot,
+  type Viewport,
+} from './camera';
+import { EditableNetwork, type EditResult } from './edit';
+import { DEFAULT_QUADS_PER_INSTANCE, GpuBeltSim, maxItems, type StepTiming } from './gpu';
 import { GROUP_COUNT, buildNetwork } from './network';
 import { Counter, ITEM_TYPES, initItems, type Items } from './sim';
 
@@ -22,6 +43,10 @@ const MAX_STEPS_PER_FRAME = 4;
 /** How often the counters are read back, in milliseconds. */
 const READBACK_MS = 500;
 const DEFAULT_ITEMS = 1_000_000;
+/** The film's length in ticks when `?filmticks=` doesn't say (24 s at the game's 60 ticks/s). */
+const DEFAULT_FILM_TICKS = 1440;
+/** A pointer that moves more than this many CSS pixels while down pans instead of clicking. */
+const DRAG_PIXELS = 4;
 
 /** What the page exposes for the headless tests (`tests/gpu/`). */
 export interface GpuDemoHook {
@@ -43,6 +68,21 @@ export interface GpuDemoHook {
   /** The full item state (small item counts only), as plain arrays. */
   read(): Promise<{ belt: number[]; progress: number[]; itemType: number[] }>;
   counters(): Promise<{ tick: number; counters: number[] }>;
+  /**
+   * A click on tile `(x, y)` (belt editing, edit.ts): places or rotates a
+   * belt and writes the changed segments into the GPU's segment buffer. It
+   * doesn't step or draw.
+   */
+  edit(x: number, y: number): EditResult;
+  /** The network on the CPU side: `count` segments of 8 words. */
+  network(): { count: number; segments: number[] };
+  /** The GPU's segment buffer, read back. */
+  readSegments(): Promise<number[]>;
+  camera(): Camera;
+  /** Moves the camera (not in film mode, where the script owns it). */
+  setCamera(camera: Camera): void;
+  /** The CSS pixel position, in the page, of the tile coordinate `(x, y)` at the current camera. */
+  tileToClient(x: number, y: number): [number, number];
 }
 
 /** What `window.__step` resolves with (capture mode). */
@@ -53,6 +93,8 @@ export interface CaptureStep {
   frames: number;
   /** How long the k ticks took, or `null` for `__step(0)`. */
   timing: StepTiming | null;
+  /** The camera the frame was drawn with. */
+  camera: Camera;
 }
 
 declare global {
@@ -70,6 +112,9 @@ declare global {
 const hud = document.getElementById('hud')!;
 const message = document.getElementById('gpu-message')!;
 const canvas = document.getElementById('gpu-canvas') as HTMLCanvasElement;
+const caption = document.getElementById('caption')!;
+const endCard = document.getElementById('end-card')!;
+const clickMark = document.getElementById('click-mark')!;
 
 const hook: GpuDemoHook = {
   state: 'starting',
@@ -83,6 +128,12 @@ const hook: GpuDemoHook = {
   timedStep: () => Promise.reject(new Error('not started')),
   read: () => Promise.reject(new Error('not started')),
   counters: () => Promise.reject(new Error('not started')),
+  edit: () => ({ kind: 'refused', reason: 'not started', changed: [] }),
+  network: () => ({ count: 0, segments: [] }),
+  readSegments: () => Promise.reject(new Error('not started')),
+  camera: () => ({ x: 0, y: 0, zoom: 1 }),
+  setCamera: () => {},
+  tileToClient: () => [0, 0],
 };
 window.__gpuDemo = hook;
 
@@ -106,11 +157,22 @@ function formatCount(n: number): string {
   return n.toLocaleString('en-US');
 }
 
+/**
+ * Whether the adapter is a software one (SwiftShader and the like): the
+ * overlay and the film's end card say so, so a CPU run isn't taken for a GPU.
+ */
+function isSoftware(info: GPUAdapterInfo, name: string): boolean {
+  const fallback = (info as GPUAdapterInfo & { isFallbackAdapter?: boolean }).isFallbackAdapter;
+  return fallback === true || /swiftshader|llvmpipe|lavapipe|warp|software/i.test(name);
+}
+
 async function start(): Promise<void> {
   const params = new URLSearchParams(location.search);
   const capture = params.get('capture') === '1';
   const paused = capture || params.get('paused') === '1';
   const showTiming = params.get('timing') !== '0';
+  const film = capture && params.get('camera') === 'film';
+  const filmTicks = positiveInt(params, 'filmticks', DEFAULT_FILM_TICKS);
   if (!('gpu' in navigator) || !navigator.gpu) {
     fail(
       'WebGPU is not available in this browser. This demo needs a browser with WebGPU ' +
@@ -126,6 +188,10 @@ async function start(): Promise<void> {
   }
   const info = adapter.info;
   hook.adapter = [info.vendor, info.architecture, info.description].filter(Boolean).join(' / ');
+  const software = isSoftware(info, hook.adapter);
+  const adapterText = software
+    ? `${hook.adapter || 'unknown'} (software: WebGPU on the CPU, not a GPU)`
+    : hook.adapter || 'unknown';
   // Timestamp queries time the step on the GPU itself; without them the overlay uses the wall clock.
   const timestampQuery = adapter.features.has('timestamp-query');
   const device = await adapter.requestDevice({
@@ -146,7 +212,7 @@ async function start(): Promise<void> {
   const quads = Math.min(positiveInt(params, 'quads', DEFAULT_QUADS_PER_INSTANCE), 1024);
   const capacity = maxItems(device.limits);
   const n = Math.min(requested, capacity);
-  const net = buildNetwork();
+  const net = new EditableNetwork(buildNetwork());
   const initial: Items = initItems(n, net);
 
   const context = canvas.getContext('webgpu');
@@ -158,7 +224,7 @@ async function start(): Promise<void> {
   context.configure({ device, format, alphaMode: 'opaque' });
 
   device.pushErrorScope('validation');
-  const sim = new GpuBeltSim(device, format, net, initial, quads);
+  const sim = new GpuBeltSim(device, format, net, initial, quads, net.capacity);
   const setupError = await device.popErrorScope();
   if (setupError) {
     fail(`Could not set up the GPU pipelines: ${setupError.message}`);
@@ -193,6 +259,26 @@ async function start(): Promise<void> {
       }
       await new Promise((r) => setTimeout(r, 20));
     }
+  };
+
+  let camera: Camera = fitCamera(net);
+  let lastEdit = '';
+  const applyEdit = (x: number, y: number): EditResult => {
+    const r = net.edit(x, y);
+    if (r.changed.length > 0) sim.updateSegments(net, r.changed);
+    const where = `(${String(x)}, ${String(y)})`;
+    lastEdit =
+      r.kind === 'refused'
+        ? `can't edit ${where}: ${r.reason}`
+        : `${r.kind} belt at ${where}, tick ${formatCount(sim.tick)}`;
+    return r;
+  };
+  hook.edit = applyEdit;
+  hook.network = () => ({ count: net.count, segments: Array.from(net.segments) });
+  hook.readSegments = async () => Array.from(await sim.readSegments());
+  hook.camera = () => camera;
+  hook.setCamera = (c) => {
+    if (!film) camera = clampCamera(net, c);
   };
 
   const clamped =
@@ -237,11 +323,17 @@ async function start(): Promise<void> {
   const drawHud = (): void => {
     const lines = [
       `Beltworks GPU demo: ${formatCount(n)} items${clamped} on ${String(net.count)} belt segments`,
-      `adapter: ${hook.adapter || 'unknown'}`,
+      `adapter: ${adapterText}`,
       capture
         ? `tick ${formatCount(sim.tick)}, capture mode: ${formatCount(captureSteps)} ticks for this frame`
         : `tick ${formatCount(sim.tick)}${paused ? ' (paused)' : ''}, ${tps.toFixed(0)} ticks/s, ${fps.toFixed(1)} fps`,
       `simulation ms/step: ${stepTime()}`,
+      `view ${camera.zoom.toFixed(1)}x` +
+        (lastEdit
+          ? `, last edit: ${lastEdit}`
+          : film || capture
+            ? ''
+            : ': drag to pan, wheel to zoom, click to place or rotate a belt'),
     ];
     if (counters) {
       const groups = ['trunk', 'branch A', 'branch B'].slice(0, GROUP_COUNT);
@@ -255,16 +347,140 @@ async function start(): Promise<void> {
     hud.textContent = lines.join('\n');
   };
 
+  /** Device pixels per CSS pixel. */
+  const dpr = (): number => canvas.width / Math.max(1, canvas.clientWidth);
+  /** The canvas in device pixels, minus the rows under the overlay. */
+  const viewport = (): Viewport => ({
+    width: canvas.width,
+    height: canvas.height,
+    top: (hud.getBoundingClientRect().bottom + 8) * dpr(),
+  });
+  hook.tileToClient = (x, y) => {
+    const [px, py] = tileToPixel(net, camera, viewport(), x, y);
+    const rect = canvas.getBoundingClientRect();
+    return [rect.left + px / dpr(), rect.top + py / dpr()];
+  };
+
   const draw = (): void => {
     resize();
-    const dpr = canvas.width / Math.max(1, canvas.clientWidth);
-    const top = (hud.getBoundingClientRect().bottom + 8) * dpr;
-    sim.render(
-      context.getCurrentTexture().createView(),
-      fitView(net, canvas.width, canvas.height, top),
-    );
+    sim.render(context.getCurrentTexture().createView(), cameraView(net, camera, viewport()));
     hook.frames++;
   };
+
+  /** The film's overlays for `shot`: the caption, the clicked tile's ring and the end card. */
+  const showFilm = (shot: FilmShot): void => {
+    caption.textContent = shot.caption;
+    caption.hidden = shot.caption === '';
+    endCard.hidden = !shot.endCard;
+    clickMark.hidden = shot.click === null;
+    if (shot.click) {
+      const vp = viewport();
+      const [x0, y0] = tileToPixel(net, camera, vp, shot.click.x, shot.click.y);
+      const [x1, y1] = tileToPixel(net, camera, vp, shot.click.x + 1, shot.click.y + 1);
+      const d = dpr();
+      Object.assign(clickMark.style, {
+        left: `${String(x0 / d)}px`,
+        top: `${String(y0 / d)}px`,
+        width: `${String((x1 - x0) / d)}px`,
+        height: `${String((y1 - y0) / d)}px`,
+      });
+    }
+  };
+  if (film) {
+    document.getElementById('end-adapter')!.textContent = adapterText;
+    document.getElementById('end-items')!.textContent =
+      `${formatCount(n)} items on ${String(net.count)} belt segments`;
+    const note = document.getElementById('end-software')!;
+    note.hidden = !software;
+    const name = /swiftshader/i.test(hook.adapter) ? 'SwiftShader' : 'a software adapter';
+    note.textContent =
+      `Recorded on ${name}: WebGPU running on the CPU, not a GPU. ` +
+      `Captured frame by frame, not in real time: live, this machine draws ${formatCount(n)} ` +
+      'items far below 60 frames per second.';
+  }
+  /** Film mode: the camera and overlays the script gives for the current tick. */
+  const filmFrame = (): void => {
+    if (!film) return;
+    const shot = filmShot(net, sim.tick, filmTicks, formatCount(n));
+    camera = shot.camera;
+    showFilm(shot);
+  };
+
+  // Pan, zoom and click. The film's camera is scripted, so it takes no input.
+  if (!film) {
+    let down: { id: number; x: number; y: number; dragged: boolean } | null = null;
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      down = { id: e.pointerId, x: e.clientX, y: e.clientY, dragged: false };
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!down || down.id !== e.pointerId) return;
+      const dx = e.clientX - down.x;
+      const dy = e.clientY - down.y;
+      if (!down.dragged && Math.hypot(dx, dy) < DRAG_PIXELS) return;
+      down.dragged = true;
+      camera = panBy(net, camera, viewport(), dx * dpr(), dy * dpr());
+      down.x = e.clientX;
+      down.y = e.clientY;
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      if (!down || down.id !== e.pointerId) return;
+      const click = !down.dragged;
+      down = null;
+      if (!click) return;
+      const rect = canvas.getBoundingClientRect();
+      const [tx, ty] = pixelToTile(
+        net,
+        camera,
+        viewport(),
+        (e.clientX - rect.left) * dpr(),
+        (e.clientY - rect.top) * dpr(),
+      );
+      applyEdit(Math.floor(tx), Math.floor(ty));
+      drawHud();
+    });
+    canvas.addEventListener('pointercancel', () => {
+      down = null;
+    });
+    canvas.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const scale = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1;
+        camera = zoomAt(
+          net,
+          camera,
+          viewport(),
+          (e.clientX - rect.left) * dpr(),
+          (e.clientY - rect.top) * dpr(),
+          Math.exp(-e.deltaY * scale * 0.0015),
+        );
+      },
+      { passive: false },
+    );
+    window.addEventListener('keydown', (e) => {
+      const vp = viewport();
+      const step = 60 * dpr();
+      const center = (factor: number): Camera =>
+        zoomAt(net, camera, vp, vp.width / 2, vp.top + (vp.height - vp.top) / 2, factor);
+      const keys: Record<string, () => Camera> = {
+        ArrowLeft: () => panBy(net, camera, vp, step, 0),
+        ArrowRight: () => panBy(net, camera, vp, -step, 0),
+        ArrowUp: () => panBy(net, camera, vp, 0, step),
+        ArrowDown: () => panBy(net, camera, vp, 0, -step),
+        '+': () => center(1.25),
+        '=': () => center(1.25),
+        '-': () => center(0.8),
+        '0': () => fitCamera(net),
+      };
+      const move = keys[e.key];
+      if (!move) return;
+      e.preventDefault();
+      camera = move();
+    });
+  }
 
   if (capture) {
     // No frame loop and no clock: each frame is exactly the ticks `__step` was asked for.
@@ -273,6 +489,9 @@ async function start(): Promise<void> {
       counters = Uint32Array.from(r.counters);
       countersTick = r.tick;
     };
+    // The film's scripted clicks, applied when the tick reaches theirs, however `__step` gets there.
+    const edits = film ? filmEdits(net, filmTicks) : [];
+    let nextEdit = 0;
     let busy = false;
     const captureStep = async (k: number): Promise<CaptureStep> => {
       if (!Number.isSafeInteger(k) || k < 0) throw new Error(`__step: bad tick count ${String(k)}`);
@@ -280,20 +499,32 @@ async function start(): Promise<void> {
       if (hook.state === 'failed') throw new Error(hook.error ?? 'failed');
       busy = true;
       try {
-        await device.queue.onSubmittedWorkDone();
-        const t = await sim.step(k, true);
+        const target = sim.tick + k;
+        let t: StepTiming | null = null;
+        for (;;) {
+          while (nextEdit < edits.length && edits[nextEdit]!.tick <= sim.tick) {
+            applyEdit(edits[nextEdit]!.x, edits[nextEdit]!.y);
+            nextEdit++;
+          }
+          if (sim.tick >= target) break;
+          const stop = nextEdit < edits.length ? Math.min(target, edits[nextEdit]!.tick) : target;
+          await device.queue.onSubmittedWorkDone();
+          t = (await sim.step(stop - sim.tick, true)) ?? t;
+        }
         if (t) timing = t;
         captureSteps = k;
         await readCounters();
+        filmFrame();
         drawHud();
         draw();
         await device.queue.onSubmittedWorkDone();
-        return { tick: sim.tick, frames: hook.frames, timing: t };
+        return { tick: sim.tick, frames: hook.frames, timing: t, camera };
       } finally {
         busy = false;
       }
     };
     await readCounters();
+    filmFrame();
     drawHud();
     draw();
     await device.queue.onSubmittedWorkDone();

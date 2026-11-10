@@ -29,11 +29,70 @@
         left: 8px;
         padding: 6px 10px;
         white-space: pre;
-        /* Six lines, so the view below doesn't move when the counters arrive. */
-        min-height: 8.4em;
+        /* Seven lines, so the view below doesn't move when the counters arrive. */
+        min-height: 9.8em;
         background: rgba(17, 20, 24, 0.8);
         border-radius: 4px;
         pointer-events: none;
+        /* Above the film's end card: the item count and adapter stay readable. */
+        z-index: 1;
+      }
+      #gpu-canvas {
+        touch-action: none;
+        cursor: crosshair;
+      }
+      /* The film's overlays (capture mode with camera=film): caption, clicked tile, end card. */
+      #caption {
+        position: absolute;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 8px 16px;
+        background: rgba(17, 20, 24, 0.85);
+        border-radius: 4px;
+        font:
+          18px/1.4 system-ui,
+          sans-serif;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      #click-mark {
+        position: absolute;
+        box-sizing: border-box;
+        border: 3px solid #ffffff;
+        border-radius: 6px;
+        box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+      }
+      #end-card {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: rgba(17, 20, 24, 0.88);
+        font:
+          20px/1.4 system-ui,
+          sans-serif;
+        text-align: center;
+        pointer-events: none;
+      }
+      #end-card h1 {
+        margin: 0 0 6px;
+        font-size: 34px;
+      }
+      #end-card .software {
+        max-width: 40em;
+        margin-top: 8px;
+        padding: 10px 18px;
+        border: 2px solid #e5b54a;
+        border-radius: 6px;
+        color: #f2d58a;
+      }
+      [hidden] {
+        display: none !important;
       }
       #gpu-message {
         position: absolute;
@@ -54,6 +113,15 @@
   <body>
     <canvas id="gpu-canvas"></canvas>
     <div id="hud">Starting WebGPU...</div>
+    <div id="click-mark" hidden></div>
+    <div id="caption" hidden></div>
+    <div id="end-card" hidden>
+      <h1>Beltworks GPU demo</h1>
+      <div id="end-items"></div>
+      <div>stepped by a WebGPU compute shader, drawn from the same GPU buffers</div>
+      <div>adapter: <span id="end-adapter"></span></div>
+      <div id="end-software" class="software" hidden></div>
+    </div>
     <div id="gpu-message" role="alert" hidden></div>
     <script type="module" src="./main.ts"></script>
   </body>

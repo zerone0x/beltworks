@@ -35,6 +35,12 @@ export const SegmentField = {
   group: 7,
 } as const;
 
+/**
+ * A successor that is no segment: the belt is a dead end, and items wait at
+ * its end. The built network has none; belt editing (`edit.ts`) can make them.
+ */
+export const NO_SEGMENT = 0xffffffff;
+
 /** Directions of travel: east, south, west, north (y grows downward). */
 export const DIRS: readonly (readonly [number, number])[] = [
   [1, 0],

@@ -1,11 +1,14 @@
 # GPU belt demo: 1M conveyor items on a WebGPU compute shader
 
-A standalone technical demo (#129): one million conveyor items that live entirely in GPU storage buffers. A compute shader moves every item each tick along a looping belt network, and a render pass draws the items straight from the same buffers. The CPU never touches item data after the first upload. It shares no code with the game under `src/` and doesn't change the game.
+A standalone technical demo (#129, #130, #131): one million conveyor items that live entirely in GPU storage buffers. A compute shader moves every item each tick along a looping belt network, and a render pass draws the items straight from the same buffers. The CPU never touches item data after the first upload. It shares no code with the game under `src/` and doesn't change the game.
 
 - Dev server: `npm run dev`, then open <http://localhost:5173/demo/gpu/>.
 - Build: `npm run build` writes it to `dist/demo/gpu/` (a second Vite input next to the game's `index.html`). The deploy serves it at `/beltworks-play/demo/gpu/`.
 - It needs a browser with WebGPU on a secure page (https or `localhost`). Without WebGPU, or without a GPU adapter, the page shows a message instead.
 - [`docs/screenshots/gpu-demo-1m.png`](../../docs/screenshots/gpu-demo-1m.png): one million items, headless on SwiftShader.
+- [`docs/screenshots/gpu-film-*.png`](../../docs/screenshots/): stills from the film (see "The film"), one million items.
+
+Drag to pan, scroll (or `+` and `-`) to zoom, `0` to see the whole factory again, arrow keys to pan. Click a belt to rotate it, or an empty tile to place a belt (see "Belt editing").
 
 | URL parameter | Effect |
 |---|---|
@@ -14,6 +17,8 @@ A standalone technical demo (#129): one million conveyor items that live entirel
 | `?paused=1` | Don't step on its own. The tests step through `window.__gpuDemo` |
 | `?capture=1` | Capture mode: no frame loop and no clock. `window.__step(k)` steps exactly `k` ticks, draws one frame and resolves when the GPU is done. See "Capture and benchmark" |
 | `?timing=0` | Leave the measured step time out of the overlay (it still says which clock would time it), so the same ticks always give the same picture |
+| `?camera=film` | Capture mode only: the scripted film camera, captions, clicks and end card, a function of the tick. See "The film" |
+| `?filmticks=` | The film's length in ticks (default 1440). The script is laid out over it |
 
 ## Files
 
@@ -22,8 +27,10 @@ A standalone technical demo (#129): one million conveyor items that live entirel
 | `network.ts` | The belt network as plain data, one `Uint32Array` |
 | `sim.ts` | The item layout, the initial state, the pure-TS reference step and the reference counters |
 | `shaders.ts` | WGSL: the step and count compute shaders, and the belt and item render shaders |
-| `gpu.ts` | `GpuBeltSim`: buffers, pipelines, bind groups, stepping, drawing and readback |
-| `main.ts` | The page: device setup, the frame loop, the overlay and the test hook |
+| `gpu.ts` | `GpuBeltSim`: buffers, pipelines, bind groups, stepping, drawing, segment updates and readback |
+| `camera.ts` | The camera (pan, zoom, tile and pixel mappings) and the film script (`filmShot`, `filmEdits`) |
+| `edit.ts` | `EditableNetwork`: the network with free segment slots, and the click rule that places and rotates belts |
+| `main.ts` | The page: device setup, the frame loop, input, the overlay, the film overlays and the test hook |
 | `tools/gpu-demo/` | The capture, assemble and benchmark scripts (Node, Playwright). See "Capture and benchmark" |
 
 ## The belt network
@@ -36,9 +43,25 @@ Each segment is 8 `u32` words, uploaded unchanged as an `array<Segment>` storage
 |---|---|---|
 | 0, 1 | `x`, `y` | Tile |
 | 2, 3 | `inDir`, `outDir` | Direction of travel into and out of the tile (0 east, 1 south, 2 west, 3 north) |
-| 4, 5 | `next0`, `next1` | Successor segments. They differ only on the splitter's input |
+| 4, 5 | `next0`, `next1` | Successor segments. They differ only on the splitter's input. `0xffffffff` (`NO_SEGMENT`) is a dead end, which only an edit makes |
 | 6 | `speed` | Progress units per tick: 2048, 4096 or 6144 (the game's three belt tiers at 60 ticks/s) |
 | 7 | `group` | Path: 0 trunk, 1 branch A, 2 branch B |
+
+## Camera
+
+`camera.ts` keeps a center in tile coordinates and a zoom relative to the view that fits the whole network into the area under the overlay (zoom 1 is exactly the old fixed view). The render transform is still the 32-byte view uniform, so panning and zooming upload nothing else. Zoom goes from 0.5 to 32. Items are a twelfth of a tile, between 1.5 and 6 pixels across, so a close view still shows single items. Belts are drawn first, under the items: each tile is shaded in the frame of its exit direction, with dark side rails and chevrons that point the way items move, tinted by path (trunk blue, branch A red, branch B olive) and red for a dead end. Items are colored by type.
+
+## Belt editing
+
+A click on the canvas (a press and release that moves less than 4 pixels; more is a pan) edits the tile under it (`EditableNetwork.edit`):
+
+- **A tile with one belt:** the belt's exit turns: straight, then a right turn, then a left turn, then straight again. The belt is relinked to the segment on the next tile that is entered in the new exit direction, or to `NO_SEGMENT` if there is none. Its entry can't change, so the belts feeding it still do.
+- **An empty tile:** a straight belt is placed in a free segment slot, heading the way a dead end next to it points (else east), with that belt's speed and path, and every dead end pointing into the tile is linked to it.
+- The splitter's input, and the tiles holding two segments (the splitter's output and the merge), are refused; the overlay says why.
+
+The edit changes only the segments it names. `GpuBeltSim.updateSegments` writes those 32-byte records into the segment storage buffer with `queue.writeBuffer` and raises the belt instance count for a placed one. The segment buffer is allocated with 256 free slots from the start, so no buffer or bind group is recreated. Queue writes are ordered with the step submissions, so the edit takes effect between two ticks: the tick, the item buffers and the counters carry on, nothing is restarted or uploaded again.
+
+**Dead ends.** Items don't block each other, so an item reaching the end of a belt that leads nowhere stays at progress `SEGMENT_LENGTH - 1` until the belt is relinked; then the queue moves on. The step shader and `referenceStep` do the same, and the built network has no dead ends, so its results are unchanged. The overlay's last line shows the last edit.
 
 ## Item buffers
 
@@ -80,8 +103,32 @@ The demo can be recorded on a machine without a GPU, frame by frame, with the sa
 
 On SwiftShader, one million items take a few seconds per captured frame, so 60 frames take a few minutes.
 
+`--resume` keeps the frames already in the output folder and captures only the missing ones, so a capture cut off by a restart or a crash carries on. For a missing frame after skipped ones it steps straight to the frame before it with one `__step` call, then takes the frame with the usual `--steps`, so the picture (including the overlay's "ticks for this frame") is the same as frame by frame. `settings.json` in the output folder stops frames of different flags from being mixed, and `log.jsonl` gets a line per frame as it is written. Frames are written under a temporary name and renamed, so a cut-off run leaves no half-written frame. `--film` adds `camera=film` with `filmticks` set so the film ends on the last frame.
+
+## The film
+
+`node tools/gpu-demo/film.mjs` records the demo film with one million items: `capture.mjs --film --resume`, retried (each retry resuming) if the browser or the GPU device fails, then `assemble.mjs --crf 26`. It writes `out/gpu-demo/film/frames/` and `out/gpu-demo/film/gpu-demo-film.mp4`. Stop it and start it again at any time. Flags: `--seconds` (24), `--fps` (15), `--steps` (ticks per frame, 4), `--n`, `--crf`, `--out`, `--retries`, `--fresh`, `--assemble-only`.
+
+**Budget.** On SwiftShader, one 1M frame (4 ticks at about 100 ms each on the GPU timeline, the draw and the screenshot) took about 5 seconds of wall time on a 4-core machine at load average 40. A 30 fps film would be 720 frames for 24 s; 15 fps with 4 ticks per frame keeps the game's speed (60 ticks per second) with half the frames: 360 frames, 1436 ticks, at 1280x720. That run took 29 minutes. The item count stays at one million.
+
+[`docs/screenshots/gpu-demo-film.mp4`](../../docs/screenshots/gpu-demo-film.mp4) is the result: 24.0 s, 360 frames at 15 fps, 1280x720, H.264 (crf 26), 3.7 MiB. Stills: [wide](../../docs/screenshots/gpu-film-wide.png), [the splitter](../../docs/screenshots/gpu-film-splitter.png), [a rotated belt backing items up](../../docs/screenshots/gpu-film-dead-end.png), [the end card](../../docs/screenshots/gpu-film-end-card.png).
+
+**Script** (`filmShot` in `camera.ts`, a pure function of the tick and the film's length, so a resumed capture draws the same frames):
+
+| Part of the film | What it shows |
+|---|---|
+| 0 to 14 % | The whole factory, with the item count as a caption |
+| 14 to 34 % | Zoom into the splitter (6x). The zoom is on a log scale and the center moves with the view's width, so the splitter stays in view |
+| 34 to 60 % | Close on the splitter and its outputs. Three scripted clicks (`filmEdits`) rotate the belt after the splitter's output: a right turn into nothing (items back up at the dead end, the belt turns red), a left turn, then straight again (the queue flows on). A ring marks the clicked tile |
+| 60 to 78 % | Back out |
+| 78 to 87 % | The whole factory again |
+| 87 to 100 % | The end card: item count, how it works, the adapter, and, for a software adapter, that it is SwiftShader running WebGPU on the CPU, not a GPU, and that the film was captured frame by frame |
+
+The overlay stays visible (above the end card) all the way, with the item count, the adapter (marked `software: WebGPU on the CPU, not a GPU` when the adapter is SwiftShader or says it is a fallback adapter), the tick, the zoom and the last edit. The step time stays hidden (`timing=0`), so no wall-clock value reaches a frame. The scripted clicks apply when the tick reaches theirs, however `__step` gets there: a call that crosses one steps up to it, edits, and steps on.
+
 ## Tests
 
+- `tests/gpu/demoEdit.test.ts` (in `npm test`) checks the camera mappings (the fit camera draws as `fitView`, zoom keeps the point under the pointer), the film script (wide, into the splitter and out, smooth zoom, the splitter and the edited tile in view, the end card) and the click rule, with the reference step holding items at a dead end and draining them when it is relinked.
 - `tests/gpu/demo.test.ts` (in `npm test`) checks the CPU side. The network is one connected loop with one splitter and one merge, every link enters the right neighbor tile, and the reference step advances, conserves and splits items deterministically. It also covers the limits and view helpers.
 - `tests/gpu/gpuDemo.spec.ts` (`npm run test:gpu`, `playwright.gpu.config.ts`) runs headless Chromium with WebGPU on SwiftShader, against the production build under `/beltworks-play/`:
   - For 1, 255, 1000 and 4099 items, the GPU state after 1, 38, 102, 232 and 500 steps (in uneven batches across the 64-step submissions) equals `referenceRun` exactly, and the GPU counters equal `referenceCounters`.
@@ -89,6 +136,8 @@ On SwiftShader, one million items take a few seconds per captured frame, so 60 f
   - At one million items, items cover the picture and move between two screenshots. The second screenshot goes to `test-results/`.
   - Capture mode: `__step` with 0, 7, 64, 1 and 100 ticks lands on exactly those ticks, the state equals `referenceRun`, every frame differs from the one before, and a second page draws byte-identical frames.
   - With timing on, the overlay shows the measured ms/step and which clock measured it.
+  - Belt editing at 3000 items: real mouse clicks rotate a belt into a dead end, place a belt where it points and rotate it back. After each click the GPU's segment buffer equals the page's network, only the edited segments changed, and the tick and the full item state are exactly what they were before the click; the GPU state after further steps equals `referenceRun` on the edited network, items wait at the dead end and flow onto the placed belt. A drag pans and the wheel zooms without editing.
+  - The film camera: stepping to a tick past two scripted clicks in 37-tick frames, or in one jump and the same last frame, gives the same item state, network, camera and screenshot bytes.
   - Without `navigator.gpu`, the page shows its message.
 
   `GPU_CHROME` points Playwright at another Chromium binary or a wrapper script. The config passes `--enable-unsafe-webgpu --use-angle=swiftshader --use-webgpu-adapter=swiftshader --no-sandbox --ignore-gpu-blocklist`, plus `--enable-features=Vulkan --use-vulkan=swiftshader`. With only the first set, SwiftShader's WebGPU can compute, but presenting a canvas loses the device. It isn't part of CI. On SwiftShader, one million items draw at about 1.5 to 2 frames per second, which the test allows for. Correctness is the point there, not speed.

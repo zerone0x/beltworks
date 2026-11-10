@@ -2,13 +2,24 @@
  * The WebGPU belt demo (#129, demo/gpu/README.md), headless on SwiftShader:
  * the compute shader's result after K ticks matches the pure-TS reference
  * bit for bit, one million items draw and move, the capture mode (#130)
- * steps exactly and draws the same frames every time, and a browser without
- * WebGPU gets a message. Run with `npm run test:gpu`.
+ * steps exactly and draws the same frames every time, belt editing (#131)
+ * rewrites the network buffer without restarting the simulation, the film's
+ * camera gives the same frame however a capture steps to it, and a browser
+ * without WebGPU gets a message. Run with `npm run test:gpu`.
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { buildNetwork } from '../../demo/gpu/network';
-import { initItems, referenceCounters, referenceRun } from '../../demo/gpu/sim';
+import { filmEditTile, filmEdits } from '../../demo/gpu/camera';
+import {
+  DIRS,
+  NO_SEGMENT,
+  SEGMENT_LENGTH,
+  SEGMENT_WORDS,
+  SegmentField as F,
+  buildNetwork,
+  type Network,
+} from '../../demo/gpu/network';
+import { initItems, referenceCounters, referenceRun, type Items } from '../../demo/gpu/sim';
 
 const net = buildNetwork();
 
@@ -228,6 +239,182 @@ test('the overlay shows the measured step time', async ({ page }) => {
   );
   // __step(0) draws without stepping.
   expect((await page.evaluate(() => window.__step!(0))).tick).toBe(16);
+});
+
+/** The page's network (`__gpuDemo.network()`) as a `Network` for the reference step. */
+function asNetwork(r: { count: number; segments: number[] }): Network {
+  return {
+    count: r.count,
+    segments: Uint32Array.from(r.segments),
+    width: net.width,
+    height: net.height,
+  };
+}
+
+function asItems(r: { belt: number[]; progress: number[]; itemType: number[] }): Items {
+  return {
+    belt: Uint32Array.from(r.belt),
+    progress: Uint32Array.from(r.progress),
+    itemType: Uint32Array.from(r.itemType),
+  };
+}
+
+test('clicks place and rotate belts on the GPU without restarting the simulation', async ({
+  page,
+}) => {
+  const n = 3000;
+  await open(page, `n=${String(n)}&paused=1`);
+  const state = () => page.evaluate(() => window.__gpuDemo!.read());
+  const tick = () => page.evaluate(() => window.__gpuDemo!.tick());
+  const network = () => page.evaluate(() => window.__gpuDemo!.network());
+  const gpuSegments = () => page.evaluate(() => window.__gpuDemo!.readSegments());
+  const click = async (x: number, y: number) => {
+    const [cx, cy] = await page.evaluate(
+      ([x, y]) => window.__gpuDemo!.tileToClient(x! + 0.5, y! + 0.5),
+      [x, y],
+    );
+    await page.mouse.click(cx, cy);
+  };
+  /** Steps `k` ticks and checks the GPU against the reference on the page's current network. */
+  const stepAndCompare = async (from: Items, k: number) => {
+    const t = await tick();
+    const ref = referenceRun(from, asNetwork(await network()), k, t);
+    await page.evaluate((k) => window.__gpuDemo!.step(k), k);
+    const gpu = await state();
+    expect(diff(gpu.belt, ref.belt), `belt after tick ${String(t + k)}`).toEqual({
+      count: 0,
+      first: [],
+    });
+    expect(diff(gpu.progress, ref.progress), `progress after tick ${String(t + k)}`).toEqual({
+      count: 0,
+      first: [],
+    });
+    return gpu;
+  };
+
+  // Zoom in on the tile the film edits, so the clicks land well inside it.
+  const [ex, ey] = filmEditTile(net);
+  await page.evaluate(([x, y]) => window.__gpuDemo!.setCamera({ x: x!, y: y!, zoom: 4 }), [ex, ey]);
+  await page.evaluate(() => window.__gpuDemo!.step(50));
+  const before = await state();
+  const original = await network();
+  expect(original.segments).toEqual(Array.from(net.segments));
+
+  // A click rotates the belt: a right turn into an empty tile, so a dead end.
+  await click(ex, ey);
+  const rotated = await network();
+  expect(rotated.count).toBe(net.count);
+  const s =
+    original.segments.findIndex(
+      (_, k) =>
+        k % SEGMENT_WORDS === 0 && original.segments[k] === ex && original.segments[k + 1] === ey,
+    ) / SEGMENT_WORDS;
+  const word = (r: { segments: number[] }, f: number) => r.segments[s * SEGMENT_WORDS + f]!;
+  const inDir = word(original, F.inDir);
+  expect(word(rotated, F.outDir)).toBe((inDir + 1) % 4);
+  expect(word(rotated, F.next0)).toBe(NO_SEGMENT);
+  // Only that segment changed, the GPU's buffer holds the new network, and the simulation
+  // carried on: same tick, same items.
+  const changed = rotated.segments.flatMap((v, k) => (v !== original.segments[k] ? [k] : []));
+  expect(new Set(changed.map((k) => Math.floor(k / SEGMENT_WORDS)))).toEqual(new Set([s]));
+  expect(await gpuSegments()).toEqual(rotated.segments);
+  expect(await tick()).toBe(50);
+  expect(await state()).toEqual(before);
+  await expect(page.locator('#hud')).toContainText(
+    `last edit: rotated belt at (${String(ex)}, ${String(ey)}), tick 50`,
+  );
+
+  // Items now wait at the end of the dead end, on the GPU as in the reference.
+  const held = await stepAndCompare(asItems(before), 300);
+  const waiting = held.belt.filter(
+    (b, i) => b === s && held.progress[i] === SEGMENT_LENGTH - 1,
+  ).length;
+  expect(waiting).toBeGreaterThan(10);
+
+  // A click on the empty tile the dead end points at places a belt there and links it.
+  const [dx, dy] = DIRS[(inDir + 1) % 4]!;
+  const heldTick = await tick();
+  await click(ex + dx, ey + dy);
+  const placed = await network();
+  expect(placed.count).toBe(net.count + 1);
+  expect(word(placed, F.next0)).toBe(net.count);
+  expect(placed.segments.slice(net.count * SEGMENT_WORDS, net.count * SEGMENT_WORDS + 2)).toEqual([
+    ex + dx,
+    ey + dy,
+  ]);
+  expect(await gpuSegments()).toEqual(placed.segments);
+  expect(await tick()).toBe(heldTick);
+  expect(await state()).toEqual(held);
+  const flowing = await stepAndCompare(asItems(held), 200);
+  const onPlaced = flowing.belt.filter((b) => b === net.count).length;
+  expect(onPlaced).toBeGreaterThan(0);
+
+  // Two more clicks rotate the first belt back to straight: the factory is a loop again.
+  await click(ex, ey);
+  await click(ex, ey);
+  const restored = await network();
+  expect(restored.segments.slice(0, net.count * SEGMENT_WORDS)).toEqual(original.segments);
+  expect(await gpuSegments()).toEqual(restored.segments);
+  await stepAndCompare(asItems(flowing), 100);
+  const { counters } = await page.evaluate(() => window.__gpuDemo!.counters());
+  expect(counters.slice(0, 3).reduce((a, c) => a + c, 0)).toBe(n);
+
+  // A drag pans and the wheel zooms; neither edits.
+  const cam0 = await page.evaluate(() => window.__gpuDemo!.camera());
+  await page.mouse.move(640, 500);
+  await page.mouse.down();
+  await page.mouse.move(700, 520, { steps: 5 });
+  await page.mouse.up();
+  const cam1 = await page.evaluate(() => window.__gpuDemo!.camera());
+  expect(cam1.x).toBeLessThan(cam0.x);
+  expect(cam1.y).toBeLessThan(cam0.y);
+  expect(cam1.zoom).toBe(cam0.zoom);
+  await page.mouse.wheel(0, -300);
+  await expect
+    .poll(() => page.evaluate(() => window.__gpuDemo!.camera().zoom))
+    .toBeGreaterThan(cam0.zoom);
+  expect((await network()).segments).toEqual(restored.segments);
+});
+
+test('the film camera gives the same frame however the capture steps to it', async ({
+  browser,
+}) => {
+  const n = 3000;
+  const total = 400;
+  // Both edits inside the run, so stepping straight past them must still apply them.
+  const edits = filmEdits(net, total);
+  const target = edits[1]!.tick + 3;
+  const shoot = async (steps: number[]) => {
+    const page = await browser.newPage();
+    await open(page, `capture=1&timing=0&n=${String(n)}&camera=film&filmticks=${String(total)}`);
+    let last = { tick: 0, zoom: 0 };
+    for (const k of steps) {
+      const r = await page.evaluate((k) => window.__step!(k), k);
+      last = { tick: r.tick, zoom: r.camera.zoom };
+    }
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+    const shot = await page.screenshot();
+    const items = await page.evaluate(() => window.__gpuDemo!.read());
+    const network = await page.evaluate(() => window.__gpuDemo!.network());
+    const hud = await page.locator('#hud').textContent();
+    await page.close();
+    return { last, shot, items, network, hud };
+  };
+  // Frame by frame (37 ticks a frame), or one jump and the same last frame, as a resumed capture.
+  const last = 20;
+  const chunks: number[] = [];
+  for (let t = 0; t < target - last; t += 37) chunks.push(Math.min(37, target - last - t));
+  const stepwise = await shoot([...chunks, last]);
+  const direct = await shoot([target - last, last]);
+  expect(stepwise.last.tick).toBe(target);
+  expect(direct.last).toEqual(stepwise.last);
+  expect(direct.last.zoom).toBeGreaterThan(1);
+  expect(direct.hud).toContain('last edit: rotated belt');
+  expect(direct.network).toEqual(stepwise.network);
+  expect(direct.items).toEqual(stepwise.items);
+  expect(direct.shot.equals(stepwise.shot)).toBe(true);
 });
 
 test('a browser without WebGPU gets a message', async ({ page }) => {

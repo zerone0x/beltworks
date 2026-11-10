@@ -8,7 +8,14 @@
  * (`SEGMENT_LENGTH` units per tile), so the result is exact on any device.
  */
 
-import { GROUP_COUNT, SEGMENT_LENGTH, SEGMENT_WORDS, SegmentField, type Network } from './network';
+import {
+  GROUP_COUNT,
+  NO_SEGMENT,
+  SEGMENT_LENGTH,
+  SEGMENT_WORDS,
+  SegmentField,
+  type Network,
+} from './network';
 
 /** The number of item types (colors). */
 export const ITEM_TYPES = 4;
@@ -89,7 +96,8 @@ export function cloneItems(items: Items): Items {
 /**
  * The reference step: advances every item of `src` by one tick (`tick` is the
  * tick being stepped, starting at 0) and writes the result into `dst`.
- * Items don't interact, so each one depends only on its own state.
+ * Items don't interact, so each one depends only on its own state. An item
+ * reaching the end of a dead end (`NO_SEGMENT`) stays there.
  */
 export function referenceStep(src: Items, dst: Items, net: Network, tick: number): void {
   const seg = net.segments;
@@ -100,11 +108,17 @@ export function referenceStep(src: Items, dst: Items, net: Network, tick: number
     const o = b * SEGMENT_WORDS;
     let p = src.progress[i]! + seg[o + SegmentField.speed]!;
     if (p >= SEGMENT_LENGTH) {
-      p -= SEGMENT_LENGTH;
-      b =
+      const next =
         (mix32(i ^ tickHash) & 1) === 1
           ? seg[o + SegmentField.next1]!
           : seg[o + SegmentField.next0]!;
+      if (next === NO_SEGMENT) {
+        // A dead end: the item waits at the end of the belt.
+        p = SEGMENT_LENGTH - 1;
+      } else {
+        p -= SEGMENT_LENGTH;
+        b = next;
+      }
     }
     dst.belt[i] = b;
     dst.progress[i] = p;

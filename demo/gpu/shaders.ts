@@ -6,7 +6,7 @@
  */
 
 import { COUNTER_WORDS, Counter } from './sim';
-import { SEGMENT_LENGTH } from './network';
+import { NO_SEGMENT, SEGMENT_LENGTH } from './network';
 
 /** Threads per compute workgroup. */
 export const WORKGROUP_SIZE = 256;
@@ -27,6 +27,7 @@ struct Segment {
 }
 
 const SEGMENT_LENGTH: u32 = ${String(SEGMENT_LENGTH)}u;
+const NO_SEGMENT: u32 = ${String(NO_SEGMENT)}u;
 
 // lowbias32, the same as mix32 in sim.ts.
 fn mix32(v: u32) -> u32 {
@@ -63,9 +64,15 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
   let s = segments[b];
   var p = progressIn[i] + s.speed;
   if (p >= SEGMENT_LENGTH) {
-    p -= SEGMENT_LENGTH;
     let output = mix32(i ^ mix32(params.x)) & 1u;
-    b = select(s.next0, s.next1, output == 1u);
+    let next = select(s.next0, s.next1, output == 1u);
+    if (next == NO_SEGMENT) {
+      // A dead end (an edited belt that leads nowhere): the item waits at the end.
+      p = SEGMENT_LENGTH - 1u;
+    } else {
+      p -= SEGMENT_LENGTH;
+      b = next;
+    }
   }
   beltOut[i] = b;
   progressOut[i] = p;
@@ -108,11 +115,6 @@ struct View {
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> segments: array<Segment>;
 
-struct VertexOut {
-  @builtin(position) position: vec4f,
-  @location(0) color: vec3f,
-}
-
 // Quad corner v (0..3, strip order) in [-1, 1]. Arithmetic rather than lookup tables:
 // software rasterizers (SwiftShader) run function-local arrays far slower.
 fn corner(v: u32) -> vec2f {
@@ -123,6 +125,14 @@ fn corner(v: u32) -> vec2f {
 fn dir(d: u32) -> vec2f {
   return vec2f(f32(d == 0u) - f32(d == 2u), f32(d == 1u) - f32(d == 3u));
 }
+`;
+
+/** The item shader's vertex output and its flat-colored fragment. */
+const itemOut = /* wgsl */ `
+struct VertexOut {
+  @builtin(position) position: vec4f,
+  @location(0) color: vec3f,
+}
 
 @fragment
 fn fragmentMain(input: VertexOut) -> @location(0) vec4f {
@@ -130,18 +140,35 @@ fn fragmentMain(input: VertexOut) -> @location(0) vec4f {
 }
 `;
 
-/** One instanced quad (a 4-vertex triangle strip) per segment: the belt tiles under the items. */
+/**
+ * One instanced quad (a 4-vertex triangle strip) per segment: the belt tiles
+ * under the items. Each tile is shaded in its own frame (along its exit
+ * direction): dark side rails, and chevrons pointing the way the items go.
+ * A dead end (a belt edited to lead nowhere) is tinted red.
+ */
 export const beltShader = /* wgsl */ `
 ${common}
 ${view}
 
+struct BeltOut {
+  @builtin(position) position: vec4f,
+  @location(0) color: vec3f,
+  // The point in the tile's own frame: x along the exit direction, y across, both in [-0.5, 0.5].
+  @location(1) local: vec2f,
+  @location(2) @interpolate(flat) deadEnd: u32,
+}
+
 @vertex
-fn vertexMain(@builtin(vertex_index) v: u32, @builtin(instance_index) s: u32) -> VertexOut {
+fn vertexMain(@builtin(vertex_index) v: u32, @builtin(instance_index) s: u32) -> BeltOut {
   let seg = segments[s];
   let center = vec2f(f32(seg.x), f32(seg.y)) + vec2f(0.5);
-  let p = center + corner(v) * 0.46;
-  var out: VertexOut;
+  let c = corner(v) * 0.5;
+  let p = center + c;
+  let along = dir(seg.outDir);
+  var out: BeltOut;
   out.position = vec4f(p * view.scale + view.offset, 0.0, 1.0);
+  out.local = vec2f(dot(c, along), dot(c, vec2f(-along.y, along.x)));
+  out.deadEnd = u32(seg.next0 == NO_SEGMENT);
   // By path: trunk, branch A, branch B.
   out.color = select(
     select(vec3f(0.27, 0.25, 0.17), vec3f(0.30, 0.20, 0.20), seg.group == 1u),
@@ -149,6 +176,23 @@ fn vertexMain(@builtin(vertex_index) v: u32, @builtin(instance_index) s: u32) ->
     seg.group == 0u,
   );
   return out;
+}
+
+@fragment
+fn fragmentMain(input: BeltOut) -> @location(0) vec4f {
+  var color = input.color;
+  if (input.deadEnd == 1u) {
+    color = vec3f(0.42, 0.14, 0.14);
+  }
+  let across = abs(input.local.y);
+  // Chevrons: three per tile, pointing along the exit direction.
+  let k = fract((input.local.x + across * 0.8) * 3.0);
+  if (across > 0.4) {
+    color *= 0.55;
+  } else if (k < 0.22) {
+    color *= 1.3;
+  }
+  return vec4f(color, 1.0);
 }
 `;
 
@@ -165,6 +209,7 @@ fn vertexMain(@builtin(vertex_index) v: u32, @builtin(instance_index) s: u32) ->
 export const itemShader = /* wgsl */ `
 ${common}
 ${view}
+${itemOut}
 
 override ITEMS: u32;
 override QUADS: u32 = 1u;
