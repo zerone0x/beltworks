@@ -1,7 +1,7 @@
 /**
  * Pre-rendered sprites (docs/ART.md): loads the atlases `npm run art` writes
- * to `public/sprites/` (`entities`, and `logistics` for belts, inserters and
- * poles), merged into one set of models, and maps an entity's model, direction, state and
+ * to `public/sprites/` (`entities`, `logistics` for belts, inserters and
+ * poles, `power`, and `player` for the player character), merged into one set of models, and maps an entity's model, direction, state and
  * animation time to sprite frames. Anything without a model keeps the
  * placeholder shapes, so art can land one model at a time.
  *
@@ -21,10 +21,11 @@ import { TILE_PX } from './camera';
 
 export const ATLAS_VERSION = 1;
 /**
- * The entity atlases in `public/sprites/` the game loads, by name (terrain
- * and item icons have their own loaders: terrainArt.ts, itemIcons.ts).
+ * The entity atlases in `public/sprites/` the game loads, by name, and the
+ * player's (terrain and item icons have their own loaders: terrainArt.ts,
+ * itemIcons.ts).
  */
-export const SPRITE_ATLASES = ['entities', 'logistics', 'power'] as const;
+export const SPRITE_ATLASES = ['entities', 'logistics', 'power', 'player'] as const;
 /** Opacity of the shadow layer (shadows are drawn at full strength into it, so they never double up). */
 export const SHADOW_ALPHA = 0.5;
 

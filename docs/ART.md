@@ -40,6 +40,7 @@ art/blender/
   models/inserters.py     the four inserters, base and arm angles
   models/ground.py        the terrain: ground textures (and ore.py, trees.py, decor.py)
   models/icons.py         every item's icon
+  models/player.py        the player character: idle, walk and mine, 8 directions
 tools/art/
   art.js                  `npm run art`: runs Blender, then packs
   pack.js                 trims, deduplicates and packs frames into atlases + JSON
@@ -49,6 +50,7 @@ public/sprites/           the committed atlases, one set of files per atlas:
   entities.json, -0.png   the first entities (furnace, burner drill, chests, assemblers)
   logistics.json, -0.png  belts, inserters, poles (D40)
   power.json, -0.png      boiler, steam engine, electric mining drill
+  player.json, -0.png     the player character (D67)
   terrain.json, -0.png    ore decals, trees, decor; terrain-<ground>.png: the ground textures
   icons.json, -0.png      item icons
 art/build/                renders and previews (scratch, not committed)
@@ -73,13 +75,13 @@ npm run art -- --pack-only         # re-pack the renders in art/build/
 
 **Sprite layers.** A model can be split into layers, drawn in order: `body` first (always shown), then overlays such as a furnace's fire or a machine's rotor. Each layer has its own frames, a frame rate, when it shows (`always`, or only while `working` / `idle`) and when it animates (`working`: on a clock per entity that runs while it works, at half speed on low power, so a machine that stops freezes in place; `always`: on the frame clock, e.g. flickering fire; `never`). The driver renders each layer on its own: the layers drawn before it are holdouts (they hide it where they stand in front, without showing themselves), the layers after it are left out. So only the moving part is rendered per frame, not the whole machine, which keeps the atlas small. Inserter arms (as angles) and the belt surface are layers too.
 
-**Atlases.** A model goes into the atlas its `MODEL` names (`'atlas': 'logistics'`; default `entities`), one `<atlas>.json` with its sheets each; the game loads the entity atlases (`SPRITE_ATLASES` in `src/render/sprites.ts`: `entities`, `logistics`, `power`) and merges their models; `terrain` and `icons` have their own loaders (`terrainArt.ts`, `itemIcons.ts`). Families that change together share an atlas, so re-rendering one doesn't touch the others' files. A partial run only rewrites the atlases it rendered models for.
+**Atlases.** A model goes into the atlas its `MODEL` names (`'atlas': 'logistics'`; default `entities`), one `<atlas>.json` with its sheets each; the game loads the entity atlases (`SPRITE_ATLASES` in `src/render/sprites.ts`: `entities`, `logistics`, `power`, `player`) and merges their models; `terrain` and `icons` have their own loaders (`terrainArt.ts`, `itemIcons.ts`). Families that change together share an atlas, so re-rendering one doesn't touch the others' files. A partial run only rewrites the atlases it rendered models for.
 
 **Several models per module.** A module may define `MODELS`, a list of model dicts each with its own `build` (the belts: 3 surfaces, 3 shapes × 3 tiers of side frames, 2 hoods × 3 tiers). Other optional keys: `'shadow': False` on a model (no shadow pass; the packer stores an empty frame), `'extent': r` (render at least `r` tiles around the center, for parts that reach out of the footprint like a long arm), and on a layer `'shared': True` (rendered for the first direction only and used for all of them: frames that are angles in the world, not relative to the entity) and `'shadow': False` (left out of the shadow pass, for parts that move on their own). Objects go on the model's first layer unless a `layer` block says otherwise.
 
 **Variants and kinds.** `'variants': N` renders a model N times as `<name>-0` .. `<name>-<N-1>`, with `ctx.variant` telling `build` which one (trees, ore decals, decor). `'shadow': 'catch'` makes the body pass catch the model's own shadow, with no shadow frame (flat ground decals). `'kind': 'ground'` renders a seamless ground texture and `'kind': 'icon'` an item icon (see "Terrain" and "Item icons" below). Names on the command line pick a model, every variant of it, every model of a module or of an atlas.
 
-**Directions**: models are built facing north; the driver turns the model's root for east, south and west (`directions: 4`), so the light stays put and each direction is lit correctly.
+**Directions**: models are built facing north; the driver turns the model's root for east, south and west (`directions: 4`), so the light stays put and each direction is lit correctly. The player has 8 (`directions: 8`): an eighth of a turn each, clockwise from north. Directions are never mirrored, since the light would come from the wrong side.
 
 **Points**: a model can name points in model space (`points: {'icon': (x, y, z)}`); the manifest and the atlas give them in texels from the footprint's center, per direction. The assembler layer draws a machine's product icon at its `icon` point (over the rotor's hub), the entity layer an inserter's held item at its `hand`, and the power layer hangs wires from a pole's `wire-west` / `wire-east`.
 
@@ -169,6 +171,18 @@ Models are keyed by entity prototype name (`src/data/entities.ts`), with a `:var
 2. `npm run art -- --samples 32 --preview small-thing` while iterating; look at `art/build/preview-1x.png` and `preview-2x.png` (idle and working, every direction, on grass). Then render it at full quality: `npm run art -- small-thing`.
 3. Run the game (`npm run dev`) and look at it at 1× and 2× next to the other entities. If the layer needs a game-side rule (e.g. a new point), add it to the renderer.
 4. Add the model to the list in `tests/render/sprites.test.ts` (or `logisticsSprites.test.ts` for the `logistics` atlas), and commit the model script with `public/sprites/`.
+
+## Player
+
+![The player idle, walking east and north-west, and mining, at 1× (top) and 2× zoom](screenshots/art-player.png)
+
+`models/player.py`, atlas `player` (D67): a small engineer in a safety-orange work suit (a color no entity family uses, so the player stands out on grass, ore, belts and buildings), an off-white helmet with a wide dark visor, a steel life-support pack with a green status lamp on the back, and dark boots, gloves and belt. Chunky proportions (a big helmet, thick limbs) so the figure reads at 1×: about 1.2 tiles tall, a tile (32 px) on screen, a little taller than a stone furnace. Posed by forward kinematics (legs and arms pitched about the hips and shoulders, the upper body leaning about the hips, the body lifted so the lower foot stands on the ground). Three models, 8 directions each, each with its shadow:
+
+- `player`: standing idle, one frame;
+- `player:walk`: a run cycle of 8 frames (two strides; the player covers about 9 tiles a second), at 30 frames per second of walking: one cycle per 16 ticks;
+- `player:mine`: a two-handed pickaxe swing of 8 frames that strikes on the last ones.
+
+The player layer (`src/render/playerLayer.ts`, `playerSprites.ts`) picks the pose: walking whenever the player's own walking intent is non-zero (the snapshot's `moveX`, `moveY`), facing that way, with the cycle on a clock of simulation ticks spent walking, interpolated between snapshots (`PlayerTrack.walkTicks`): it never drifts with the frame rate, stops with the player and doesn't run while something else (a belt) carries a player who stands still; hand-mining a tile in reach, facing the tile, one swing per unit mined (the frame is the unit's mining progress, so the pick strikes as the unit comes out; a tree takes several); otherwise idle, facing the way it last faced (south, towards the camera, at first). The shadow is drawn under the player at the buildings' shadow strength (`SHADOW_ALPHA`) and follows the shadows setting. Players animate whatever the animation setting, like items and inserter arms: they show the game's state. Until the atlas loads, or without it, the player is the placeholder ball.
 
 ## Power entities
 

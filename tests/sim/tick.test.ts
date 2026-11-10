@@ -152,6 +152,9 @@ describe('encodePlayers', () => {
     expect([out[o + PlayerField.mineX], out[o + PlayerField.mineY]]).toEqual([2, 3]);
     // In reach of (2, 3) from (38/256, 0)? No: the target is about 3.5 tiles away.
     expect(out[o + PlayerField.mineProgress]).toBe(0);
+    // The walking intent (the renderer's walk cycle and facing): player 1 walks east, player 0 stands.
+    expect([out[o + PlayerField.moveX], out[o + PlayerField.moveY]]).toEqual([1, 0]);
+    expect([out[PlayerField.moveX], out[PlayerField.moveY]]).toEqual([0, 0]);
     // A copy: later steps don't change it.
     sim.step();
     expect(out[o + PlayerField.x]).toBe(PLAYER_SPEED);

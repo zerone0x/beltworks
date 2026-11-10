@@ -31,7 +31,7 @@ import { CHUNK_AREA } from './world/chunk';
 import { SUBTILE_BITS } from './fixed';
 
 /** Int32 fields per player in {@link encodePlayers}. */
-export const PLAYER_STRIDE = 6;
+export const PLAYER_STRIDE = 8;
 /** Field offsets within one player record. */
 export const PlayerField = {
   x: 0,
@@ -40,12 +40,17 @@ export const PlayerField = {
   mineX: 3,
   mineY: 4,
   mineProgress: 5,
+  /** The player's own walking intent per axis (-1, 0 or +1), not how it moved (e.g. carried). */
+  moveX: 6,
+  moveY: 7,
 } as const;
 
 /**
  * Encodes every player as `PLAYER_STRIDE` int32s:
- * `[x, y, mining, mineX, mineY, mineProgress]` (positions in subtiles, mine
- * target in tiles, progress in ticks out of `HAND_MINING_TICKS`).
+ * `[x, y, mining, mineX, mineY, mineProgress, moveX, moveY]` (positions in
+ * subtiles, mine target in tiles, progress in ticks out of
+ * `HAND_MINING_TICKS`, the walking intent per axis: the renderer's walk
+ * cycle and facing).
  */
 export function encodePlayers(state: SimState, writer?: SnapshotWriter): Int32Array<ArrayBuffer> {
   const p = state.players;
@@ -58,6 +63,8 @@ export function encodePlayers(state: SimState, writer?: SnapshotWriter): Int32Ar
     w.push(p.mineX[i]!);
     w.push(p.mineY[i]!);
     w.push(p.mineProgress[i]!);
+    w.push(p.moveX[i]!);
+    w.push(p.moveY[i]!);
   }
   return finish(w, writer);
 }

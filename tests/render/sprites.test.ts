@@ -194,6 +194,36 @@ describe('the committed power atlas (public/sprites/power.json)', () => {
   });
 });
 
+describe('the committed player atlas (public/sprites/player.json)', () => {
+  const index = parseAtlasIndex(
+    JSON.parse(readFileSync(new URL('../../public/sprites/player.json', import.meta.url), 'utf8')),
+  );
+
+  it('has the idle, walk and mine models in 8 directions (D67)', () => {
+    expect(Object.keys(index.models).sort()).toEqual(['player', 'player:mine', 'player:walk']);
+    for (const [name, model] of Object.entries(index.models)) {
+      expect(model.directions, name).toBe(8);
+      expect(model.shadow, name).toHaveLength(8);
+      expect(model.layers, name).toHaveLength(1);
+    }
+    const frames = (name: string) => index.models[name]!.layers[0]!.frames.map((f) => f.length);
+    expect(frames('player')).toEqual(Array(8).fill(1));
+    expect(frames('player:walk')).toEqual(Array(8).fill(8));
+    expect(frames('player:mine')).toEqual(Array(8).fill(8));
+    // A walk cycle per 16 ticks; a swing per unit mined (playerSprites.ts).
+    expect(index.models['player:walk']!.layers[0]!.fps).toBe(30);
+    expect(index.models['player:mine']!.layers[0]!.fps).toBe(16);
+  });
+
+  it('fits one sheet', () => {
+    expect(index.sheets).toHaveLength(1);
+    for (const [, x, y, w, h] of index.frames) {
+      expect(x + w).toBeLessThanOrEqual(4096);
+      expect(y + h).toBeLessThanOrEqual(4096);
+    }
+  });
+});
+
 /**
  * Each icon's color signature in the committed sheet: its mean color (red,
  * green, blue, weighted by alpha) and how much of each quarter of its cell it

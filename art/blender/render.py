@@ -166,7 +166,7 @@ def render_frame(module, bounds, size, samples, direction, layer, frame, frames,
     scene.add_ground(shadow_catcher=catch)
     module.build(Context(direction, layer, frame, frames))
     root = shapes.root()
-    root.rotation_euler = (0.0, 0.0, -direction * math.pi / 2)
+    root.rotation_euler = (0.0, 0.0, turn(direction, module.MODEL.get('directions', 1)))
     order = [spec['name'] for spec in specs]
     current = order.index(layer) if layer != SHADOW else -1
     for obj in bpy.data.objects:
@@ -188,10 +188,20 @@ def render_frame(module, bounds, size, samples, direction, layer, frame, frames,
     bpy.ops.render.render(write_still=True)
 
 
-def project(point, direction):
+def turn(direction, directions):
+    """
+    How far the root turns (radians about Z) for `direction` out of
+    `directions`: clockwise seen from above, in equal steps from north (a
+    quarter turn each for the 4 directions of a building, an eighth for the
+    8 of the player).
+    """
+    return -direction * 2 * math.pi / max(directions, 4)
+
+
+def project(point, direction, directions):
     """Where model point (x, y, z) shows, in texels from the footprint's center, for `direction`."""
     x, y, z = point
-    a = -direction * math.pi / 2
+    a = turn(direction, directions)
     rx = x * math.cos(a) - y * math.sin(a)
     ry = x * math.sin(a) + y * math.cos(a)
     return [round(rx * scene.TILE_PX, 2), round((-ry - z * scene.HEIGHT_ON_SCREEN) * scene.TILE_PX, 2)]
@@ -245,7 +255,7 @@ def render_model(module, out_dir, samples):
         'base': module.base,
         'atlas': model.get('atlas', 'entities'),
         'shadow': shadow,
-        'points': {key: [project(point, d) for d in range(directions)] for key, point in model.get('points', {}).items()},
+        'points': {key: [project(point, d, directions) for d in range(directions)] for key, point in model.get('points', {}).items()},
         'footprint': list(model['footprint']),
         'directions': directions,
         'tilePx': scene.TILE_PX,
