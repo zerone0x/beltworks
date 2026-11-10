@@ -87,4 +87,28 @@ describe('belt wake notices within one step', () => {
     // The item moved again on the next step, so its belt was notified again.
     expect(notify.mock.calls.length).toBeGreaterThan(first);
   });
+
+  it('start over on the next step even for a stretch inside the last one', () => {
+    // A yellow line handing on to a red one. On the first step the item at
+    // the end leaves (the stretch runs from the end to the item behind it);
+    // on the second the item behind moves within that stretch, which a
+    // de-dup kept across steps would skip.
+    const w = world();
+    const ids = w.run(TIERS[0].belt, 0, 0, East, BELTS);
+    w.run(TIERS[1].belt, BELTS, 0, East, 4);
+    const line = w.lineOf(ids[0]!);
+    const out = line.out!;
+    expect(out).not.toBe(line);
+    for (const id of ids) w.entities.wake.watch(WATCHER, id);
+    expect(w.table.insertAt(line.id, Left, 4, IRON)).toBe(true);
+    expect(w.table.insertAt(line.id, Left, 4 * BELT_LENGTH + 128, IRON)).toBe(true);
+    const notify = vi.spyOn(w.entities, 'notify');
+    w.step();
+    expect(out.lanes[Left].count).toBe(1);
+    expect(notify).toHaveBeenCalledWith(line.belts[4]);
+    notify.mockClear();
+    w.step();
+    expect(line.lanes[Left].count).toBe(1);
+    expect(notify).toHaveBeenCalledWith(line.belts[4]);
+  });
 });
