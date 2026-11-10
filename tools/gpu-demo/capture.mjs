@@ -18,8 +18,8 @@
  *
  * `--film` uses the scripted film camera (`?camera=film`), timed to end on
  * the last frame. `--resume` keeps the frames already in the output folder
- * and captures only the missing ones: it steps straight to a missing frame's
- * tick, which gives the same picture as getting there frame by frame, so a
+ * and captures only the missing ones: it steps straight to the tick before a
+ * missing frame, which gives the same picture as getting there frame by frame, so a
  * capture cut off by a restart carries on where it stopped. It refuses to mix
  * frames of different settings (`settings.json`). Each frame's log line is
  * appended to `log.jsonl` as it is written.
@@ -108,10 +108,12 @@ try {
   let captured = 0;
   for (let i = 0; i < args.frames; i++) {
     if (args.resume && existsSync(join(framesDir, frameName(i)))) continue;
-    // Frame i is tick i * steps. Frame 0 is the start, as the page drew it; a frame after
-    // skipped ones steps straight to its tick (the same state and camera as frame by frame).
-    const k = i * args.steps - tick;
-    const r = await page.evaluate((k) => window.__step(k), k);
+    // Frame i is tick i * steps. Frame 0 is the start, as the page drew it. After skipped
+    // frames, step straight to the frame before (the same state, network and camera as frame
+    // by frame), then the usual `steps`, so the overlay's "ticks for this frame" matches too.
+    const jump = i * args.steps - tick - (i === 0 ? 0 : args.steps);
+    if (jump > 0) await page.evaluate((k) => window.__step(k), jump);
+    const r = await page.evaluate((k) => window.__step(k), i === 0 ? 0 : args.steps);
     tick = r.tick;
     // Let the compositor show the new frame before the screenshot (no timing involved).
     await page.evaluate(
