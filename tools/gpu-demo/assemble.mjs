@@ -28,7 +28,8 @@ const frames = existsSync(framesDir)
   ? readdirSync(framesDir).filter((f) => /^frame-\d{5}\.png$/.test(f))
   : [];
 if (frames.length === 0) {
-  throw new Error(`no frames in ${framesDir}; run node tools/gpu-demo/capture.mjs first`);
+  console.error(`No frames in ${framesDir}. Run node tools/gpu-demo/capture.mjs first.`);
+  process.exit(1);
 }
 
 /** Every ffmpeg binary worth trying, in order, without duplicates. */
@@ -103,9 +104,10 @@ for (const bin of candidates()) {
   console.log(`skipping ${bin}: no ${caps.missing.join(', no ')}`);
 }
 if (!ffmpeg) {
-  throw new Error(
-    'no ffmpeg that can turn PNG frames into an mp4 was found; install one, or point FFMPEG at it',
+  console.error(
+    'No ffmpeg that can turn PNG frames into an mp4 was found. Install one, or point FFMPEG at it.',
   );
+  process.exit(1);
 }
 
 const mp4 = join(out, 'gpu-demo.mp4');
