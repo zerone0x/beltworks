@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 
 /**
@@ -101,15 +102,22 @@ export default defineConfig({
     // No sourcemaps in the deployed build: players download only what runs.
     sourcemap: false,
     rolldownOptions: {
+      // The game, and the standalone WebGPU belt demo (demo/gpu/README.md), which shares no code with it.
+      input: {
+        index: fileURLToPath(new URL('index.html', import.meta.url)),
+        gpu: fileURLToPath(new URL('demo/gpu/index.html', import.meta.url)),
+      },
       output: {
         // The bundled packages (PixiJS and what it pulls in) in a chunk of their own, loaded
         // behind the title screen with the renderer (D64). It changes only with the dependencies
         // (or the PixiJS features the game uses), so returning players keep it across releases.
         // Vite's preload helper gets its own small chunk: the main chunk needs it, and in the
-        // packages' chunk it would make the main chunk wait for all of PixiJS.
+        // packages' chunk it would make the main chunk wait for all of PixiJS. The module preload
+        // polyfill goes with it: with two pages it would otherwise get a chunk of its own, one more
+        // request before the game starts.
         codeSplitting: {
           groups: [
-            { name: 'preload', test: /preload-helper/, priority: 1 },
+            { name: 'preload', test: /preload-helper|modulepreload-polyfill/, priority: 1 },
             { name: 'pixi', test: /[\\/]node_modules[\\/]/ },
           ],
         },
