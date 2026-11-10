@@ -5,6 +5,7 @@ A standalone technical demo (#129): one million conveyor items that live entirel
 - Dev server: `npm run dev`, then open <http://localhost:5173/demo/gpu/>.
 - Build: `npm run build` writes it to `dist/demo/gpu/` (a second Vite input next to the game's `index.html`). The deploy serves it at `/beltworks-play/demo/gpu/`.
 - It needs a browser with WebGPU on a secure page (https or `localhost`). Without WebGPU, or without a GPU adapter, the page shows a message instead.
+- [`docs/screenshots/gpu-demo-1m.png`](../../docs/screenshots/gpu-demo-1m.png): one million items, headless on SwiftShader.
 
 | URL parameter | Effect |
 |---|---|

@@ -26,7 +26,8 @@ const BUFFER = {
   STORAGE: 0x0080,
 } as const;
 const STAGE = { VERTEX: 0x1, FRAGMENT: 0x2, COMPUTE: 0x4 } as const;
-const MAP_READ = 0x0001;
+/** `GPUMapMode.READ`. */
+const MAP_MODE_READ = 0x0001;
 
 /** Steps encoded per submission: one uniform slot each. */
 export const MAX_BATCH = 64;
@@ -374,7 +375,7 @@ export class GpuBeltSim {
     pass.end();
     encoder.copyBufferToBuffer(this.counters, 0, this.countersRead, 0, COUNTER_WORDS * 4);
     this.device.queue.submit([encoder.finish()]);
-    return this.countersRead.mapAsync(MAP_READ).then(
+    return this.countersRead.mapAsync(MAP_MODE_READ).then(
       () => {
         const counters = new Uint32Array(this.countersRead.getMappedRange().slice(0));
         this.countersRead.unmap();
@@ -405,7 +406,7 @@ export class GpuBeltSim {
     this.device.queue.submit([encoder.finish()]);
     const [belt, progress, itemType] = await Promise.all(
       copies.map(async ({ dst }) => {
-        await dst.mapAsync(MAP_READ);
+        await dst.mapAsync(MAP_MODE_READ);
         const data = new Uint32Array(dst.getMappedRange(0, bytes).slice(0));
         dst.destroy();
         return data;
