@@ -5,7 +5,11 @@
  * `out/gpu-demo/gpu-demo.mp4`, H.264 (or MPEG-4 part 2 if the ffmpeg build has
  * no libx264), yuv420p so every player takes it.
  *
- *   node tools/gpu-demo/assemble.mjs [--fps 30] [--out out/gpu-demo]
+ *   node tools/gpu-demo/assemble.mjs [--fps 30] [--out out/gpu-demo] [--crf 18]
+ *     [--name gpu-demo.mp4]
+ *
+ * `--crf` is libx264's quality (lower is better and bigger; the film uses 26).
+ * `--name` is the mp4's file name in `--out`.
  *
  * It looks for ffmpeg in `FFMPEG`, then on `PATH`, then the build Playwright
  * downloads (`~/.cache/ms-playwright/ffmpeg-*`, or under
@@ -21,7 +25,7 @@ import { homedir } from 'node:os';
 import { delimiter, join, relative, resolve } from 'node:path';
 import { ROOT, parseArgs } from './common.mjs';
 
-const args = parseArgs({ fps: 30, out: 'out/gpu-demo' });
+const args = parseArgs({ fps: 30, out: 'out/gpu-demo', crf: 18, name: 'gpu-demo.mp4' });
 const out = resolve(ROOT, args.out);
 const framesDir = join(out, 'frames');
 const frames = existsSync(framesDir)
@@ -110,8 +114,9 @@ if (!ffmpeg) {
   process.exit(1);
 }
 
-const mp4 = join(out, 'gpu-demo.mp4');
-const quality = encoder === 'libx264' ? ['-preset', 'medium', '-crf', '18'] : ['-q:v', '2'];
+const mp4 = join(out, args.name);
+const quality =
+  encoder === 'libx264' ? ['-preset', 'medium', '-crf', String(args.crf)] : ['-q:v', '2'];
 console.log(`ffmpeg: ${ffmpeg} (${encoder})`);
 execFileSync(
   ffmpeg,

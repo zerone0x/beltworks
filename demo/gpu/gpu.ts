@@ -6,7 +6,7 @@
  * (`readItems` is a full readback for the tests, on small item counts).
  */
 
-import type { Network } from './network';
+import { SEGMENT_WORDS, type Network } from './network';
 import { COUNTER_WORDS, type Items } from './sim';
 import {
   STEP_UNIFORM_STRIDE,
@@ -134,12 +134,15 @@ export class GpuBeltSim {
   private readonly countGroups: [GPUBindGroup, GPUBindGroup];
   private readonly itemGroups: [GPUBindGroup, GPUBindGroup];
   private readonly beltGroup: GPUBindGroup;
-  private readonly segmentCount: number;
+  private segmentCount: number;
   private readonly quadsPerInstance: number;
+  private readonly segmentCapacity: number;
 
   /**
    * `quadsPerInstance`: how many items' quads each instance of the item draw
    * covers (`QUADS` in shaders.ts); 1 is one quad per instance.
+   * `segmentCapacity`: segment slots in the GPU's segment buffer, at least
+   * `net.count`; the slots past it are for placed belts (`updateSegments`).
    */
   constructor(
     device: GPUDevice,
@@ -147,6 +150,7 @@ export class GpuBeltSim {
     net: Network,
     initial: Items,
     quadsPerInstance = DEFAULT_QUADS_PER_INSTANCE,
+    segmentCapacity = net.count,
   ) {
     this.device = device;
     this.items = initial.belt.length;
@@ -161,7 +165,13 @@ export class GpuBeltSim {
       return b;
     };
     const itemUsage = BUFFER.STORAGE | BUFFER.COPY_SRC;
-    this.segmentBuffer = upload('segments', net.segments, BUFFER.STORAGE);
+    this.segmentCapacity = Math.max(segmentCapacity, net.count);
+    this.segmentBuffer = buffer(
+      'segments',
+      this.segmentCapacity * SEGMENT_WORDS * 4,
+      BUFFER.STORAGE | BUFFER.COPY_SRC | BUFFER.COPY_DST,
+    );
+    device.queue.writeBuffer(this.segmentBuffer, 0, net.segments);
     this.belt = [
       upload('belt 0', initial.belt, itemUsage),
       buffer('belt 1', n * ITEM_BYTES, itemUsage),
@@ -412,6 +422,43 @@ export class GpuBeltSim {
         ({ steps, msPerStep: (performance.now() - start) / steps, source: 'wall clock' }) as const,
       () => null,
     );
+  }
+
+  /**
+   * Writes segments `changed` of `net` into the GPU's segment buffer and
+   * draws `net.count` belts from now on (belt editing, edit.ts). The writes
+   * are queued between the step submissions before and after them, so the
+   * item buffers and the tick carry on: nothing is restarted.
+   */
+  updateSegments(net: Network, changed: readonly number[]): void {
+    if (net.count > this.segmentCapacity) throw new Error('more segments than the buffer holds');
+    for (const s of changed) {
+      if (s < 0 || s >= net.count) throw new Error(`no segment ${String(s)}`);
+      this.device.queue.writeBuffer(
+        this.segmentBuffer,
+        s * SEGMENT_WORDS * 4,
+        net.segments,
+        s * SEGMENT_WORDS,
+        SEGMENT_WORDS,
+      );
+    }
+    this.segmentCount = net.count;
+  }
+
+  /** Reads the segment buffer back (`segmentCount` segments): the tests compare it to the CPU copy. */
+  async readSegments(): Promise<Uint32Array> {
+    const bytes = this.segmentCount * SEGMENT_WORDS * 4;
+    const dst = this.device.createBuffer({
+      size: Math.max(16, bytes),
+      usage: BUFFER.MAP_READ | BUFFER.COPY_DST,
+    });
+    const encoder = this.device.createCommandEncoder({ label: 'read segments' });
+    encoder.copyBufferToBuffer(this.segmentBuffer, 0, dst, 0, bytes);
+    this.device.queue.submit([encoder.finish()]);
+    await dst.mapAsync(MAP_MODE_READ);
+    const data = new Uint32Array(dst.getMappedRange(0, bytes).slice(0));
+    dst.destroy();
+    return data;
   }
 
   /** Draws the belts and then every item into `target`. */
