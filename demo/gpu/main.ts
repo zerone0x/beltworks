@@ -5,10 +5,13 @@
  * URL parameters: `?n=` the item count (default 1 000 000, capped by the
  * device's limits), `?quads=` item quads per instance of the item draw
  * (default 64, 1 for one quad per instance), `?paused=1` don't step on its own
- * (the tests step through `window.__gpuDemo`).
+ * (the tests step through `window.__gpuDemo`), `?capture=1` the deterministic
+ * capture mode: no frame loop, `window.__step(k)` steps k ticks and draws one
+ * frame (tools/gpu-demo/capture.mjs), `?timing=0` leave the measured step time
+ * out of the overlay, so the same ticks give the same picture.
  */
 
-import { DEFAULT_QUADS_PER_INSTANCE, GpuBeltSim, fitView, maxItems } from './gpu';
+import { DEFAULT_QUADS_PER_INSTANCE, GpuBeltSim, fitView, maxItems, type StepTiming } from './gpu';
 import { GROUP_COUNT, buildNetwork } from './network';
 import { Counter, ITEM_TYPES, initItems, type Items } from './sim';
 
@@ -32,14 +35,35 @@ export interface GpuDemoHook {
   tick(): number;
   /** Steps `steps` ticks and waits until the GPU has done them. */
   step(steps: number): Promise<void>;
+  /**
+   * Waits for the GPU to go idle, then steps `steps` ticks without drawing and
+   * says how long they took (the benchmark, tools/gpu-demo/bench.mjs).
+   */
+  timedStep(steps: number): Promise<StepTiming | null>;
   /** The full item state (small item counts only), as plain arrays. */
   read(): Promise<{ belt: number[]; progress: number[]; itemType: number[] }>;
   counters(): Promise<{ tick: number; counters: number[] }>;
 }
 
+/** What `window.__step` resolves with (capture mode). */
+export interface CaptureStep {
+  /** The tick the frame shows: ticks stepped so far. */
+  tick: number;
+  /** Frames drawn so far, this one included. */
+  frames: number;
+  /** How long the k ticks took, or `null` for `__step(0)`. */
+  timing: StepTiming | null;
+}
+
 declare global {
   interface Window {
     __gpuDemo?: GpuDemoHook;
+    /**
+     * Capture mode only (`?capture=1`): steps exactly `k` ticks, draws one
+     * frame and resolves once the GPU has finished it. The same item count
+     * and the same calls give the same frames.
+     */
+    __step?: (k: number) => Promise<CaptureStep>;
   }
 }
 
@@ -56,6 +80,7 @@ const hook: GpuDemoHook = {
   frames: 0,
   tick: () => 0,
   step: () => Promise.reject(new Error('not started')),
+  timedStep: () => Promise.reject(new Error('not started')),
   read: () => Promise.reject(new Error('not started')),
   counters: () => Promise.reject(new Error('not started')),
 };
@@ -83,7 +108,9 @@ function formatCount(n: number): string {
 
 async function start(): Promise<void> {
   const params = new URLSearchParams(location.search);
-  const paused = params.get('paused') === '1';
+  const capture = params.get('capture') === '1';
+  const paused = capture || params.get('paused') === '1';
+  const showTiming = params.get('timing') !== '0';
   if (!('gpu' in navigator) || !navigator.gpu) {
     fail(
       'WebGPU is not available in this browser. This demo needs a browser with WebGPU ' +
@@ -99,7 +126,10 @@ async function start(): Promise<void> {
   }
   const info = adapter.info;
   hook.adapter = [info.vendor, info.architecture, info.description].filter(Boolean).join(' / ');
+  // Timestamp queries time the step on the GPU itself; without them the overlay uses the wall clock.
+  const timestampQuery = adapter.features.has('timestamp-query');
   const device = await adapter.requestDevice({
+    ...(timestampQuery && { requiredFeatures: ['timestamp-query'] }),
     requiredLimits: {
       maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
       maxBufferSize: adapter.limits.maxBufferSize,
@@ -139,8 +169,12 @@ async function start(): Promise<void> {
   hook.segments = net.count;
   hook.tick = () => sim.tick;
   hook.step = async (steps) => {
-    sim.step(steps);
+    void sim.step(steps);
     await device.queue.onSubmittedWorkDone();
+  };
+  hook.timedStep = async (steps) => {
+    await device.queue.onSubmittedWorkDone();
+    return sim.step(steps, true);
   };
   hook.read = async () => {
     const items = await sim.readItems();
@@ -173,6 +207,9 @@ async function start(): Promise<void> {
   let rateFrames = 0;
   let tps = 0;
   let fps = 0;
+  let timing: StepTiming | null = null;
+  let timingPending = false;
+  let captureSteps = 0;
 
   const resize = (): void => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -184,11 +221,22 @@ async function start(): Promise<void> {
     }
   };
 
+  const timingSource = sim.hasTimestamps ? 'gpu timestamps' : 'wall clock';
+  const stepTime = (): string => {
+    if (!showTiming) return `ms per step not shown (timing=0), measured by ${timingSource}`;
+    if (!timing) return `measuring ms per step (${timingSource})...`;
+    const ms = timing.msPerStep;
+    return `${ms.toFixed(ms < 10 ? 3 : 1)} ms per step (${timing.source}, over ${formatCount(timing.steps)} ticks)`;
+  };
+
   const drawHud = (): void => {
     const lines = [
       `Beltworks GPU demo: ${formatCount(n)} items${clamped} on ${String(net.count)} belt segments`,
       `adapter: ${hook.adapter || 'unknown'}`,
-      `tick ${formatCount(sim.tick)}${paused ? ' (paused)' : ''}, ${tps.toFixed(0)} ticks/s, ${fps.toFixed(1)} fps`,
+      capture
+        ? `tick ${formatCount(sim.tick)}, capture mode: ${formatCount(captureSteps)} ticks for this frame`
+        : `tick ${formatCount(sim.tick)}${paused ? ' (paused)' : ''}, ${tps.toFixed(0)} ticks/s, ${fps.toFixed(1)} fps`,
+      `simulation: ${stepTime()}`,
     ];
     if (counters) {
       const groups = ['trunk', 'branch A', 'branch B'].slice(0, GROUP_COUNT);
@@ -202,6 +250,54 @@ async function start(): Promise<void> {
     hud.textContent = lines.join('\n');
   };
 
+  const draw = (): void => {
+    resize();
+    const dpr = canvas.width / Math.max(1, canvas.clientWidth);
+    const top = (hud.getBoundingClientRect().bottom + 8) * dpr;
+    sim.render(
+      context.getCurrentTexture().createView(),
+      fitView(net, canvas.width, canvas.height, top),
+    );
+    hook.frames++;
+  };
+
+  if (capture) {
+    // No frame loop and no clock: each frame is exactly the ticks `__step` was asked for.
+    const readCounters = async (): Promise<void> => {
+      const r = await hook.counters();
+      counters = Uint32Array.from(r.counters);
+      countersTick = r.tick;
+    };
+    let busy = false;
+    const captureStep = async (k: number): Promise<CaptureStep> => {
+      if (!Number.isSafeInteger(k) || k < 0) throw new Error(`__step: bad tick count ${String(k)}`);
+      if (busy) throw new Error('__step: the previous step has not finished');
+      if (hook.state === 'failed') throw new Error(hook.error ?? 'failed');
+      busy = true;
+      try {
+        await device.queue.onSubmittedWorkDone();
+        const t = await sim.step(k, true);
+        if (t) timing = t;
+        captureSteps = k;
+        await readCounters();
+        drawHud();
+        draw();
+        await device.queue.onSubmittedWorkDone();
+        return { tick: sim.tick, frames: hook.frames, timing: t };
+      } finally {
+        busy = false;
+      }
+    };
+    await readCounters();
+    drawHud();
+    draw();
+    await device.queue.onSubmittedWorkDone();
+    window.__step = captureStep;
+    if (hook.state === 'starting') hook.state = 'running';
+    return;
+  }
+
+  let lastTiming = -Infinity;
   const frame = (now: number): void => {
     if (hook.state === 'failed') return;
     pending += Math.min(now - last, 250);
@@ -214,17 +310,20 @@ async function start(): Promise<void> {
       pending = 0;
     }
     if (!paused && steps > 0) {
-      sim.step(steps);
+      // Time one step submission now and then; the wall clock needs a wait for the GPU.
+      const timed = !timingPending && now - lastTiming >= READBACK_MS;
+      const result = sim.step(steps, timed);
+      if (timed) {
+        timingPending = true;
+        lastTiming = now;
+        void result.then((t) => {
+          timingPending = false;
+          if (t) timing = t;
+        });
+      }
       rateTicks += steps;
     }
-    resize();
-    const dpr = canvas.width / Math.max(1, canvas.clientWidth);
-    const top = (hud.getBoundingClientRect().bottom + 8) * dpr;
-    sim.render(
-      context.getCurrentTexture().createView(),
-      fitView(net, canvas.width, canvas.height, top),
-    );
-    hook.frames++;
+    draw();
     rateFrames++;
     if (hook.state === 'starting') hook.state = 'running';
 
