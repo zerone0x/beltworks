@@ -32,6 +32,7 @@ explore/gather → hand-craft → place machines → connect logistics → resea
 
 ### Player
 - Move with WASD. Place and remove with the mouse. Inventory and hotbar.
+- Belts carry the player standing on them at the belt's speed, like Factorio's.
 - Hand-crafting queue; each recipe takes time.
 - Build reach of about 10 tiles.
 

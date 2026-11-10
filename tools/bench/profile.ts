@@ -92,7 +92,7 @@ export const STAGES: readonly Stage[] = [
   {
     name: 'players',
     system: 'players',
-    run: ({ state }) => updatePlayers(state.players, state.world),
+    run: ({ state }) => updatePlayers(state.players, state.world, state.entities),
   },
   {
     name: 'crafting',
