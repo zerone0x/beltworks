@@ -12,6 +12,7 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 ### Fixed
 
 - An inserter dropping onto a belt loop made of a single line keeps the item spacing across the loop's seam (#73).
+- A splitter whose output is in front of a sparse input's half carries all it can when a full input's items cross over into that half, instead of up to a quarter less (#78, D70).
 - Saved key bindings survive an update that adds several actions at once, or whose new action's default key chains through other rebound keys, instead of resetting to the defaults (#125, D53).
 
 ## 1.0.0-beta.1 — M5, polish: public beta
