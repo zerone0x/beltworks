@@ -154,7 +154,8 @@ export function rebind(
  * An action missing from the stored bindings (one added since they were
  * saved, like `minimap`) whose default key a stored action has taken gets
  * that action's default key instead, as if the stored action had been
- * rebound after it existed (`rebind` swaps), so a new action never resets
+ * rebound after it existed (`rebind` swaps); if that key is taken too, the
+ * swaps are followed until a free key is found, so a new action never resets
  * a player's bindings.
  */
 export function parseBindings(raw: unknown): Bindings {
@@ -167,8 +168,17 @@ export function parseBindings(raw: unknown): Bindings {
     else missing.push(action);
   }
   for (const action of missing) {
-    const holder = ACTION_IDS.find((a) => a !== action && out[a] === out[action]);
-    if (holder !== undefined && !missing.includes(holder)) out[action] = DEFAULT_BINDINGS[holder];
+    // Follow the swaps until a key no stored action holds: each holder that
+    // has the key is as if it had been rebound to it, so the new action takes
+    // that holder's default key, and so on down the chain. The holders' default
+    // keys are distinct, so chains from different actions never meet and end.
+    let key = DEFAULT_BINDINGS[action];
+    for (;;) {
+      const holder = ACTION_IDS.find((a) => !missing.includes(a) && out[a] === key);
+      if (holder === undefined) break;
+      key = DEFAULT_BINDINGS[holder];
+    }
+    out[action] = key;
   }
   return conflicts(out).length > 0 ? DEFAULT_BINDINGS : out;
 }

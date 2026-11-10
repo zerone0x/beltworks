@@ -82,6 +82,32 @@ describe('key bindings', () => {
     expect(parseBindings(without({ ...DEFAULT_BINDINGS, inventory: 'KeyI' })).minimap).toBe('KeyM');
   });
 
+  it('chain the fallback when the freed key is taken too, and for several new actions', () => {
+    const without = (b: Bindings, ...ids: string[]): Partial<Bindings> =>
+      Object.fromEntries(Object.entries(b).filter(([a]) => !ids.includes(a)));
+    // Chain of two: M is the inventory's, the inventory's old key E is the tech tree's.
+    const chained = parseBindings(
+      without({ ...DEFAULT_BINDINGS, inventory: 'KeyM', techTree: 'KeyE' }, 'minimap'),
+    );
+    expect(chained.inventory).toBe('KeyM');
+    expect(chained.techTree).toBe('KeyE');
+    expect(chained.minimap).toBe('KeyT');
+    expect(conflicts(chained)).toEqual([]);
+    // Two new actions whose defaults (M, C) are both taken, one of them down a chain of two.
+    const stored = { ...DEFAULT_BINDINGS, inventory: 'KeyM', techTree: 'KeyC', rotate: 'KeyT' };
+    const both = parseBindings(without(stored, 'minimap', 'copy'));
+    expect(conflicts(both)).toEqual([]);
+    for (const action of ['inventory', 'techTree', 'rotate'] as const) {
+      expect(both[action]).toBe(stored[action]);
+    }
+    expect(both.copy).toBe('KeyR');
+    expect(both.minimap).toBe('KeyE');
+    // Every other action keeps the key it was stored with.
+    for (const action of Object.keys(stored) as (keyof Bindings)[]) {
+      if (action !== 'minimap' && action !== 'copy') expect(both[action]).toBe(stored[action]);
+    }
+  });
+
   it('bind the minimap to M by default, rebindable like every action', () => {
     expect(actionFor('KeyM')).toBe('minimap');
     setBindings(rebind(DEFAULT_BINDINGS, 'minimap', 'KeyN').bindings);
