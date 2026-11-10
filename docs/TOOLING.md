@@ -196,7 +196,7 @@ Both large scenes meet their targets by a wide margin on CI hardware; a 50k tick
 - **Inserters** (29–35%): most of the buffer blocks' inserters hold an item and wait for a hole on the far lane they drop onto. (When this was measured, an inserter dropped at one exact spot, and the single free spots its neighbours leave when picking up never lined up with it; since #83 it drops into any free spot on its tile, so the lanes fill up further.) Every time items move past, the belt notification wakes them; they try, fail and go back to sleep. This is the busy-sparse-lane case from #17/#29, here on nearly full lanes. Idle machines are cheap: assemblers, labs, furnaces and drills stay between 0.1% and 3%.
 - **Power** (9–13%, and 43% of the small power scene): the networks are solved every tick, even though nothing in them changes during the measured ticks.
 
-These are the starting points for #73 (sleep/wake, incremental power solve), #75 (snapshot cost on the 10k scene) and #76 (WASM looks unnecessary for these targets on the current numbers).
+These are the starting points for #73 (sleep/wake, incremental power solve), #75 (snapshot cost on the 10k scene) and #76 (WASM looks unnecessary for these targets on the current numbers; settled by D68 after #73).
 
 **Results after #73** (the committed baselines: the CI `workflow_dispatch` run of #73's branch, Node 22 on `ubuntu-latest`, AMD EPYC 9V74 for the heavy scenes and 7763 for the quick ones; the 10k and 50k scenes end in other states than before, since #73 fixed where inserters drop on a loop of one line, D62):
 

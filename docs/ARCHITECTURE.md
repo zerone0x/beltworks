@@ -332,13 +332,15 @@ Implemented in `src/blueprint/` (model, string format, library), `src/render/blu
 
 ## Performance targets
 
-| Scene | Target tick time (16.6 ms budget) |
-|---|---|
-| 1k entities | < 1 ms |
-| 10k entities + 50k items on belts | < 8 ms |
-| 50k entities | < 16 ms (if missed, evaluate moving to WASM) |
+| Scene | Target tick time (16.6 ms budget) | Measured (CI, mean / p99) |
+|---|---|---|
+| 1k entities | < 1 ms | 0.0125 / 0.032 ms |
+| 10k entities + 50k items on belts | < 8 ms | 0.27 / 0.38 ms (52 500 items on belts) |
+| 50k entities | < 16 ms (if missed, evaluate moving to WASM) | 1.75 / 2.25 ms (268 000 items on belts) |
 
-Each target has a benchmark scene (`npm run bench -- 1k`, `10k`, `50k`; docs/TOOLING.md, "Benchmarks"), and `--profile` breaks the tick down per system. Every report also lists the active entities per system (see "Machine sleep").
+Each target has a benchmark scene (`npm run bench -- 1k`, `10k`, `50k`; docs/TOOLING.md, "Benchmarks"), and `--profile` breaks the tick down per system. Every report also lists the active entities per system (see "Machine sleep"). The measured column is the M4 wrap-up (#76): the bench on GitHub's 4-CPU `ubuntu-latest` runners, Node 22; the per-PR bench job and the nightly one keep reporting it. In both large scenes belts (47%) and inserters (45–48%) are nearly the whole tick, power 3–5%; the simulation stays TypeScript (D68 has the numbers and what would bring Rust→WASM back).
+
+Frames are measured by the scripted render profile (docs/TOOLING.md, "Render profile"): the target is a steady 60 fps on the 10k scene, a p99 frame interval under ~20 ms on every factory stage, on a real GPU. CI and the agents' containers only have SwiftShader, where the interval is the rasterizer's fill rate (0.3–1.5 s a frame) and only the main thread's JavaScript per frame (`work`) is comparable: on the 10k scene, p50 12 ms at 1× and 44 ms at 0.25× with the whole factory in view, on a heavily loaded shared machine (#76; docs/ROADMAP.md, M4). The worker's side of a frame is the tick plus encoding a snapshot (D56: 3.4 ms for the whole 10k factory in Node, less for a normal view).
 
 ## Directory layout
 
