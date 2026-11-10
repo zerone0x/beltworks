@@ -235,7 +235,7 @@ function lineBlocked(
  * Moves player `i`'s box (half size `PLAYER_HALF_SIZE`, covering subtiles
  * `[pos - H, pos + H)` on each axis) by `delta` along one axis (x when
  * `horizontal`), stopping flush against the first blocking tile line (see
- * `blocked`). `delta` is smaller than a tile, so at most one new tile line
+ * `lineBlocked`). `delta` is smaller than a tile, so at most one new tile line
  * is entered. No closures, so moving allocates nothing.
  */
 function moveAxis(
