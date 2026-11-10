@@ -73,7 +73,10 @@ export function controls(b: Bindings = bindings()): ControlHelp[] {
     { keys: 'Ctrl-click / middle click', action: 'In a window: move one item' },
     { keys: 'Holding a stack', action: 'In a window: click its slots to put the stack in' },
     { keys: 'Right click', action: 'Pick up the entity under the cursor' },
-    { keys: 'Mouse wheel', action: 'Zoom; zoomed far out, the map view (flat colours)' },
+    {
+      keys: `Mouse wheel / pinch / ${k('zoomIn')} ${k('zoomOut')}`,
+      action: 'Zoom (numpad + and - too); zoomed far out, the map view (flat colours)',
+    },
     { keys: k('minimap'), action: 'Minimap; click or drag on it to move the camera there' },
     {
       keys: `${k('copy')} + drag`,

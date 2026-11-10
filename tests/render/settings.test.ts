@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { hotbarSlotForKey } from '../../src/render/buildInput';
+import { zoomStepFor } from '../../src/render/cameraInput';
 import { moveAxes } from '../../src/render/playerInput';
 import { controls } from '../../src/ui/help';
 import {
@@ -87,6 +88,36 @@ describe('key bindings', () => {
     expect(actionFor('KeyN')).toBe('minimap');
     expect(actionFor('KeyM')).toBeNull();
     expect(controls().some((c) => c.keys === 'N' && c.action.startsWith('Minimap'))).toBe(true);
+  });
+
+  it('zoom with = and - by default, the numpad too, rebindable', () => {
+    expect(actionFor('Equal')).toBe('zoomIn');
+    expect(actionFor('Minus')).toBe('zoomOut');
+    expect([zoomStepFor('Equal'), zoomStepFor('Minus')]).toEqual([1, -1]);
+    expect([zoomStepFor('NumpadAdd'), zoomStepFor('NumpadSubtract')]).toEqual([1, -1]);
+    expect(zoomStepFor('KeyW')).toBe(0);
+    expect(controls().some((c) => c.keys.endsWith('= -') && c.action.startsWith('Zoom'))).toBe(
+      true,
+    );
+    // Rebound: the old key does nothing; an action bound to a numpad key wins over zooming.
+    setBindings({ ...DEFAULT_BINDINGS, zoomIn: 'KeyZ', hotbar1: 'NumpadAdd' });
+    expect(zoomStepFor('KeyZ')).toBe(1);
+    expect(zoomStepFor('Equal')).toBe(0);
+    expect(zoomStepFor('NumpadAdd')).toBe(0);
+    expect(controls().some((c) => c.keys.endsWith('Z -') && c.action.startsWith('Zoom'))).toBe(
+      true,
+    );
+  });
+
+  it('keep stored bindings that took = or - before the zoom actions existed', () => {
+    const stored: Record<string, string> = { ...DEFAULT_BINDINGS, help: 'Equal' };
+    delete stored.zoomIn;
+    delete stored.zoomOut;
+    const b = parseBindings(stored);
+    expect(b.help).toBe('Equal');
+    expect(b.zoomIn).toBe('KeyH');
+    expect(b.zoomOut).toBe('Minus');
+    expect(conflicts(b)).toEqual([]);
   });
 
   it('drive the input handlers', () => {
