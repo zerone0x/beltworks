@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { ITEMS, MINED_ITEM } from '../../src/data/items';
 import { ResourceId } from '../../src/data/resources';
 import { STARTING_KIT } from '../../src/data/start';
@@ -19,6 +19,22 @@ function collectErrors(page: Page): string[] {
   });
   page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
   return errors;
+}
+
+/** A screenshot of the `size`² pixels around the screen's center (where the followed player stands). */
+async function shootPlayer(page: Page, testInfo: TestInfo, file: string, size: number) {
+  const view = page.viewportSize()!;
+  const shot = testInfo.outputPath(file);
+  await page.screenshot({
+    path: shot,
+    clip: {
+      x: view.width / 2 - size / 2,
+      y: view.height / 2 - size * 0.6,
+      width: size,
+      height: size,
+    },
+  });
+  await testInfo.attach(file, { path: shot, contentType: 'image/png' });
 }
 
 async function open(page: Page): Promise<void> {
@@ -166,30 +182,9 @@ test('walk to an ore tile, mine it for 2 s, and find the ore in the inventory', 
   });
 
   // Drawn swinging a pickaxe at the tile (D67), facing it.
-  const sprite = await page.evaluate(() => window.__beltworks!.playerSprite());
-  expect(sprite?.pose).toBe('mine');
-  const view = page.viewportSize()!;
-  for (const zoom of [1, 2]) {
-    const p = await player(page);
-    await page.evaluate(
-      ([x, y, z]) => window.__beltworks!.setCamera(x!, y!, z),
-      [p.x * TILE_PX, p.y * TILE_PX, zoom],
-    );
-    await page.keyboard.press('f');
-    await page.waitForTimeout(300);
-    const size = 140 * zoom;
-    const clip = testInfo.outputPath(`art-player-mine-${zoom}x.png`);
-    await page.screenshot({
-      path: clip,
-      clip: {
-        x: view.width / 2 - size / 2,
-        y: view.height / 2 - size * 0.6,
-        width: size,
-        height: size,
-      },
-    });
-    await testInfo.attach(`player mining at ${zoom}x`, { path: clip, contentType: 'image/png' });
-  }
+  expect((await page.evaluate(() => window.__beltworks!.playerSprite()))?.pose).toBe('mine');
+  // The camera stays put while the button is held: moving it would mine the tile now under the pointer.
+  await shootPlayer(page, testInfo, 'art-player-mine-1x.png', 140);
 
   await page.mouse.up({ button: 'right' });
   await expect.poll(async () => (await player(page)).mining).toBe(false);
@@ -206,5 +201,21 @@ test('walk to an ore tile, mine it for 2 s, and find the ore in the inventory', 
   // E closes the panel again.
   await page.keyboard.press('e');
   await expect(panel).toBeHidden();
+
+  // Mining once more at 2× zoom, for the screenshot: aim at the tile again after zooming.
+  await page.evaluate(
+    ([x, y]) => window.__beltworks!.setCamera(x!, y!, 2),
+    [stand.x * TILE_PX, stand.y * TILE_PX],
+  );
+  await page.keyboard.press('f');
+  const again = await page.evaluate(([x, y]) => window.__beltworks!.tileToScreen(x!, y!), [tx, ty]);
+  await page.mouse.move(again.x, again.y);
+  await page.mouse.down({ button: 'right' });
+  await expect
+    .poll(async () => (await page.evaluate(() => window.__beltworks!.playerSprite()))?.pose)
+    .toBe('mine');
+  await page.waitForTimeout(300);
+  await shootPlayer(page, testInfo, 'art-player-mine-2x.png', 280);
+  await page.mouse.up({ button: 'right' });
   expect(errors).toEqual([]);
 });
