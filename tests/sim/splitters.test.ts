@@ -526,6 +526,7 @@ describe('random building with belts, undergrounds and splitters', () => {
     const protos = TIERS.flatMap((t) => [t.belt, t.underground, t.splitter]);
     let splitterRounds = 0;
     let merges = 0;
+    let slots = 0;
     for (const seed of [49, 4949, 494949]) {
       const w = world();
       const rng = Rng.fromSeed(seed);
@@ -587,8 +588,12 @@ describe('random building with belts, undergrounds and splitters', () => {
                 if (w.table.takeAt(line.id, lane, 0, line.speed - 1) !== 0) refunded++;
               }
             }
-            if (line.splitter !== 0 && line.lanes.some((l) => l.spacing === MERGE_SPACING))
+            if (line.splitter === 0) continue;
+            if (line.lanes.some((l) => l.spacing === MERGE_SPACING)) slots++;
+            // Items that crossed over sharing a lane with the half's own.
+            if (line.lanes.some((l) => l.marks().length > 0 && l.marks().length < l.count)) {
               merges++;
+            }
           }
         }
         checkLanes(w.table);
@@ -601,9 +606,12 @@ describe('random building with belts, undergrounds and splitters', () => {
       }
       expect(inserted).toBeGreaterThan(100);
     }
-    // Splitters with something in front stood through many of the rounds, and merged.
+    // Splitters with something in front stood through many of the rounds,
+    // and merged, keeping slots free some of the time (only where the half
+    // merged into carries its own items close together, #78).
     expect(splitterRounds).toBeGreaterThan(500);
-    expect(merges).toBeGreaterThan(500);
+    expect(merges).toBeGreaterThan(100);
+    expect(slots).toBeGreaterThan(50);
   });
 });
 
