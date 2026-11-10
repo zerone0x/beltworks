@@ -60,6 +60,7 @@ MODELS = [
         COMMON,
         name='player:walk',
         height=1.25,
+        shadow_from='player',
         pose='walk',
         layers=[{'name': 'body', 'frames': WALK_FRAMES, 'fps': 30, 'advance': 'always'}],
     ),

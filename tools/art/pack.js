@@ -47,9 +47,15 @@ const ICON_COLUMNS = 8;
  */
 
 /**
- * Trims `image` to its non-transparent pixels on ALIGN boundaries, clearing
- * the color of fully transparent pixels; `shadow` frames become pure black
- * with the alpha as rendered.
+ * Pixels at or below this alpha are dropped: invisible on screen (at most 2%
+ * opacity, and shadows are drawn at half that), but the soft tails of a
+ * shadow's penumbra would otherwise stretch its frame over mostly empty texels.
+ */
+const ALPHA_FLOOR = 6;
+
+/**
+ * Trims `image` to its pixels above ALPHA_FLOOR on ALIGN boundaries, clearing
+ * the others; `shadow` frames become pure black with the alpha as rendered.
  * @param {import('./png.js').Image} image
  * @param {number[]} anchor
  * @param {boolean} shadow
@@ -66,8 +72,8 @@ function trimFrame(image, anchor, shadow, key) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       if (shadow) data[i] = data[i + 1] = data[i + 2] = 0;
-      if (data[i + 3] === 0) {
-        data[i] = data[i + 1] = data[i + 2] = 0;
+      if (data[i + 3] <= ALPHA_FLOOR) {
+        data[i] = data[i + 1] = data[i + 2] = data[i + 3] = 0;
         continue;
       }
       if (x < x0) x0 = x;
@@ -183,9 +189,16 @@ export function readRenders(dir) {
     const key = `${String(manifest.name)}/shadow/${String(d)}/0`;
     // Models whose body catches its own shadow have no shadow frame: an empty one.
     if (manifest.shadow === false) return trimFrame(createImage(2, 2), manifest.anchor, true, key);
+    // A model that borrows another's shadow (`shadow_from`: a walk cycle uses its idle pose's)
+    // reads that model's shadow and body; the packer then stores the shared frame once.
+    const from = manifest.shadowFrom ? join(dir, '..', String(manifest.shadowFrom)) : dir;
+    const donor =
+      from === dir ? manifest : JSON.parse(readFileSync(join(from, 'manifest.json'), 'utf8'));
+    const readDonor = (/** @type {string} */ layer, /** @type {number} */ n) =>
+      decodePng(readFileSync(join(from, `${layer}-d${String(n)}-f0.png`)));
     // Shadow under the opaque parts of the body never shows: drop it, it only costs bytes.
-    const image = read('shadow', d, 0);
-    const body = read(manifest.layers[0].name, shared(manifest.layers[0], d), 0);
+    const image = readDonor('shadow', d);
+    const body = readDonor(donor.layers[0].name, shared(donor.layers[0], d));
     for (let i = 3; i < image.data.length; i += 4) {
       if (body.data[i] === 255) image.data[i] = 0;
     }

@@ -5,7 +5,9 @@
  * A player is the pre-rendered engineer of the `player` atlas (D67; its
  * pose, facing and frame from playerSprites.ts) with its shadow, drawn at
  * the buildings' shadow strength; until the atlas loads, or without it, the
- * placeholder ball.
+ * placeholder ball. The bodies stand among the buildings' sprites in their
+ * depth order (entitySprites.ts), the shadows and indicators in layers of
+ * their own.
  */
 
 import { Container, Graphics, Sprite } from 'pixi.js';
@@ -21,7 +23,7 @@ import {
   type PlayerPose,
 } from './playerSprites';
 import type { PlayerTrack } from './playerTrack';
-import { placeSprite } from './entitySprites';
+import { placeSprite, type EntitySpriteLayer } from './entitySprites';
 import { SHADOW_ALPHA, type ModelSprites, type SpriteAtlas } from './sprites';
 
 /** World pixels per subtile. */
@@ -62,11 +64,24 @@ export class PlayerLayer {
   private readonly shadowLayer = new Container({ label: 'player-shadows', alpha: SHADOW_ALPHA });
   private readonly bodyLayer = new Container({ label: 'bodies' });
   private models: PlayerModels | null = null;
+  /**
+   * The buildings' sprite layer, when the players' bodies stand among the
+   * buildings in its depth order (a player north of a building is behind it);
+   * without one they are drawn above everything in `bodyLayer`.
+   */
+  private depth: EntitySpriteLayer | null = null;
   /** What each player showed last frame (the test hook reads it); `null` for the placeholder. */
   readonly poses: (PlayerPose | null)[] = [];
 
   constructor() {
     this.container.addChild(this.shadowLayer, this.bodyLayer, this.indicators);
+  }
+
+  /** Sorts the players' bodies in with the buildings of `layer` (see `EntitySpriteLayer.placeActors`). */
+  sortWith(layer: EntitySpriteLayer | null): void {
+    this.depth = layer;
+    if (layer) return;
+    for (const player of this.players) this.bodyLayer.addChild(player.body);
   }
 
   /** Draws players with the `player` models of `atlas` from now on (the placeholder without them). */
@@ -105,7 +120,8 @@ export class PlayerLayer {
         facing: FACING_SOUTH,
       };
       this.players.push(player);
-      this.bodyLayer.addChild(player.ball, player.body);
+      this.bodyLayer.addChild(player.ball);
+      if (!this.depth) this.bodyLayer.addChild(player.body);
       this.shadowLayer.addChild(player.shadow);
     }
     const models = this.models;
@@ -114,6 +130,7 @@ export class PlayerLayer {
       player.body.visible = player.shadow.visible = i < count && models !== null;
     });
     this.poses.length = count;
+    const actors: { sprite: Sprite; y: number }[] = [];
 
     const g = this.indicators;
     g.clear();
@@ -145,6 +162,7 @@ export class PlayerLayer {
           models.anim,
         );
         player.facing = pose.facing;
+        actors.push({ sprite: player.body, y: py });
         this.poses[i] = pose;
         const model = models[pose.pose];
         const frames = model.layers[0]!.frames[pose.facing % model.directions]!;
@@ -182,6 +200,7 @@ export class PlayerLayer {
         }
       }
     }
+    this.depth?.placeActors(actors);
   }
 
   destroy(): void {

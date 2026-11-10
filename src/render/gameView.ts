@@ -139,6 +139,7 @@ export class GameView {
       this.power.container,
       this.entities.iconContainer,
     ];
+    this.players.sortWith(this.entities.sprites);
     app.stage.addChild(this.world);
     this.input = new CameraInput(this.camera, app.canvas);
     this.input.onPan = () => {
