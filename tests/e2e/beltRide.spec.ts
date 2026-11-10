@@ -1,8 +1,8 @@
 /**
  * Belts carry the player (docs/DECISIONS.md, D66): with a test kit (D29) the
  * player lays a row of transport belts with the mouse, walks onto it with
- * the keyboard and lets go; the belt carries the player to its end, where
- * the player stops just past the last belt.
+ * the keyboard and lets go; the belt pulls the player onto its center line
+ * and carries it to its end, where the player stops just past the last belt.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -83,13 +83,14 @@ test('a belt carries the player standing on it to its end', async ({ page }) => 
   await expect
     .poll(async () => (await player(page)).x, { timeout: 30_000 })
     .toBeGreaterThan(released.x + 1);
-  expect((await player(page)).y).toBe(0);
+  // pulled from the tile corner it spawned on to the belt's center line...
+  await expect.poll(async () => (await player(page)).y).toBe(0.5);
 
   // ...to just past the end of the last belt, where it stops.
   const still = await waitUntilStill(page);
   const speed = ENTITIES[EntityTypeId.TransportBelt].beltSpeed! / SUBTILES_PER_TILE;
   expect(still.x).toBeGreaterThanOrEqual(LAST + 1);
   expect(still.x).toBeLessThan(LAST + 1 + speed);
-  expect(still.y).toBe(0);
+  expect(still.y).toBe(0.5);
   expect(errors).toEqual([]);
 });
