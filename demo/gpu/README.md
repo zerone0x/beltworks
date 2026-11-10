@@ -109,7 +109,9 @@ On SwiftShader, one million items take a few seconds per captured frame, so 60 f
 
 `node tools/gpu-demo/film.mjs` records the demo film with one million items: `capture.mjs --film --resume`, retried (each retry resuming) if the browser or the GPU device fails, then `assemble.mjs --crf 26`. It writes `out/gpu-demo/film/frames/` and `out/gpu-demo/film/gpu-demo-film.mp4`. Stop it and start it again at any time. Flags: `--seconds` (24), `--fps` (15), `--steps` (ticks per frame, 4), `--n`, `--crf`, `--out`, `--retries`, `--fresh`, `--assemble-only`.
 
-**Budget.** On SwiftShader under load, one 1M frame (4 ticks at about 100 ms each, the draw and the screenshot) takes about 5 to 15 seconds. A 30 fps film would be 720 frames for 24 s; 15 fps with 4 ticks per frame keeps the game's speed (60 ticks per second) with half the frames: 360 frames, 1440 ticks, about one to one and a half hours at 1280x720. The item count stays at one million.
+**Budget.** On SwiftShader, one 1M frame (4 ticks at about 100 ms each on the GPU timeline, the draw and the screenshot) took about 5 seconds of wall time on a 4-core machine at load average 40. A 30 fps film would be 720 frames for 24 s; 15 fps with 4 ticks per frame keeps the game's speed (60 ticks per second) with half the frames: 360 frames, 1436 ticks, at 1280x720. That run took 29 minutes. The item count stays at one million.
+
+[`docs/screenshots/gpu-demo-film.mp4`](../../docs/screenshots/gpu-demo-film.mp4) is the result: 24.0 s, 360 frames at 15 fps, 1280x720, H.264 (crf 26), 3.7 MiB. Stills: [wide](../../docs/screenshots/gpu-film-wide.png), [the splitter](../../docs/screenshots/gpu-film-splitter.png), [a rotated belt backing items up](../../docs/screenshots/gpu-film-dead-end.png), [the end card](../../docs/screenshots/gpu-film-end-card.png).
 
 **Script** (`filmShot` in `camera.ts`, a pure function of the tick and the film's length, so a resumed capture draws the same frames):
 
