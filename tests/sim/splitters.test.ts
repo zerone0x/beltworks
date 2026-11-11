@@ -527,7 +527,7 @@ describe('random building with belts, undergrounds and splitters', () => {
     let splitterRounds = 0;
     let merges = 0;
     let slots = 0;
-    for (const seed of [49, 4949, 494949]) {
+    for (const seed of [49, 4949, 494949, 7, 707, 70707]) {
       const w = world();
       const rng = Rng.fromSeed(seed);
       let inserted = 0;
@@ -610,8 +610,8 @@ describe('random building with belts, undergrounds and splitters', () => {
     // and merged, keeping slots free some of the time (only where the half
     // merged into carries its own items close together, #78).
     expect(splitterRounds).toBeGreaterThan(500);
-    expect(merges).toBeGreaterThan(100);
-    expect(slots).toBeGreaterThan(50);
+    expect(merges).toBeGreaterThan(150);
+    expect(slots).toBeGreaterThan(100);
   });
 });
 
