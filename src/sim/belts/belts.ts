@@ -1370,13 +1370,35 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * came too close (`splitStop`).
    */
   private fillsGaps(half: TransportLine, lane: LineLane): boolean {
-    const sib = half.sibling!;
     return (
       lane.spacing === BELT_ITEM_SPACING &&
+      this.crossingInto(half, lane) &&
+      !this.ownItemsClose(half, lane)
+    );
+  }
+
+  /**
+   * Whether the other half's items on lane `lane` come close together and
+   * go across into splitter half `half` (its own output isn't open, this
+   * one's is), whether `half` keeps slots for them or fills gaps: the line
+   * feeding `half` then hands each of its items on a whole number of
+   * spacings behind the half's last item (`output`), so the gap in front
+   * of each takes whole items going across and none goes out partly empty.
+   * O(1).
+   */
+  private alignsHandOn(half: TransportLine, lane: LineLane): boolean {
+    return (
+      this.crossingInto(half, lane) &&
+      (lane.spacing === MERGE_SPACING || !this.ownItemsClose(half, lane))
+    );
+  }
+
+  private crossingInto(half: TransportLine, lane: LineLane): boolean {
+    const sib = half.sibling!;
+    return (
       this.outputOpen(half, lane.index) &&
       !this.outputOpen(sib, lane.index) &&
-      dense(sib.lanes[lane.index], sib.speed, 1) &&
-      !this.ownItemsClose(half, lane)
+      dense(sib.lanes[lane.index], sib.speed, 1)
     );
   }
 
@@ -1468,10 +1490,10 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       pos = line.outPos - carry;
       if (target.count > 0) {
         pos = Math.max(pos, target.total + target.spacing);
-        // Into a splitter half that fills gaps: a whole number of spacings
-        // behind its last item, so the items going across fill the gap
-        // in front of this one exactly (`fillsGaps`).
-        if (out.splitter !== 0 && this.fillsGaps(out, target)) {
+        // Into a splitter half the other half's items cross over into: a
+        // whole number of spacings behind its last item, so the items going
+        // across fill the gap in front of this one exactly (`alignsHandOn`).
+        if (out.splitter !== 0 && this.alignsHandOn(out, target)) {
           const behind = pos - target.total;
           pos = target.total + BELT_ITEM_SPACING * Math.ceil(behind / BELT_ITEM_SPACING);
         }

@@ -23,6 +23,7 @@
     "test:release": "playwright test -c playwright.release.config.ts",
     "test:gpu": "playwright test -c playwright.gpu.config.ts",
     "bench": "vite build -c tools/bench/vite.config.ts && node --expose-gc node_modules/.cache/beltworks-bench/run.js",
+    "bench:splitters": "vite build -c tools/bench/vite.config.ts && node node_modules/.cache/beltworks-bench/splitters.js",
     "art": "node tools/art/art.js"
   },
   "dependencies": {
