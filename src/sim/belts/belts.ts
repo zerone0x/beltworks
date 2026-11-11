@@ -1314,20 +1314,19 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   }
 
   /**
-   * Whether splitter half `half`'s own items on lane `lane` (the unmarked
-   * ones, and those of the line feeding the half) come so close together
-   * that an item going across from the other half can't fit between two of
-   * them: less than `MERGE_SPACING` plus one tick's movement apart, counted
-   * at the rate items pass through the half (the half's speed, or its
-   * output's where that is slower). In the half they count as close only
-   * while packed (at the lane's spacing plus a tick's movement: the slots
-   * kept by `refreshMerge` hold them `MERGE_SPACING` apart anyway, which
-   * says nothing about the input), on the feeding line whenever they come
-   * that close, which they do while the input carries more than half of
-   * what passes or backs up. Only then does a merge into the half need
-   * slots kept (`refreshMerge`); otherwise the items going across fill the
-   * gaps between its own (`fillsGaps`). O(1): a half holds at most a
-   * handful of items, and only the first three of the feeding line count.
+   * Whether splitter half `half`'s own input on lane `lane` carries more
+   * than half of what passes through the half, so that a merge into it
+   * needs slots kept to stay fair (`refreshMerge`, D44); otherwise the
+   * items going across fill the gaps between its own (`fillsGaps`, D70).
+   * Counted on the line feeding the half: its items less than
+   * `MERGE_SPACING` apart on average over two gaps, counted at the rate
+   * items pass through the half (its speed, or its output's where that is
+   * slower), behind its second item where it has four (the gap behind the
+   * first shrinks while that one waits for its spot on the half). Not in
+   * the half, where slots hold its items `MERGE_SPACING` apart whatever
+   * the input, and items bunch up behind a held one. With nothing feeding
+   * the half (items only dropped onto it), two of its own items packed in
+   * it. O(1): at most four items of the feeding line, a handful in the half.
    */
   private ownItemsClose(half: TransportLine, lane: LineLane): boolean {
     for (const f of half.feeders) {
@@ -1366,8 +1365,8 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * its own. Two things keep those gaps whole spacings long, so none of
    * them goes out partly empty: the line feeding the half hands each of its
    * items on a whole number of spacings behind the half's last item
-   * (`output`), and the half's first item doesn't make way where it already
-   * came too close (`splitStop`).
+   * (`alignsHandOn`), and the half's first item doesn't make way where it
+   * already came too close (`splitStop`).
    */
   private fillsGaps(half: TransportLine, lane: LineLane): boolean {
     return (
@@ -1378,13 +1377,12 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   }
 
   /**
-   * Whether the other half's items on lane `lane` come close together and
-   * go across into splitter half `half` (its own output isn't open, this
-   * one's is), whether `half` keeps slots for them or fills gaps: the line
-   * feeding `half` then hands each of its items on a whole number of
-   * spacings behind the half's last item (`output`), so the gap in front
-   * of each takes whole items going across and none goes out partly empty.
-   * O(1).
+   * Whether the line feeding splitter half `half` hands items on a whole
+   * number of spacings behind its last item on lane `lane` (`output`):
+   * while the other half's items cross over densely (`crossingInto`) and
+   * the half keeps slots for them or fills gaps, but not while it holds
+   * its own close items back for D58's sparse merges (that would slow its
+   * own input for nothing).
    */
   private alignsHandOn(half: TransportLine, lane: LineLane): boolean {
     return (
@@ -1393,6 +1391,11 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     );
   }
 
+  /**
+   * Whether the other half's items on lane `lane` come close together and
+   * go across into splitter half `half`: its own output isn't open, this
+   * one's is. O(1).
+   */
   private crossingInto(half: TransportLine, lane: LineLane): boolean {
     const sib = half.sibling!;
     return (
