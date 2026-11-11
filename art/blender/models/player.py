@@ -1,9 +1,9 @@
 """
-The player: a small engineer in a safety-orange work suit with an off-white
+The player: a small engineer in a hi-vis magenta work suit with an off-white
 helmet and a dark visor, a steel life-support pack on the back with a green
 status lamp, dark boots, gloves and belt. Chunky proportions (a big helmet,
 short limbs) so the figure reads at 1x: about 1.2 tiles tall, a tile on
-screen. The orange is the one color no entity family uses, so the player
+screen. Magenta is the one hue no entity family, ore or terrain uses, so the player
 stands out on grass, ore, belts and buildings alike.
 
 Three models in the `player` atlas, 8 directions each (the driver turns the
@@ -60,6 +60,7 @@ MODELS = [
         COMMON,
         name='player:walk',
         height=1.25,
+        shadow_from='player',
         pose='walk',
         layers=[{'name': 'body', 'frames': WALK_FRAMES, 'fps': 30, 'advance': 'always'}],
     ),
@@ -154,14 +155,15 @@ def segment(a, b, r, mat, r2=None, verts=14):
 def build(ctx):
     pose = POSES[ctx.model['pose']](ctx.t('body'))
 
-    suit = m.worn('suit', 0xe2782a, wear=0xb35a1e, metallic=0.0, roughness=0.62, amount=0.12, scale=9.0)
+    suit = m.worn('suit', 0xd2347f, wear=0x9c2060, metallic=0.0, roughness=0.62, amount=0.12, scale=9.0)
     white = m.paint('helmet', 0xdfe2e4, amount=0.04)
     dark = m.plain('suit_dark', 0x2c3035, roughness=0.7)
     visor = m.plain('visor', 0x16304a, metallic=0.3, roughness=0.12)
     steel = m.worn('pack', 0x7c8791, metallic=0.5, roughness=0.42, amount=0.1, scale=12.0)
     lamp = m.emissive('pack_lamp', 0x7cf06a, strength=1.2)
     wood = m.wood()
-    iron = m.dark_iron()
+    # The pick's head is bright steel: dark iron vanished against dark ore and soil at 1x.
+    pick_steel = m.plain('pick_steel', 0xcdd4da, metallic=0.6, roughness=0.35)
 
     stance = pose['stance']
     # Legs: hip at the origin of the leg, the ankle where pitch and knee put it.
@@ -230,7 +232,7 @@ def build(ctx):
         d = (hands[0][1] + hands[1][1]).normalized()
         start = h - d * 0.06
         end = h + d * 0.36
-        segment(start, end, 0.022, wood, verts=10)
+        segment(start, end, 0.034, wood, verts=10)
         # Head: perpendicular to the handle in the swing plane, the point leading the strike.
         n = Vector((0.0, d.z, -d.y)).normalized()
-        segment(end - n * 0.08, end + n * 0.15, 0.03, iron, r2=0.012, verts=10)
+        segment(end - n * 0.1, end + n * 0.19, 0.045, pick_steel, r2=0.02, verts=10)

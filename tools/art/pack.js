@@ -47,9 +47,62 @@ const ICON_COLUMNS = 8;
  */
 
 /**
- * Trims `image` to its non-transparent pixels on ALIGN boundaries, clearing
- * the color of fully transparent pixels; `shadow` frames become pure black
- * with the alpha as rendered.
+ * Pixels at or below this alpha are dropped: invisible on screen (at most 2%
+ * opacity, and shadows are drawn at half that), but the soft tails of a
+ * shadow's penumbra would otherwise stretch its frame over mostly empty texels.
+ */
+const ALPHA_FLOOR = 6;
+
+/**
+ * A shadow pass is path traced, so besides the shadow it holds faint noise
+ * (alpha up to a few dozen, a few percent on average) scattered over the whole
+ * canvas, which would keep the frame as big as the canvas. A pixel of a shadow
+ * frame is dropped unless the mean alpha of the (2 * NOISE_RADIUS + 1)² texels
+ * around it reaches NOISE_MEAN: noise is sparse, whereas a shadow and its
+ * smooth halo are not (the box filter keeps a tree's ambient halo, and costs a
+ * shadow about 1% of its alpha along the edges).
+ */
+const NOISE_RADIUS = 3;
+const NOISE_MEAN = 8;
+
+/**
+ * Clears the alpha of the pixels of a shadow frame that are no more than noise.
+ * @param {import('./png.js').Image} image
+ */
+function clearNoise(image) {
+  const { width, height, data } = image;
+  // Summed-area table of the alpha, one row and column larger than the image.
+  const stride = width + 1;
+  const sums = new Float64Array(stride * (height + 1));
+  for (let y = 0; y < height; y++) {
+    let row = 0;
+    for (let x = 0; x < width; x++) {
+      row += data[(y * width + x) * 4 + 3];
+      sums[(y + 1) * stride + x + 1] = sums[y * stride + x + 1] + row;
+    }
+  }
+  const dropped = [];
+  for (let y = 0; y < height; y++) {
+    const y0 = Math.max(0, y - NOISE_RADIUS);
+    const y1 = Math.min(height, y + NOISE_RADIUS + 1);
+    for (let x = 0; x < width; x++) {
+      const x0 = Math.max(0, x - NOISE_RADIUS);
+      const x1 = Math.min(width, x + NOISE_RADIUS + 1);
+      const sum =
+        sums[y1 * stride + x1] -
+        sums[y0 * stride + x1] -
+        sums[y1 * stride + x0] +
+        sums[y0 * stride + x0];
+      const mean = sum / (2 * NOISE_RADIUS + 1) ** 2;
+      if (mean < NOISE_MEAN) dropped.push(y * width + x);
+    }
+  }
+  for (const p of dropped) data[p * 4 + 3] = 0;
+}
+
+/**
+ * Trims `image` to its pixels above ALPHA_FLOOR on ALIGN boundaries, clearing
+ * the others; `shadow` frames become pure black with the alpha as rendered.
  * @param {import('./png.js').Image} image
  * @param {number[]} anchor
  * @param {boolean} shadow
@@ -57,6 +110,7 @@ const ICON_COLUMNS = 8;
  * @returns {Frame}
  */
 function trimFrame(image, anchor, shadow, key) {
+  if (shadow) clearNoise(image);
   const { width, height, data } = image;
   let x0 = width;
   let y0 = height;
@@ -66,8 +120,8 @@ function trimFrame(image, anchor, shadow, key) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       if (shadow) data[i] = data[i + 1] = data[i + 2] = 0;
-      if (data[i + 3] === 0) {
-        data[i] = data[i + 1] = data[i + 2] = 0;
+      if (data[i + 3] <= ALPHA_FLOOR) {
+        data[i] = data[i + 1] = data[i + 2] = data[i + 3] = 0;
         continue;
       }
       if (x < x0) x0 = x;
@@ -179,15 +233,36 @@ export function readRenders(dir) {
     }
     return frame;
   };
+  // Per pixel of the canvas, 1 where the first layer is opaque in every frame of direction `d`.
+  const coveredByEveryFrame = (/** @type {number} */ d) => {
+    const layer = manifest.layers[0];
+    let covered = /** @type {Uint8Array | null} */ (null);
+    for (let f = 0; f < layer.frames; f++) {
+      const body = read(layer.name, shared(layer, d), f);
+      if (!covered) covered = new Uint8Array(body.width * body.height).fill(1);
+      for (let p = 0; p < covered.length; p++) {
+        if (body.data[p * 4 + 3] !== 255) covered[p] = 0;
+      }
+    }
+    return covered ?? new Uint8Array(0);
+  };
   const shadow = (/** @type {number} */ d) => {
     const key = `${String(manifest.name)}/shadow/${String(d)}/0`;
     // Models whose body catches its own shadow have no shadow frame: an empty one.
     if (manifest.shadow === false) return trimFrame(createImage(2, 2), manifest.anchor, true, key);
+    // A model that borrows another's shadow (`shadow_from`: a walk cycle uses its idle pose's)
+    // reads that model's shadow (both have the same canvas).
+    const from = manifest.shadowFrom ? join(dir, '..', String(manifest.shadowFrom)) : dir;
+    const readDonor = (/** @type {string} */ layer, /** @type {number} */ n) =>
+      decodePng(readFileSync(join(from, `${layer}-d${String(n)}-f0.png`)));
     // Shadow under the opaque parts of the body never shows: drop it, it only costs bytes.
-    const image = read('shadow', d, 0);
-    const body = read(manifest.layers[0].name, shared(manifest.layers[0], d), 0);
+    // Only where every frame this model draws covers it, though: a walking leg or a
+    // swinging pickaxe isn't where the first frame's (or the donor's idle) body was,
+    // and cutting under that would leave a hole in the shadow beside it (#128).
+    const image = readDonor('shadow', d);
+    const covered = coveredByEveryFrame(d);
     for (let i = 3; i < image.data.length; i += 4) {
-      if (body.data[i] === 255) image.data[i] = 0;
+      if (covered[i >> 2] === 1) image.data[i] = 0;
     }
     return trimFrame(image, manifest.anchor, true, key);
   };
