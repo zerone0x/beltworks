@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { TILE_PX } from '../../src/render/camera';
 import type { EntityIndex, EntityView } from '../../src/render/entityIndex';
 import { EntitySpriteLayer } from '../../src/render/entitySprites';
+import { PlayerLayer } from '../../src/render/playerLayer';
+import { PlayerTrack } from '../../src/render/playerTrack';
 import type { ModelSprites, SpriteAtlas } from '../../src/render/sprites';
+import { PLAYER_STRIDE, PlayerField } from '../../src/sim/snapshot';
 
 // The alpha filter compiles a shader, which needs a DOM; the depth order doesn't.
 vi.mock('pixi.js', async (importOriginal) => ({
@@ -71,5 +74,33 @@ describe('players among the buildings', () => {
     expect(order({ A: a, B: b, C: c })).toEqual(['A', 'B', 'b', 'b', 'C']);
     layer.placeActors([{ sprite: b, y: 2 * TILE_PX }]);
     expect(order({ A: a, B: b, C: c })).toEqual(['b', 'B', 'b']);
+  });
+});
+
+describe('players in map mode', () => {
+  it('keeps the body on screen when map mode hides the buildings, and sorts it back in after', () => {
+    const { layer, order } = setup([building(1, 0, 0), building(2, 0, 2)]);
+    const players = new PlayerLayer();
+    players.setAtlas(atlas);
+    players.sortWith(layer);
+    const track = new PlayerTrack();
+    const records = new Int32Array(PLAYER_STRIDE);
+    records[PlayerField.x] = 384; // 1.5 tiles
+    records[PlayerField.y] = 384;
+    track.push(records, 1, 0);
+    players.draw(track, 0);
+    const sprite = layer.container.children.find((c) => c.label === 'player') as Sprite;
+    expect(order({ P: sprite })).toEqual(['b', 'P', 'b']);
+    // Map mode hides the buildings' layer: the body goes to the players' own layer.
+    players.setDepthSorting(false);
+    players.draw(track, 0);
+    expect(order({ P: sprite })).toEqual(['b', 'b']);
+    expect(sprite.parent?.label).toBe('bodies');
+    expect(sprite.parent?.parent).toBe(players.container);
+    expect(sprite.visible).toBe(true);
+    // Back in the sprite view, it stands among the buildings again.
+    players.setDepthSorting(true);
+    players.draw(track, 0);
+    expect(order({ P: sprite })).toEqual(['b', 'P', 'b']);
   });
 });

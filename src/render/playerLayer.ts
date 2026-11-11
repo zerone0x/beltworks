@@ -7,7 +7,8 @@
  * the buildings' shadow strength; until the atlas loads, or without it, the
  * placeholder ball. The bodies stand among the buildings' sprites in their
  * depth order (entitySprites.ts), the shadows and indicators in layers of
- * their own.
+ * their own; in map mode, which hides the buildings, the bodies move to this
+ * layer so the players stay on screen.
  */
 
 import { Container, Graphics, Sprite } from 'pixi.js';
@@ -70,6 +71,12 @@ export class PlayerLayer {
    * without one they are drawn above everything in `bodyLayer`.
    */
   private depth: EntitySpriteLayer | null = null;
+  /**
+   * Whether the bodies are sorted in with the buildings right now: not while
+   * map mode hides the buildings' layers, or the players would vanish with
+   * them and leave only their shadows (`setDepthSorting`).
+   */
+  private sorting = true;
   /** What each player showed last frame (the test hook reads it); `null` for the placeholder. */
   readonly poses: (PlayerPose | null)[] = [];
 
@@ -102,6 +109,15 @@ export class PlayerLayer {
             },
           }
         : null;
+  }
+
+  /**
+   * Sorts the bodies in with the buildings (`on`, the sprite view) or draws
+   * them above everything in this layer (`!on`: map mode, which hides the
+   * buildings' layers). Takes effect on the next `draw`.
+   */
+  setDepthSorting(on: boolean): void {
+    this.sorting = on;
   }
 
   /** Shows or hides the players' shadows (the shadows setting). */
@@ -200,7 +216,13 @@ export class PlayerLayer {
         }
       }
     }
-    this.depth?.placeActors(actors);
+    if (this.depth && this.sorting) {
+      this.depth.placeActors(actors);
+    } else {
+      // Out of the buildings' layer (if they were in it), into this one.
+      this.depth?.placeActors([]);
+      for (const { sprite } of actors) this.bodyLayer.addChild(sprite);
+    }
   }
 
   destroy(): void {

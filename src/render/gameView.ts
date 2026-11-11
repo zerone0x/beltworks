@@ -325,6 +325,8 @@ export class GameView {
     }
     const sprites = this.blend < 1;
     for (const layer of this.spriteLayers) layer.visible = sprites;
+    // In map mode the players' bodies leave the hidden buildings' layer for their own.
+    this.players.setDepthSorting(sprites);
     if (sprites) {
       this.terrain.update(undefined, view, this.camera.zoom);
       // Every entity layer draws only what overlaps the screen (cull.ts).
