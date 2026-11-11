@@ -1298,12 +1298,12 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     const merging =
       x.out !== null &&
       !this.outputOpen(y, lane.index) &&
-      this.ownItemsClose(x, lane) &&
       dense(
         other,
         y.speed,
         lane.spacing === MERGE_SPACING || other.gap(0) > this.splitMinFront(other) ? 1 : 2,
-      );
+      ) &&
+      this.ownItemsClose(x, lane);
     const spacing = merging ? MERGE_SPACING : BELT_ITEM_SPACING;
     if (spacing === lane.spacing) return;
     lane.setSpacing(spacing);
@@ -1330,6 +1330,21 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * handful of items, and only the first three of the feeding line count.
    */
   private ownItemsClose(half: TransportLine, lane: LineLane): boolean {
+    for (const f of half.feeders) {
+      if (f.outLane >= 0 || f === half) continue;
+      const from = f.lanes[lane.index];
+      if (from.count < 2) return false;
+      // The gaps behind item 1 (or behind item 0 on a short lane): the first
+      // gap shrinks while item 0 waits for its spot on the half.
+      const first = from.count >= 4 ? 2 : 1;
+      const end = Math.min(from.count, first + 2);
+      let span = 0;
+      for (let i = first; i < end; i++) span += from.gap(i);
+      const pass = half.out !== null ? Math.min(half.speed, half.out.speed) : half.speed;
+      // Closer than MERGE_SPACING apart on average, counted at the rate items pass through the half.
+      return span * pass < (end - first) * MERGE_SPACING * f.speed;
+    }
+    // Nothing feeds the half (items only dropped onto it): its own items, packed.
     const packed = lane.spacing + half.speed;
     let last = -1;
     let d = 0;
@@ -1338,17 +1353,6 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       if (lane.marked(i)) continue;
       if (last >= 0 && d - last < packed) return true;
       last = d;
-    }
-    const pass = half.out !== null ? Math.min(half.speed, half.out.speed) : half.speed;
-    for (const f of half.feeders) {
-      if (f.outLane >= 0 || f === half) continue;
-      const from = f.lanes[lane.index];
-      const n = Math.min(from.count, 3);
-      // Gaps on the feeding line, counted at the rate items pass through the half.
-      for (let i = 1; i < n; i++) {
-        if (from.gap(i) * pass < (MERGE_SPACING + pass) * f.speed) return true;
-      }
-      break;
     }
     return false;
   }
