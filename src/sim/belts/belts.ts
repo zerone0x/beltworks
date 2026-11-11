@@ -1317,7 +1317,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * Whether splitter half `half`'s own input on lane `lane` carries more
    * than half of what passes through the half, so that a merge into it
    * needs slots kept to stay fair (`refreshMerge`, D44); otherwise the
-   * items going across fill the gaps between its own (`fillsGaps`, D70).
+   * items going across fill the gaps between its own (`fillsGaps`, D71).
    * Counted on the line feeding the half: its items less than
    * `MERGE_SPACING` apart on average over two gaps, counted at the rate
    * items pass through the half (its speed, or its output's where that is

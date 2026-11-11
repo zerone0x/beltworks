@@ -1,7 +1,7 @@
 /**
  * A splitter-heavy micro-benchmark of the belt system alone (`npm run
  * bench:splitters`): the bench scenes (scenes/) have no splitters, so they
- * can't show the cost of the splitter merge rules (D44, D58, D70). Kept out
+ * can't show the cost of the splitter merge rules (D44, D58, D71). Kept out
  * of `npm run bench` and its baselines on purpose.
  *
  * 300 rigs of two splitters in a row (the first feeding the second's half),

@@ -29,6 +29,10 @@ one script; without one, the module's `build`). Optional model keys:
   at all (e.g. a belt surface); or `'catch'`, the body pass catches the
   model's own shadow (flat decals on the ground, like ore, that never
   overlap each other), with no shadow frame.
+- `shadow_from`: the name of another model whose shadow frames this one
+  uses instead of rendering its own (a walk cycle under its idle pose's
+  shadow; both must have the same canvas, and the donor is rendered in the
+  same run or already in art/build/). The packer stores the frames once.
 - `extent`: tiles around the center the render must cover, for parts that
   reach beyond the footprint like a long inserter arm; `margin` and
   `shadow_reach` (tiles) tighten or widen the frame.
@@ -238,8 +242,10 @@ def render_model(module, out_dir, samples):
     count = 0
     # Only `True` gets a shadow pass; `'catch'` and `False` have no shadow frame.
     shadow = model.get('shadow', True) is True
+    # A model that borrows another's shadow (`shadow_from`) renders none of its own.
+    borrowed = model.get('shadow_from')
     for d in range(directions):
-        jobs = [(SHADOW, 0, 1)] if shadow else []
+        jobs = [(SHADOW, 0, 1)] if shadow and not borrowed else []
         jobs += [
             (spec['name'], f, spec['frames'])
             for spec in layers
@@ -255,6 +261,7 @@ def render_model(module, out_dir, samples):
         'base': module.base,
         'atlas': model.get('atlas', 'entities'),
         'shadow': shadow,
+        'shadowFrom': borrowed,
         'points': {key: [project(point, d, directions) for d in range(directions)] for key, point in model.get('points', {}).items()},
         'footprint': list(model['footprint']),
         'directions': directions,

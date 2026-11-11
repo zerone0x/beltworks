@@ -198,6 +198,14 @@ export class EntitySpriteLayer {
   private seconds = 0;
   private drawn = -1;
   private cull: TileRect | null = null;
+  /**
+   * For each entity in `shown`, in draw order: the bottom of its footprint in
+   * world pixels and how many sprites of `container` come up to and including
+   * its own (the actors not counted).
+   */
+  private depths: { bottom: number; end: number }[] = [];
+  /** Sprites of things that stand among the buildings (players), see `placeActors`. */
+  private readonly actors = new Set<Sprite>();
   private animatedCount = 0;
   /**
    * The animation speed of an entity whose animations don't simply follow
@@ -292,6 +300,35 @@ export class EntitySpriteLayer {
     }
   }
 
+  /**
+   * Puts each of `actors` (a sprite and the y, in world pixels, of the ground
+   * it stands on) into the sorted sprite layer, in front of the buildings
+   * whose footprint ends at or above that y and behind the ones that reach
+   * further south, like a building standing there would be. Call it every
+   * frame after `draw`: it takes the actors out and puts them in again.
+   */
+  placeActors(actors: readonly { sprite: Sprite; y: number }[]): void {
+    for (const sprite of this.actors) {
+      if (sprite.parent === this.container) this.container.removeChild(sprite);
+    }
+    this.actors.clear();
+    const sorted = [...actors].sort((a, b) => a.y - b.y);
+    sorted.forEach(({ sprite, y }, n) => {
+      // The first entity whose bottom is south of `y` stands in front of the actor.
+      let lo = 0;
+      let hi = this.depths.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (this.depths[mid]!.bottom <= y) lo = mid + 1;
+        else hi = mid;
+      }
+      const behind = lo === 0 ? 0 : this.depths[lo - 1]!.end;
+      // The actors before this one (nearer north) all sit in front of `behind` sprites or fewer.
+      this.container.addChildAt(sprite, behind + n);
+      this.actors.add(sprite);
+    });
+  }
+
   /** Lists the entities that have a model, in draw order, keeping their animation clocks. */
   private sort(index: EntityIndex): void {
     const atlas = this.atlas;
@@ -325,6 +362,7 @@ export class EntitySpriteLayer {
     this.container.removeChildren();
     this.shadowContainer.removeChildren();
     this.shown = [];
+    this.depths = [];
     for (const p of this.placed) {
       const { entity, model, dir, cx, cy } = p;
       p.layers = [];
@@ -361,6 +399,10 @@ export class EntitySpriteLayer {
         placeArmShadow(model, arm.sprite, armShadow);
         p.arm = arm;
       }
+      this.depths.push({
+        bottom: (entity.y + entity.h) * TILE_PX,
+        end: this.container.children.length,
+      });
     }
   }
 
