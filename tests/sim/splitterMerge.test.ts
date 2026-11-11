@@ -38,14 +38,16 @@ const perLane = (speed: number, ticks: number) => (ticks * speed) / BELT_ITEM_SP
 /**
  * A splitter of `tier` facing east on (2, 0)–(2, 1), with two-belt input
  * lines of `inputs` behind both halves (x = 0..1) and a two-belt output
- * line of `out` in front of the half of the full input (`full`) only.
+ * line of `out` in front of the half of the full input (`full`) only, or,
+ * with `cross`, in front of the half of the sparse one only (every item of
+ * the full input then crosses over into that half).
  */
-function rig(tier: Tier, inputs: Tier, out: Tier, full: 'inA' | 'inB') {
+function rig(tier: Tier, inputs: Tier, out: Tier, full: 'inA' | 'inB', cross = false) {
   const w = world();
   w.place(tier.splitter, 2, 0, East);
   const a = w.run(inputs.belt, 0, 0, East, 2)[0]!;
   const b = w.run(inputs.belt, 0, 1, East, 2)[0]!;
-  const sink = w.run(out.belt, 3, full === 'inA' ? 0 : 1, East, 2)[0]!;
+  const sink = w.run(out.belt, 3, (full === 'inA') !== cross ? 0 : 1, East, 2)[0]!;
   const [inA, inB] = [w.lineOf(a), w.lineOf(b)];
   return {
     w,
@@ -59,9 +61,12 @@ function rig(tier: Tier, inputs: Tier, out: Tier, full: 'inA' | 'inB') {
  * Runs `WARMUP + TICKS` ticks: the full input fed at full rate, the sparse
  * one getting an item on each lane at its start every `1 / rate` ticks (as
  * a belt carrying `rate` items per tick would bring them; one waits for
- * room if need be), the output emptied as fast as items arrive. Every
- * invariant is checked each tick, sleep at the end. Counts per lane the
- * items taken off the output and fed into each input after the warm-up.
+ * room if need be), the output emptied as fast as items arrive. With
+ * `clumped`, each sparse item goes right behind the one before instead (if
+ * the lane has room there), so they come in clumps at the input belt's
+ * full rate. Every invariant is checked each tick, sleep at the end.
+ * Counts per lane the items taken off the output and fed into each input
+ * after the warm-up.
  */
 function merge(
   w: ReturnType<typeof world>,
@@ -69,6 +74,7 @@ function merge(
   sparse: TransportLine,
   sink: TransportLine,
   rate: number,
+  clumped = false,
 ) {
   const taken = [0, 0];
   const fedFull = [0, 0];
@@ -81,7 +87,11 @@ function merge(
       while (w.table.takeAt(sink.id, lane, 0, sink.speed - 1) !== 0) if (counted) taken[lane]!++;
       if (feed(w, full, lane) && counted) fedFull[lane]!++;
       if (Math.floor((t + 1) * rate) > Math.floor(t * rate)) owed[lane]!++;
-      if (owed[lane]! > 0 && w.table.insertAt(sparse.id, lane, sparse.length, COAL)) {
+      const put = () =>
+        clumped
+          ? feed(w, sparse, lane, COAL)
+          : w.table.insertAt(sparse.id, lane, sparse.length, COAL);
+      if (owed[lane]! > 0 && put()) {
         owed[lane]!--;
         if (counted) fedSparse[lane]!++;
       }
@@ -146,6 +156,95 @@ describe('merging a full and a sparse input through a splitter, every tier', () 
       }
     }
     expect(halfA.lanes[Left].spacing).toBe(MERGE_SPACING);
+  });
+});
+
+/** Sparse fractions of its belt the crossover test runs, from a quarter to nine tenths. */
+const CROSS_FRACTIONS = [0.25, 0.4, 0.45, 0.5, 0.6, 0.7, 0.9];
+
+describe('a full input crossing over into the half of a sparse one, every tier (#78)', () => {
+  for (const s of TIERS) {
+    it(`${s.splitter.name}: puts min(splitter, output, inputs) onto the output, all the sparse input carries up to half`, () => {
+      const sp = s.belt.beltSpeed!;
+      TIERS.forEach((i, ki) => {
+        TIERS.forEach((o, ko) => {
+          const full = (ki + ko) % 2 === 0 ? 'inA' : 'inB';
+          for (const fraction of CROSS_FRACTIONS) {
+            const name = `${s.splitter.name}, ${i.belt.name} in (${full} full and crossing over, the other at ${String(fraction)}), ${o.belt.name} out`;
+            const speed = i.belt.beltSpeed!;
+            const r = rig(s, i, o, full, true);
+            const rate = (fraction * speed) / BELT_ITEM_SPACING;
+            const { taken, fedFull, fedSparse } = merge(r.w, r.full, r.sparse, r.sink, rate);
+            const total = Math.min(sp, o.belt.beltSpeed!, speed + fraction * speed);
+            const sparse = Math.min(fraction * speed, total / 2);
+            for (const lane of LANES) {
+              expect(Math.abs(taken[lane]! - perLane(total, TICKS)), name).toBeLessThanOrEqual(3);
+              expect(taken[lane]!, name).toBeLessThanOrEqual(perLane(sp, TICKS) + 1);
+              expect(Math.abs(fedSparse[lane]! - perLane(sparse, TICKS)), name).toBeLessThanOrEqual(
+                3,
+              );
+              expect(
+                Math.abs(fedFull[lane]! - perLane(total - sparse, TICKS)),
+                name,
+              ).toBeLessThanOrEqual(3);
+            }
+          }
+        });
+      });
+    });
+  }
+
+  it("keeps no slots free in the sparse input's half, and keeps them again once it fills up", () => {
+    const [s, i] = [TIERS[1], TIERS[2]];
+    const { w, full, sparse, sink } = rig(s, i, s, 'inA', true);
+    const [, halfB] = w.table.halfLines(w.entities.at(2, 0));
+    // A quarter of an express belt on input B: half B's own items come too
+    // far apart to need slots, so A's items fill the gaps between them.
+    const { taken } = merge(w, full, sparse, sink, 1 / 16);
+    expect(halfB.lanes[Left].spacing).toBe(BELT_ITEM_SPACING);
+    for (const lane of LANES) expect(taken[lane]).toBeGreaterThanOrEqual(perLane(16, TICKS) - 3);
+    // Both full: a slot kept free behind each of B's own items, as before.
+    for (let t = 0; t < 200; t++) {
+      w.step();
+      for (const lane of LANES) {
+        while (w.table.takeAt(sink.id, lane, 0, sink.speed - 1) !== 0);
+        feed(w, full, lane);
+        feed(w, sparse, lane);
+      }
+    }
+    expect(halfB.lanes[Left].spacing).toBe(MERGE_SPACING);
+  });
+});
+
+describe('a sparse input arriving in clumps (still open, #78)', () => {
+  it('loses no more than it did before #78 was worked on (a regression guard, not a target)', () => {
+    // Express splitter and output, fast inputs: input A full, input B
+    // getting a third or half of a fast belt in clumps (each item right
+    // behind the one before). The output gets less than min(splitter,
+    // output, inputs) here, straight on and crossing over alike; the
+    // numbers are what main measured before the work on #78 (items per
+    // lane over the measured ticks), so a change can't make it worse.
+    const [, f, e] = TIERS;
+    const before = [
+      { fraction: 1 / 3, cross: false, taken: 550 },
+      { fraction: 1 / 3, cross: true, taken: 601 },
+      { fraction: 1 / 2, cross: false, taken: 605 },
+      { fraction: 1 / 2, cross: true, taken: 625 },
+    ];
+    for (const { fraction, cross, taken: was } of before) {
+      const r = rig(e, f, e, 'inA', cross);
+      const rate = (fraction * 16) / BELT_ITEM_SPACING;
+      const { taken, fedSparse } = merge(r.w, r.full, r.sparse, r.sink, rate, true);
+      const name = `${String(fraction)} of a fast belt in clumps, ${cross ? 'crossing over' : 'straight'}`;
+      for (const lane of LANES) {
+        expect(
+          Math.abs(fedSparse[lane]! - perLane(fraction * 16, TICKS)),
+          name,
+        ).toBeLessThanOrEqual(3);
+        expect(taken[lane]!, name).toBeGreaterThanOrEqual(was - 3);
+        expect(taken[lane]!, name).toBeLessThanOrEqual(perLane(24, TICKS) + 1);
+      }
+    }
   });
 });
 

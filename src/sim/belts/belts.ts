@@ -1005,7 +1005,11 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   /**
    * How close to its end a splitter half's first item may come (the
    * outlet's `minFront`): `splitMinFront`, or further back while it makes
-   * way for an item of the other half's lane (`mergeHold`).
+   * way for an item of the other half's lane (`mergeHold`). While the half
+   * fills gaps (`fillsGaps`), it only makes way where its first item hasn't
+   * come closer than that yet: holding it there would make way for an item
+   * that can't go in front of it (the slot is counted from the output's
+   * last item, `crossFront`), and both would wait.
    */
   private splitStop(lane: LineLane): number {
     const floor = this.splitMinFront(lane);
@@ -1015,8 +1019,12 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     // last item, counted across, or past the end by as much as the item
     // crossing over may carry on (`crossDepth`).
     const carry = this.crossCarry(lane.line, lane.index, reach);
-    if (carry < 0) return this.crossFront(lane.line, lane.index) + BELT_ITEM_SPACING;
-    return Math.max(floor, BELT_ITEM_SPACING - this.crossDepth(lane.line, carry));
+    const stop =
+      carry < 0
+        ? this.crossFront(lane.line, lane.index) + BELT_ITEM_SPACING
+        : Math.max(floor, BELT_ITEM_SPACING - this.crossDepth(lane.line, carry));
+    if (stop > lane.gap(0) && this.fillsGaps(lane.line, lane)) return floor;
+    return stop;
   }
 
   /**
@@ -1266,7 +1274,11 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * go out empty: the other half makes way for each one as it comes
    * instead (`mergeHold`). A first item waiting to go across doesn't count
    * towards starting to keep slots (the one behind it may close up while
-   * it waits for its turn), only towards going on keeping them. Set per lane
+   * it waits for its turn), only towards going on keeping them. Nor are
+   * slots kept where the half's own items come too far apart to need them
+   * (`ownItemsClose`): the items going across fill the gaps between its own
+   * instead (`fillsGaps`), where slots would hold its own items and the
+   * items going across apart and lose throughput (#78). Set per lane
    * on both halves; a lane opening up again wakes, with the lane feeding
    * it. O(1).
    */
@@ -1290,7 +1302,8 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
         other,
         y.speed,
         lane.spacing === MERGE_SPACING || other.gap(0) > this.splitMinFront(other) ? 1 : 2,
-      );
+      ) &&
+      this.ownItemsClose(x, lane);
     const spacing = merging ? MERGE_SPACING : BELT_ITEM_SPACING;
     if (spacing === lane.spacing) return;
     lane.setSpacing(spacing);
@@ -1298,6 +1311,98 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       this.wakeLane(lane);
       this.wakeFeeders(x, lane.index);
     }
+  }
+
+  /**
+   * Whether splitter half `half`'s own input on lane `lane` carries more
+   * than half of what passes through the half, so that a merge into it
+   * needs slots kept to stay fair (`refreshMerge`, D44); otherwise the
+   * items going across fill the gaps between its own (`fillsGaps`, D71).
+   * Counted on the line feeding the half: its items less than
+   * `MERGE_SPACING` apart on average over two gaps, counted at the rate
+   * items pass through the half (its speed, or its output's where that is
+   * slower), behind its second item where it has four (the gap behind the
+   * first shrinks while that one waits for its spot on the half). Not in
+   * the half, where slots hold its items `MERGE_SPACING` apart whatever
+   * the input, and items bunch up behind a held one. With nothing feeding
+   * the half (items only dropped onto it), two of its own items packed in
+   * it. O(1): at most four items of the feeding line, a handful in the half.
+   */
+  private ownItemsClose(half: TransportLine, lane: LineLane): boolean {
+    for (const f of half.feeders) {
+      if (f.outLane >= 0 || f === half) continue;
+      const from = f.lanes[lane.index];
+      if (from.count < 2) return false;
+      // The gaps behind item 1 (or behind item 0 on a short lane): the first
+      // gap shrinks while item 0 waits for its spot on the half.
+      const first = from.count >= 4 ? 2 : 1;
+      const end = Math.min(from.count, first + 2);
+      let span = 0;
+      for (let i = first; i < end; i++) span += from.gap(i);
+      const pass = half.out !== null ? Math.min(half.speed, half.out.speed) : half.speed;
+      // Closer than MERGE_SPACING apart on average, counted at the rate items pass through the half.
+      return span * pass < (end - first) * MERGE_SPACING * f.speed;
+    }
+    // Nothing feeds the half (items only dropped onto it): its own items, packed.
+    const packed = lane.spacing + half.speed;
+    let last = -1;
+    let d = 0;
+    for (let i = 0; i < lane.count; i++) {
+      d += lane.gap(i);
+      if (lane.marked(i)) continue;
+      if (last >= 0 && d - last < packed) return true;
+      last = d;
+    }
+    return false;
+  }
+
+  /**
+   * Whether splitter half `half` fills gaps on lane `lane` (#78): the other
+   * half's items on that lane come close together and go across into this
+   * half (its own output isn't open, this one's is), but this half's own
+   * items come too far apart to need slots kept (`ownItemsClose`), so none
+   * are (`refreshMerge`) and the items going across take every gap between
+   * its own. Two things keep those gaps whole spacings long, so none of
+   * them goes out partly empty: the line feeding the half hands each of its
+   * items on a whole number of spacings behind the half's last item
+   * (`alignsHandOn`), and the half's first item doesn't make way where it
+   * already came too close (`splitStop`).
+   */
+  private fillsGaps(half: TransportLine, lane: LineLane): boolean {
+    return (
+      lane.spacing === BELT_ITEM_SPACING &&
+      this.crossingInto(half, lane) &&
+      !this.ownItemsClose(half, lane)
+    );
+  }
+
+  /**
+   * Whether the line feeding splitter half `half` hands items on a whole
+   * number of spacings behind its last item on lane `lane` (`output`):
+   * while the other half's items cross over densely (`crossingInto`) and
+   * the half keeps slots for them or fills gaps, but not while it holds
+   * its own close items back for D58's sparse merges (that would slow its
+   * own input for nothing).
+   */
+  private alignsHandOn(half: TransportLine, lane: LineLane): boolean {
+    return (
+      this.crossingInto(half, lane) &&
+      (lane.spacing === MERGE_SPACING || !this.ownItemsClose(half, lane))
+    );
+  }
+
+  /**
+   * Whether the other half's items on lane `lane` come close together and
+   * go across into splitter half `half`: its own output isn't open, this
+   * one's is. O(1).
+   */
+  private crossingInto(half: TransportLine, lane: LineLane): boolean {
+    const sib = half.sibling!;
+    return (
+      this.outputOpen(half, lane.index) &&
+      !this.outputOpen(sib, lane.index) &&
+      dense(sib.lanes[lane.index], sib.speed, 1)
+    );
   }
 
   /** One tick of one lane; returns whether it stays awake. */
@@ -1386,7 +1491,16 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       // the start edge is this lane's own belt, so it can't land there.
       const carry = Math.floor((rem * out.speed) / line.speed);
       pos = line.outPos - carry;
-      if (target.count > 0) pos = Math.max(pos, target.total + target.spacing);
+      if (target.count > 0) {
+        pos = Math.max(pos, target.total + target.spacing);
+        // Into a splitter half the other half's items cross over into: a
+        // whole number of spacings behind its last item, so the items going
+        // across fill the gap in front of this one exactly (`alignsHandOn`).
+        if (out.splitter !== 0 && this.alignsHandOn(out, target)) {
+          const behind = pos - target.total;
+          pos = target.total + BELT_ITEM_SPACING * Math.ceil(behind / BELT_ITEM_SPACING);
+        }
+      }
       if (pos > line.outPos) pos = -1;
     }
     if (pos < 0) {
