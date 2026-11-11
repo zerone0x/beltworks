@@ -233,22 +233,36 @@ export function readRenders(dir) {
     }
     return frame;
   };
+  // Per pixel of the canvas, 1 where the first layer is opaque in every frame of direction `d`.
+  const coveredByEveryFrame = (/** @type {number} */ d) => {
+    const layer = manifest.layers[0];
+    let covered = /** @type {Uint8Array | null} */ (null);
+    for (let f = 0; f < layer.frames; f++) {
+      const body = read(layer.name, shared(layer, d), f);
+      if (!covered) covered = new Uint8Array(body.width * body.height).fill(1);
+      for (let p = 0; p < covered.length; p++) {
+        if (body.data[p * 4 + 3] !== 255) covered[p] = 0;
+      }
+    }
+    return covered ?? new Uint8Array(0);
+  };
   const shadow = (/** @type {number} */ d) => {
     const key = `${String(manifest.name)}/shadow/${String(d)}/0`;
     // Models whose body catches its own shadow have no shadow frame: an empty one.
     if (manifest.shadow === false) return trimFrame(createImage(2, 2), manifest.anchor, true, key);
     // A model that borrows another's shadow (`shadow_from`: a walk cycle uses its idle pose's)
-    // reads that model's shadow and body; the packer then stores the shared frame once.
+    // reads that model's shadow (both have the same canvas).
     const from = manifest.shadowFrom ? join(dir, '..', String(manifest.shadowFrom)) : dir;
-    const donor =
-      from === dir ? manifest : JSON.parse(readFileSync(join(from, 'manifest.json'), 'utf8'));
     const readDonor = (/** @type {string} */ layer, /** @type {number} */ n) =>
       decodePng(readFileSync(join(from, `${layer}-d${String(n)}-f0.png`)));
     // Shadow under the opaque parts of the body never shows: drop it, it only costs bytes.
+    // Only where every frame this model draws covers it, though: a walking leg or a
+    // swinging pickaxe isn't where the first frame's (or the donor's idle) body was,
+    // and cutting under that would leave a hole in the shadow beside it (#128).
     const image = readDonor('shadow', d);
-    const body = readDonor(donor.layers[0].name, shared(donor.layers[0], d));
+    const covered = coveredByEveryFrame(d);
     for (let i = 3; i < image.data.length; i += 4) {
-      if (body.data[i] === 255) image.data[i] = 0;
+      if (covered[i >> 2] === 1) image.data[i] = 0;
     }
     return trimFrame(image, manifest.anchor, true, key);
   };
