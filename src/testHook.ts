@@ -42,6 +42,7 @@ import {
   type SlotData,
 } from './sim/snapshot';
 import { World } from './sim/world/world';
+import type { ProductionCounts } from './sim/scenarios/production';
 import { chunkWindow } from './worker/chunkStream';
 import { isRenderScene } from './worker/renderScene';
 import type { SimClient } from './worker/client';
@@ -313,6 +314,42 @@ export interface BeltworksTestHook {
   renderProfile(options?: ProfileOptions): Promise<ProfileReport>;
   /** The report of the latest `renderProfile` (or `?profile=1` run), or `null`. */
   lastRenderProfile(): ProfileReport | null;
+  /** The frame-stepped capture for the demo clip and promo footage (tools/promo, D72). */
+  capture: CaptureHook;
+}
+
+/**
+ * What the HUD shows while capturing: nothing, only the research status
+ * line, or only the open windows (the power panel, an entity's window).
+ */
+export type CaptureHud = 'none' | 'research' | 'panels';
+
+/**
+ * The cinematic capture mode (test builds only, D72): the game stops running
+ * on its own and draws a frame only when `step` asks, so a script can take
+ * one screenshot per frame, with the camera wherever it put it.
+ */
+export interface CaptureHook {
+  /**
+   * Enters capture mode (again: changes the HUD or UI scale): the simulation
+   * pauses, the page stops drawing on its own, and the HUD hides (`hud`).
+   */
+  enter(options: { hud: CaptureHud; uiScale?: number }): void;
+  /**
+   * Runs `ticks` ticks (0 or more), then draws one frame 1/60 s after the
+   * previous one, showing exactly the state of the last tick; resolves with
+   * that tick once drawn.
+   */
+  step(ticks: number): Promise<number>;
+  /**
+   * Like `step`, then reads the frame drawn back from the canvas (before the
+   * page composites it): its RGBA pixels, bottom row first, base64-encoded.
+   * The HUD isn't in it (it is HTML over the canvas); far faster than a
+   * screenshot.
+   */
+  stepPixels(ticks: number): Promise<{ tick: number; width: number; height: number; rgba: string }>;
+  /** The production counters since the last reset (src/sim/scenarios/production.ts); `reset` restarts them. */
+  production(reset: boolean): Promise<ProductionCounts>;
 }
 
 declare global {
@@ -516,26 +553,109 @@ export interface TestHookContext {
   screen: () => { width: number; height: number; resolution: number };
   /** Item ids pinned to the hotbar slots (0 for none). */
   hotbarPins: () => readonly number[];
+  /** The game's canvas (the capture mode keeps it, and hides the rest of the page). */
+  canvas: HTMLCanvasElement;
+  /** Sets the UI scale (the capture mode's `uiScale`). */
+  setUiScale: (scale: number) => void;
 }
 
-export function installTestHook({
+/** Milliseconds between two captured frames: 60 frames a second. */
+const CAPTURE_FRAME_MS = 1000 / 60;
+
+/** The capture mode of the test hook (see `CaptureHook`). */
+function captureHook({
   client,
   view,
-  build,
-  blueprint,
-  entityPanel,
-  powerPanel,
-  techTree,
-  minimap,
-  saves,
-  audio,
-  seed,
-  inventory,
-  research,
   ticker,
-  screen,
-  hotbarPins,
-}: TestHookContext): void {
+  techTree,
+  powerPanel,
+  entityPanel,
+  canvas,
+  setUiScale,
+}: TestHookContext): CaptureHook {
+  let on = false;
+  let hud: CaptureHud = 'none';
+  /** The capture's clock: the view draws frame after frame at exact 1/60 s steps of it. */
+  let now = 0;
+  /** Hides everything on the page but the canvas (and the research status line, with that HUD). */
+  const applyHud = (): void => {
+    for (const el of Array.from(document.body.children)) {
+      if (!(el instanceof HTMLElement) || el.contains(canvas)) continue;
+      const keep =
+        (hud === 'research' && el.contains(techTree.status)) ||
+        (hud === 'panels' && (el.contains(powerPanel.element) || el.contains(entityPanel.element)));
+      el.style.visibility = keep ? '' : 'hidden';
+    }
+  };
+  return {
+    enter: (options) => {
+      if (!on) {
+        on = true;
+        client.setPaused(true);
+        ticker.stop();
+        now = performance.now();
+        view.clock = () => now;
+      }
+      hud = options.hud;
+      if (options.uiScale !== undefined) setUiScale(options.uiScale);
+      applyHud();
+    },
+    step: async (ticks) => {
+      if (!on) throw new Error('capture.step before capture.enter');
+      const tick = await client.stepForTest(ticks);
+      now += CAPTURE_FRAME_MS;
+      applyHud();
+      ticker.update(now);
+      return tick;
+    },
+    stepPixels: async (ticks) => {
+      if (!on) throw new Error('capture.stepPixels before capture.enter');
+      const tick = await client.stepForTest(ticks);
+      now += CAPTURE_FRAME_MS;
+      applyHud();
+      ticker.update(now);
+      // Same task as the draw: the drawing buffer still holds the frame.
+      const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+      if (!gl) throw new Error('capture.stepPixels needs the WebGL renderer');
+      const width = gl.drawingBufferWidth;
+      const height = gl.drawingBufferHeight;
+      const rgba = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+      const url = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve(reader.result as string);
+        };
+        reader.onerror = () => {
+          reject(new Error('could not encode the frame'));
+        };
+        reader.readAsDataURL(new Blob([rgba]));
+      });
+      return { tick, width, height, rgba: url.slice(url.indexOf(',') + 1) };
+    },
+    production: (reset) => client.productionForTest(reset),
+  };
+}
+
+export function installTestHook(context: TestHookContext): void {
+  const {
+    client,
+    view,
+    build,
+    blueprint,
+    entityPanel,
+    powerPanel,
+    techTree,
+    minimap,
+    saves,
+    audio,
+    seed,
+    inventory,
+    research,
+    ticker,
+    screen,
+    hotbarPins,
+  } = context;
   let world: World | null = null;
   let lastProfile: ProfileReport | null = null;
   const renderProfile = async (options?: ProfileOptions): Promise<ProfileReport> => {
@@ -739,6 +859,7 @@ export function installTestHook({
     },
     renderProfile,
     lastRenderProfile: () => lastProfile,
+    capture: captureHook(context),
   };
 
   const profile = profileFromUrl(window.location.search);

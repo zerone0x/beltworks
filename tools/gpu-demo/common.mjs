@@ -4,6 +4,10 @@
  * headless Chromium with WebGPU on SwiftShader.
  */
 
+import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 
@@ -129,4 +133,88 @@ export async function openDemo(browser, base, query, timeout) {
   }));
   if (hook.state !== 'running') throw new Error(`the demo did not start: ${String(hook.error)}`);
   return { page, adapter: hook.adapter, items: hook.items };
+}
+
+/** Every ffmpeg binary worth trying, in order, without duplicates. */
+function candidates() {
+  const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const list = [];
+  if (process.env.FFMPEG) list.push(process.env.FFMPEG);
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (dir) list.push(join(dir, exe));
+  }
+  const caches = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH,
+    join(homedir(), '.cache', 'ms-playwright'),
+    join(homedir(), 'Library', 'Caches', 'ms-playwright'),
+    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'ms-playwright'),
+  ];
+  for (const cache of caches) {
+    if (!cache || !existsSync(cache)) continue;
+    const dirs = readdirSync(cache)
+      .filter((d) => d.startsWith('ffmpeg-'))
+      .sort()
+      .reverse();
+    for (const d of dirs) {
+      for (const name of ['ffmpeg-linux', 'ffmpeg-mac', 'ffmpeg-win64.exe', 'ffmpeg']) {
+        list.push(join(cache, d, name));
+      }
+    }
+  }
+  return [...new Set(list)].filter((p) => existsSync(p) && statSync(p).isFile());
+}
+
+/** @param {string} bin @param {string} what */
+function probe(bin, what) {
+  try {
+    return execFileSync(bin, ['-hide_banner', `-${what}`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * What `bin` lacks for PNG frames to mp4, or the encoder to use.
+ * @param {string} bin
+ * @returns {{ encoder: string } | { missing: string[] }}
+ */
+function capabilities(bin) {
+  const has = (/** @type {string} */ list, /** @type {string} */ name) =>
+    new RegExp(`^\\s*\\S+\\s+${name}\\s`, 'm').test(list);
+  const decoders = probe(bin, 'decoders');
+  const encoders = probe(bin, 'encoders');
+  const muxers = probe(bin, 'muxers');
+  const missing = [];
+  if (!has(decoders, 'png')) missing.push('png decoder');
+  if (!has(muxers, 'mp4')) missing.push('mp4 muxer');
+  const encoder = ['libx264', 'mpeg4'].find((e) => has(encoders, e));
+  if (!encoder) missing.push('libx264 or mpeg4 encoder');
+  return missing.length > 0 || !encoder ? { missing } : { encoder };
+}
+
+/**
+ * The first ffmpeg that can turn PNG frames into an mp4, and its H.264 (or
+ * MPEG-4 part 2) encoder: `FFMPEG`, then `PATH`, then the build Playwright
+ * downloads (a minimal one, which most often can't). With `need`, it must
+ * also have those encoders (e.g. `libvpx-vp9` for a WebM). Exits with a
+ * message when there is none.
+ * @param {string[]} [need]
+ * @returns {{ ffmpeg: string, encoder: string }}
+ */
+export function findFfmpeg(need = []) {
+  for (const bin of candidates()) {
+    const caps = capabilities(bin);
+    const encoders = need.length > 0 ? probe(bin, 'encoders') : '';
+    const lacking = need.filter((e) => !new RegExp(`^\\s*\\S+\\s+${e}\\s`, 'm').test(encoders));
+    if ('encoder' in caps && lacking.length === 0) return { ffmpeg: bin, encoder: caps.encoder };
+    const missing = 'missing' in caps ? [...caps.missing, ...lacking] : lacking;
+    console.log(`skipping ${bin}: no ${missing.join(', no ')}`);
+  }
+  console.error(
+    'No ffmpeg that can turn PNG frames into an mp4 was found. Install one, or point FFMPEG at it.',
+  );
+  process.exit(1);
 }

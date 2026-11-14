@@ -24,6 +24,7 @@ import {
 } from '../save/slots';
 import { SaveStore } from '../save/store';
 import { SAVE_VERSION, readSaveMeta } from '../sim/save/container';
+import { DEMO_SEED } from '../sim/scenarios/demoInfo';
 import type { SimClient } from '../worker/client';
 import type { GameMenuActions } from './gameMenu';
 import type { AboutPanel } from './about';
@@ -43,6 +44,18 @@ export interface StartChoice {
   slot?: SaveSlot;
   /** The world seed: the new game's, or the save's. */
   seed: number;
+  /** Start the demo factory (D72): a new game on `DEMO_SEED`, built in the worker. */
+  demo?: boolean;
+}
+
+/**
+ * Whether the page's URL asks for the demo factory: a `demo` parameter with
+ * any value but `0` or `false` (`?demo`, `?demo=1`).
+ */
+export function demoFromUrl(search: string): boolean {
+  const params = new URLSearchParams(search);
+  const value = params.get('demo');
+  return value !== null && value !== '0' && value !== 'false';
 }
 
 /**
@@ -81,15 +94,19 @@ export async function chooseStart(
     defaultSeed,
     settings = null,
     about = null,
+    demo = false,
   }: {
     mode?: TitleMode;
     defaultSeed: number;
     settings?: SettingsPanel | null;
     about?: AboutPanel | null;
+    /** The URL asks for the demo factory (`demoFromUrl`): start it unless the menu asked for something else. */
+    demo?: boolean;
   },
 ): Promise<StartChoice> {
   const next = sessionStorage.getItem(NEXT_KEY);
   sessionStorage.removeItem(NEXT_KEY);
+  if (demo && next === null) return { seed: DEMO_SEED, demo: true };
   const slots = store ? sortSlots(await store.list()) : [];
   let slot = next?.startsWith('load:') ? (slots.find((s) => s.id === next.slice(5)) ?? null) : null;
   if (!slot) {
@@ -102,6 +119,7 @@ export async function chooseStart(
       about,
     });
     if (choice.kind === 'new') return { seed: choice.seed };
+    if (choice.kind === 'demo') return { seed: DEMO_SEED, demo: true };
     slot = choice.slot;
   }
   const save = await store?.read(slot.id);

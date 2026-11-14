@@ -36,7 +36,7 @@ import { browserProbe, missingFeatures, showFatal, showUnsupported } from './ui/
 import { GameMenu, savedLabel } from './ui/gameMenu';
 import { HelpPanel } from './ui/help';
 import { actionFor } from './ui/keybindings';
-import { whileLoading } from './ui/loading';
+import { statusNote, whileLoading } from './ui/loading';
 import { startStep } from './ui/onboarding';
 import { OnboardingPanel, loadStored } from './ui/onboardingPanel';
 import {
@@ -60,7 +60,8 @@ import {
 import { Minimap, minimapState } from './ui/minimap';
 import { PowerHistory } from './ui/powerHistory';
 import { PowerPanel } from './ui/powerPanel';
-import { SaveController, chooseStart, type StartChoice } from './ui/saves';
+import { SaveController, chooseStart, demoFromUrl, type StartChoice } from './ui/saves';
+import { demoFraming } from './ui/demo';
 import { SettingsStore, type Settings } from './ui/settings';
 import { SettingsPanel } from './ui/settingsPanel';
 import { TechTreePanel } from './ui/techTree';
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
         defaultSeed: DEFAULT_SEED,
         settings: settingsPanel,
         about,
+        demo: demoFromUrl(search),
       });
   const client = new SimClient(
     start.seed,
@@ -122,11 +124,14 @@ async function main(): Promise<void> {
     testHook?.researchedFromUrl(window.location.search),
     start.save,
     renderScene,
+    start.demo,
   );
   startedClient = client;
+  // The demo factory takes the worker a second or two to build (D72): say so until it runs.
+  let demoBuilding = start.demo ? statusNote('demo-building', 'Building the demo factory…') : null;
   // The worker starts the world while the renderer's code finishes loading (if it hasn't yet).
   const { Application, GameView, SPRITE_ATLASES, loadSpriteAtlases, loadTerrainArt } =
-    await whileLoading(rendererCode);
+    await whileLoading(rendererCode, !demoBuilding);
   const overlay = new DebugOverlay(document.body);
   // Players turn the debug overlay on (F3, or the settings); test builds always show it (specs read it).
   const debugAlways = testHook !== null;
@@ -290,8 +295,11 @@ async function main(): Promise<void> {
   let playerAt: { x: number; y: number } | null = null;
   // The first five minutes' objectives (D54): UI state, advanced by the snapshots; closed or
   // not per browser, the step per world (a new game's first, else the loaded save's, #107).
+  // Not in the demo factory (D72): it is built already.
   const onboardingOn =
-    !renderScene && (testHook?.onboardingFromUrl(search, import.meta.env.MODE) ?? true);
+    !renderScene &&
+    !start.demo &&
+    (testHook?.onboardingFromUrl(search, import.meta.env.MODE) ?? true);
   const patches = startingPatches(start.seed);
   const storedOnboarding = onboardingOn ? loadStored() : null;
   const onboarding = storedOnboarding
@@ -371,6 +379,8 @@ async function main(): Promise<void> {
   // The simulation stopped for good (D61): say so and offer the newest save (or the title screen).
   // A crash from before this point (the worker can fail while the renderer loads) is reported now.
   client.onCrash = (message) => {
+    demoBuilding?.remove();
+    demoBuilding = null;
     saves.stopAutosave();
     menu?.close();
     const offer = (slot: Awaited<ReturnType<SaveController['latest']>>): void => {
@@ -465,6 +475,12 @@ async function main(): Promise<void> {
   const view = new GameView(app, (viewport) => {
     client.setViewport(viewport);
   });
+  if (start.demo) {
+    // The demo factory (D72): the camera frames it (F follows the player again).
+    const frame = demoFraming(app.screen.width, app.screen.height);
+    view.following = false;
+    view.camera.set(frame.x * TILE_PX, frame.y * TILE_PX, frame.zoom);
+  }
   const minimap = new Minimap(document.body, view.mapStore, (tile) => {
     view.following = false;
     view.camera.set(tile.x * TILE_PX, tile.y * TILE_PX);
@@ -671,6 +687,8 @@ async function main(): Promise<void> {
   /** The ore under a drill ghost's area, summed again only when its chunks change. */
   const drillOre = new DrillAreaOreCache();
   client.onSnapshot = (snapshot) => {
+    demoBuilding?.remove();
+    demoBuilding = null;
     view.applySnapshot(snapshot);
     // Autosaves count ticks of play (none run while the menu pauses the game).
     saves.onTick(snapshot.tick);
@@ -802,6 +820,10 @@ async function main(): Promise<void> {
         resolution: app.renderer.resolution,
       }),
       hotbarPins: () => pins,
+      canvas: app.canvas,
+      setUiScale: (scale) => {
+        uiScale.set(scale);
+      },
     });
   }
 }
