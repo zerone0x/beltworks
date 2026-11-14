@@ -74,6 +74,11 @@ let crashNextTick = false;
 let scene: RenderScene | null = null;
 /** Dev and test builds only (`production`): counters of what the factory makes, read after every tick. */
 let counter: ProductionCounter | null = null;
+/**
+ * The demo factory's player picking the next research after every tick
+ * (`continueDemoResearch`, D72); `null` in any other game.
+ */
+let demoResearch: ((sim: Sim) => void) | null = null;
 /** What the main thread has of each delta section, and the writers they are encoded into. */
 const deltas = new SnapshotEncoder();
 
@@ -113,6 +118,7 @@ function runDueTicks(current: Sim): void {
     for (let i = 0; i < ticks; i++) {
       if (crashNextTick) throw new Error('crash requested by a test (crashForTest)');
       current.step();
+      demoResearch?.(current);
       counter?.observe();
     }
     statStepMs += performance.now() - start;
@@ -216,6 +222,7 @@ function start(next: Sim): void {
   statTicks = statStepMs = statDropped = 0;
   inspected = 0;
   counter = null;
+  demoResearch = null;
   schedule();
 }
 
@@ -245,8 +252,9 @@ async function handle(msg: MainToWorker): Promise<void> {
       }
       if (msg.demo && !msg.save) {
         // The demo factory (D72), built through commands (imported only when asked for).
-        const { buildDemo } = await import('../sim/scenarios/demo');
+        const { buildDemo, continueDemoResearch } = await import('../sim/scenarios/demo');
         start(buildDemo());
+        demoResearch = continueDemoResearch;
         return;
       }
       const startingKit = validateKit(msg.startingKit);
@@ -328,6 +336,7 @@ async function handle(msg: MainToWorker): Promise<void> {
       try {
         for (let i = 0; i < msg.ticks; i++) {
           sim.step();
+          demoResearch?.(sim);
           counter?.observe();
         }
       } catch (err) {
