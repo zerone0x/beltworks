@@ -101,7 +101,8 @@ export const SHOTS = [
     untilResearched: true,
     holdSeconds: 17,
     hudVariant: true,
-    still: 0.15,
+    // On logistics, all three labs working (during automation 2's last units, two wait).
+    still: 0.6,
   },
   {
     name: 'g-power',
