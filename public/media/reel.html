@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Beltworks: the demo factory's highlight reel</title>
+    <!-- Linked from the README (D72): GitHub doesn't play a repository's MP4s, Pages does. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #111418;
+        color: #d8dde3;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      video {
+        display: block;
+        width: 100%;
+        height: auto;
+        aspect-ratio: 16 / 9;
+        background: #000;
+      }
+      a {
+        color: #7fb8ff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <video src="demo-reel.mp4" controls autoplay muted playsinline preload="auto"></video>
+      <p>
+        The demo factory's highlight reel, recorded frame by frame in the game.
+        <a href="../?demo">Play the demo factory</a> ·
+        <a href="https://github.com/zerone0x/beltworks">Beltworks on GitHub</a>
+      </p>
+    </main>
+  </body>
+</html>

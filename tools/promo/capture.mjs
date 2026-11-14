@@ -23,8 +23,9 @@
  *   factory mined, made and used up during each shot, measured in the game
  *   over the shot's own ticks.
  * `--readme` also writes the README clip to docs/demo-factory.gif, 1280 px
- * JPGs of the stages' stills to docs/media/demo-<stage>.jpg, and a 720p
- * copy of reel-hud.mp4 with its poster to docs/media/demo-reel.mp4 and
+ * JPGs of the stages' stills to docs/media/demo-<stage>.jpg, a 720p copy of
+ * reel-hud.mp4 to public/media/demo-reel.mp4 (deployed with the game, where
+ * public/media/reel.html plays it) and its poster to
  * docs/media/demo-reel-poster.jpg.
  *
  *   node tools/promo/capture.mjs [--out promo/out] [--shots a-wide,f-labs]
@@ -440,9 +441,12 @@ if (args.readme) {
     ]);
   }
   // The highlight reel with the research bar, 720p and small enough to commit, and its poster.
+  // The reel goes out with the game (public/ is copied into the build as is, outside the
+  // chunks): GitHub Pages serves it as video/mp4, which a repository's blob view doesn't.
   const reel = join(out, 'reel-hud.mp4');
   if (existsSync(reel)) {
-    const preview = join(media, 'demo-reel.mp4');
+    mkdirSync(join(ROOT, 'public', 'media'), { recursive: true });
+    const preview = join(ROOT, 'public', 'media', 'demo-reel.mp4');
     await run([
       ...['-i', reel, '-an', '-vf', 'scale=1280:-2:flags=lanczos'],
       ...['-c:v', 'libx264', '-preset', 'slow', '-crf', String(args['reel-crf'])],

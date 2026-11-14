@@ -221,3 +221,22 @@ test('the demo factory starts from ?demo and from the title screen, and research
   await expect(status).toContainText('Researching Automation 2', { timeout: 60_000 });
   expect(errors).toEqual([]);
 });
+
+test("the demo factory's highlight reel is deployed with the game and plays", async ({
+  page,
+  request,
+}) => {
+  // The README links to media/reel.html on GitHub Pages (D72): the MP4 must
+  // come out of the build as a video, not a download, and outside the chunks.
+  const mp4 = await request.get('media/demo-reel.mp4');
+  expect(mp4.status()).toBe(200);
+  expect(mp4.headers()['content-type']).toMatch(/^video\/mp4/);
+  expect((await mp4.body()).length).toBeLessThan(8 * 1024 * 1024);
+  await page.goto('./media/reel.html');
+  const video = page.locator('video');
+  await expect(video).toHaveAttribute('src', 'demo-reel.mp4');
+  // Its metadata loads: the browser reads it as a video.
+  await expect
+    .poll(() => video.evaluate((v: HTMLVideoElement) => v.duration), { timeout: 30_000 })
+    .toBeGreaterThan(30);
+});
