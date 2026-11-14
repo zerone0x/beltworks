@@ -11,7 +11,7 @@
  * north-east, stone south-east):
  *
  * - **Mining**: five electric drills on the iron patch drop ore onto a belt
- *   running east along y = -15, two on the copper patch onto one along
+ *   running east along y = -15, three on the copper patch onto one along
  *   y = 8. A row of four drills on the coal patch feeds a belt along y = -16
  *   both ways: west to the furnaces, east to the power plant. One drill on
  *   stone fills a chest, which an inserter empties into a second one.
@@ -265,12 +265,12 @@ export function demoLayout(): DemoEntity[] {
   belts(belt, -5, -13, -5, -1, South);
   belts(belt, 5, -13, 5, -1, South);
 
-  // --- Copper: two drills onto a belt east along y = 8, and a furnace belt
+  // --- Copper: three drills onto a belt east along y = 8, and a furnace belt
   // down x = 0 with four furnaces around a row of poles at y = 13. ---
-  for (const x of [-15, -12]) {
+  for (const x of [-18, -15, -12]) {
     add(ItemId.ElectricMiningDrill, x, 9, North, { tag: 'copper-drill' });
   }
-  belts(belt, -14, 8, -1, 8, East);
+  belts(belt, -17, 8, -1, 8, East);
   belts(belt, 0, 7, 0, 14, South);
   furnacePair(10, 11, 'copper-furnace');
   furnacePair(14, 14, 'copper-furnace');
