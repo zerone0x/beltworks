@@ -70,7 +70,7 @@ export const DEMO_RESEARCH = TechId.Automation2;
 
 /**
  * What the labs research, in order (D72): each one starts as the last one
- * completes ({@link continueDemoResearch}), so the labs keep working for
+ * completes ({@link DemoResearch}), so the labs keep working for
  * about an hour of game time, as long as the tech tree lasts.
  */
 export const DEMO_RESEARCH_CHAIN: readonly number[] = [
@@ -82,20 +82,62 @@ export const DEMO_RESEARCH_CHAIN: readonly number[] = [
 ];
 
 /**
- * The demo's player picking the next research: when the force researches
- * nothing (the last technology just completed), queues a `SetResearch` for
- * the first technology of {@link DEMO_RESEARCH_CHAIN} it can research now.
- * Call it after every tick of a demo game (the worker does, D72); it changes
- * the simulation only through that command, like the builder, and leaves a
- * research the player picked alone.
+ * The demo's player picking the next research (D72): when the research it
+ * picked completes, it sends a `SetResearch` for the first technology of
+ * {@link DEMO_RESEARCH_CHAIN} the force can research now. Call
+ * {@link DemoResearch.afterTick} after every tick of a demo game (the worker
+ * does); it changes the simulation only through that command, like the
+ * builder, and keeps no simulation state.
+ *
+ * It steps aside for good as soon as the player makes a research choice of
+ * their own: any change of the current research it didn't make, a pick or a
+ * stop (a click on the current research), is the player's, since a research
+ * only ends by itself by completing. From then on the player picks, as in
+ * any other game.
  */
-export function continueDemoResearch(sim: Sim, playerId = 0): void {
-  const { state } = sim;
-  const force = forceOf(state, playerId);
-  if (state.research.currentOf(force) !== TechId.None) return;
-  const next = DEMO_RESEARCH_CHAIN.find((tech) => state.research.isAvailable(force, tech));
-  if (next !== undefined)
-    sim.enqueue({ type: 'SetResearch', playerId, tech: next, tick: sim.tick });
+export class DemoResearch {
+  /** The research this player picked last (the current one, unless something changed it). */
+  private expected: number;
+  private aside = false;
+
+  constructor(
+    private readonly sim: Sim,
+    private readonly playerId = 0,
+  ) {
+    this.expected = sim.state.research.currentOf(forceOf(sim.state, playerId));
+  }
+
+  /** Whether the player made a research choice of their own, and the chain stopped. */
+  get stoppedByPlayer(): boolean {
+    return this.aside;
+  }
+
+  /** Looks at the research after a tick, and picks the next one if the last one completed. */
+  afterTick(): void {
+    if (this.aside) return;
+    const { state } = this.sim;
+    const force = forceOf(state, this.playerId);
+    const current = state.research.currentOf(force);
+    if (current === this.expected && current !== TechId.None) return;
+    const completed =
+      current === TechId.None &&
+      (this.expected === TechId.None || state.research.isResearched(force, this.expected));
+    if (!completed) {
+      // A pick or a stop this player didn't make: the player's own choice.
+      this.aside = true;
+      return;
+    }
+    const next = DEMO_RESEARCH_CHAIN.find((tech) => state.research.isAvailable(force, tech));
+    this.expected = next ?? TechId.None;
+    if (next !== undefined) {
+      this.sim.enqueue({
+        type: 'SetResearch',
+        playerId: this.playerId,
+        tech: next,
+        tick: this.sim.tick,
+      });
+    }
+  }
 }
 
 /** Researched from the start: everything the demo's recipes need, and automation 2's prerequisites. */

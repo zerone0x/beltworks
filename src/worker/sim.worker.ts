@@ -24,6 +24,7 @@ import {
 import { Sim } from '../sim/tick';
 import { systemActivity } from '../sim/activity';
 import type { ProductionCounter } from '../sim/scenarios/production';
+import type { DemoResearch } from '../sim/scenarios/demo';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
 import { BENCH_SCENES, RenderScene, isGridScene, isRenderScene } from './renderScene';
 import { FixedStepClock } from './loop';
@@ -76,9 +77,10 @@ let scene: RenderScene | null = null;
 let counter: ProductionCounter | null = null;
 /**
  * The demo factory's player picking the next research after every tick
- * (`continueDemoResearch`, D72); `null` in any other game.
+ * (`DemoResearch`, D72), until the player picks or stops a research
+ * themselves; `null` in any other game.
  */
-let demoResearch: ((sim: Sim) => void) | null = null;
+let demoResearch: DemoResearch | null = null;
 /** What the main thread has of each delta section, and the writers they are encoded into. */
 const deltas = new SnapshotEncoder();
 
@@ -118,7 +120,7 @@ function runDueTicks(current: Sim): void {
     for (let i = 0; i < ticks; i++) {
       if (crashNextTick) throw new Error('crash requested by a test (crashForTest)');
       current.step();
-      demoResearch?.(current);
+      demoResearch?.afterTick();
       counter?.observe();
     }
     statStepMs += performance.now() - start;
@@ -252,9 +254,10 @@ async function handle(msg: MainToWorker): Promise<void> {
       }
       if (msg.demo && !msg.save) {
         // The demo factory (D72), built through commands (imported only when asked for).
-        const { buildDemo, continueDemoResearch } = await import('../sim/scenarios/demo');
-        start(buildDemo());
-        demoResearch = continueDemoResearch;
+        const { buildDemo, DemoResearch } = await import('../sim/scenarios/demo');
+        const demo = buildDemo();
+        start(demo);
+        demoResearch = new DemoResearch(demo);
         return;
       }
       const startingKit = validateKit(msg.startingKit);
@@ -336,7 +339,7 @@ async function handle(msg: MainToWorker): Promise<void> {
       try {
         for (let i = 0; i < msg.ticks; i++) {
           sim.step();
-          demoResearch?.(sim);
+          demoResearch?.afterTick();
           counter?.observe();
         }
       } catch (err) {

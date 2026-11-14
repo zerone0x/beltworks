@@ -14,8 +14,8 @@ import {
   DEMO_RESEARCH,
   DEMO_RESEARCH_CHAIN,
   DEMO_SPAWN,
+  DemoResearch,
   buildDemo,
-  continueDemoResearch,
   demoKit,
   demoLayout,
   demoTagged,
@@ -142,12 +142,13 @@ function run(): Run {
   const completedAt = new Map<number, number>();
   const windows: Window[] = [];
   const start = sim.tick;
+  const player = new DemoResearch(sim);
   let first: Run['first'] | null = null;
   let window: Window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
   const firstWindow: Window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
   for (let t = 1; t <= WINDOWS * WINDOW; t++) {
     sim.step();
-    continueDemoResearch(sim);
+    player.afterTick();
     if (t <= FIRST) counter.observe();
     for (const id of ids) {
       if (sim.state.entities.status(id) === MachineState.Working) {
@@ -177,6 +178,19 @@ function run(): Run {
   }
   cached = { sim, first: first!, windows, completedAt };
   return cached;
+}
+
+/** Plays `ticks` ticks of the demo with its research player, as the worker does. */
+function playTicks(sim: Sim, player: DemoResearch, ticks: number): void {
+  for (let t = 0; t < ticks; t++) {
+    sim.step();
+    player.afterTick();
+  }
+}
+
+/** The player picks `tech` in the tech tree (0 stops researching), as the UI does. */
+function pick(sim: Sim, tech: number): void {
+  sim.enqueue({ type: 'SetResearch', playerId: 0, tech, tick: sim.tick });
 }
 
 const at = (x: number, y: number): string => `(${String(x)}, ${String(y)})`;
@@ -370,6 +384,49 @@ describe('demo factory', { timeout: 60_000 }, () => {
     // and an hour after the demo started, on the last technology of the tree.
     expect(completedAt.has(TechId.Logistics2)).toBe(true);
     expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.Logistics3);
+  });
+
+  it('leaves the research to the player once they pick one of their own', () => {
+    // The player switches from automation 2 to logistics: the pick stays until
+    // it completes, and the chain doesn't take over again after it.
+    const sim = buildDemo();
+    const player = new DemoResearch(sim);
+    playTicks(sim, player, 60);
+    expect(player.stoppedByPlayer).toBe(false);
+    pick(sim, TechId.Logistics);
+    let ticks = 0;
+    while (!sim.state.research.isResearched(DEFAULT_FORCE, TechId.Logistics)) {
+      expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(
+        ticks > 0 ? TechId.Logistics : DEMO_RESEARCH,
+      );
+      playTicks(sim, player, 1);
+      expect(++ticks, 'logistics completes').toBeLessThan(10 * MINUTE);
+    }
+    expect(player.stoppedByPlayer).toBe(true);
+    playTicks(sim, player, MINUTE);
+    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.None);
+    expect(sim.state.research.isResearched(DEFAULT_FORCE, DEMO_RESEARCH)).toBe(false);
+  });
+
+  it('lets the player stop the research, and the chain stays stopped', () => {
+    // A click on the current research stops it (src/ui/techTree.ts).
+    const sim = buildDemo();
+    const player = new DemoResearch(sim);
+    playTicks(sim, player, 60);
+    pick(sim, TechId.None);
+    playTicks(sim, player, MINUTE);
+    expect(player.stoppedByPlayer).toBe(true);
+    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.None);
+    // Picking automation 2 again is the player's choice too: when it
+    // completes, nothing follows it.
+    pick(sim, DEMO_RESEARCH);
+    let ticks = 0;
+    while (!sim.state.research.isResearched(DEFAULT_FORCE, DEMO_RESEARCH)) {
+      playTicks(sim, player, 1);
+      expect(++ticks, 'automation 2 completes').toBeLessThan(10 * MINUTE);
+    }
+    playTicks(sim, player, MINUTE);
+    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.None);
   });
 
   it('keeps the labs, the science and what feeds it busy for an hour, without backing up', () => {
