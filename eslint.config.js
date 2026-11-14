@@ -98,12 +98,18 @@ export default defineConfig(
     languageOptions: { globals: globals['shared-node-browser'] },
   },
   {
-    files: ['*.config.{js,ts}', 'tests/**/*.ts', 'tools/art/**/*.js', 'tools/gpu-demo/**/*.mjs'],
+    files: [
+      '*.config.{js,ts}',
+      'tests/**/*.ts',
+      'tools/art/**/*.js',
+      'tools/gpu-demo/**/*.mjs',
+      'tools/promo/**/*.mjs',
+    ],
     languageOptions: { globals: globals.node },
   },
   {
     // The capture scripts pass functions to page.evaluate, which run in the browser.
-    files: ['tools/gpu-demo/**/*.mjs'],
+    files: ['tools/gpu-demo/**/*.mjs', 'tools/promo/**/*.mjs'],
     languageOptions: { globals: globals.browser },
   },
   {

@@ -1,5 +1,38 @@
 # Beltworks
 
+[![The demo factory running: drills on ore, furnaces, assembling machines making red and green science, and labs researching](docs/demo-factory.gif)](https://zerone0x.github.io/beltworks-play/?demo)
+
+**[Try the demo](https://zerone0x.github.io/beltworks-play/?demo)**: a complete factory, from ore to research, running in your browser in one click (no account, no download).
+
+## See the pipeline work
+
+[![The demo factory's highlight reel: the whole factory, the iron drills, the furnaces, the assembling machines, the science belts, the labs finishing automation 2 and starting logistics, and the steam power plant (click to play)](docs/media/demo-reel-poster.jpg)](https://zerone0x.github.io/beltworks-play/media/reel.html)
+
+**[Watch the highlight reel](https://zerone0x.github.io/beltworks-play/media/reel.html)** (44 s, 720p, no sound; or [the MP4](https://zerone0x.github.io/beltworks-play/media/demo-reel.mp4)), recorded frame by frame in the game from the demo factory.
+
+| | |
+|---|---|
+| [![The whole factory](docs/media/demo-wide.jpg)](docs/media/demo-wide.jpg) **The whole factory**: ore patches, furnaces, the plate bus, the assembly block, labs and power. | [![Mining](docs/media/demo-mining.jpg)](docs/media/demo-mining.jpg) **Mining**: five electric drills on the iron patch fill the ore belt. |
+| [![Smelting](docs/media/demo-smelting.jpg)](docs/media/demo-smelting.jpg) **Smelting**: ore and coal on the two lanes of the furnace belt; plates leave on both sides. | [![Assembly](docs/media/demo-assembly.jpg)](docs/media/demo-assembly.jpg) **Assembly**: gears, cable, circuits, inserters and belts, and the red science machines. |
+| [![Logistics](docs/media/demo-logistics.jpg)](docs/media/demo-logistics.jpg) **Logistics**: green science, red packs under the bus, and splitters sharing the packs out. | [![Labs](docs/media/demo-labs.jpg)](docs/media/demo-labs.jpg) **Labs**: three labs fed through the splitters, researching one technology after another. |
+| [![Power](docs/media/demo-power.jpg)](docs/media/demo-power.jpg) **Power**: two boilers and four steam engines on coal mined on the spot, 100 % satisfaction. | |
+
+What the factory did during each shot, counted in the game over the same ticks as the footage (60 ticks = 1 s). Nothing was pre-filled but a little bootstrap coal in the boilers and furnaces: every plate, part and pack here came from mined ore.
+
+| | Wide | Mining | Smelting | Assembly | Logistics | Labs | Power |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Seconds | 8 | 7 | 7 | 8 | 8 | 25 | 7 |
+| Iron / copper ore mined | 20 / 12 | 15 / 9 | 15 / 9 | 20 / 12 | 20 / 12 | 65 / 39 | 15 / 9 |
+| Iron / copper plates | 20 / 10 | 17 / 10 | 16 / 8 | 20 / 10 | 18 / 9 | 61 / 32 | 18 / 10 |
+| Gears | 6 | 6 | 6 | 6 | 6 | 19 | 6 |
+| Copper cable | 16 | 14 | 14 | 16 | 14 | 20 | 6 |
+| Circuits | 2 | 2 | 2 | 2 | 2 | 6 | 2 |
+| Red / green packs made | 1 / 2 | 0 / 2 | 3 / 2 | 3 / 2 | 3 / 2 | 6 / 7 | 0 / 2 |
+| Red / green packs used | 3 / 3 | 6 / 6 | 3 / 3 | 3 / 3 | 6 / 6 | 7 / 4 | 0 / 0 |
+| Research | Automation 2: 0 → 8 % | 8 → 23 % | 23 → 30 % | 38 → 45 % | 45 → 60 % | 90 → 100 %, then Logistics 0 → 15 % | Logistics 15 % |
+
+`npm run capture:promo` records the footage again, with these counts ([docs/TOOLING.md](docs/TOOLING.md#demo-factory-and-promo-capture)).
+
 A factory-automation game for the browser: start by mining ore by hand, then build drills, belts, furnaces, steam power, assembling machines and labs until the factory runs (and researches) on its own. Inspired by Factorio; all art, sound, names and code are original.
 
 **Play the public beta: https://zerone0x.github.io/beltworks-play/** (v1.0.0-beta.1; free, no account, no download, no server: everything runs and is saved in your browser).
@@ -8,7 +41,7 @@ A factory-automation game for the browser: start by mining ore by hand, then bui
 
 ## Quick start
 
-1. Open the link above on a desktop browser and click **New game**.
+1. Open the link above on a desktop browser and click **New game** (or **Demo factory** to look around a finished one first).
 2. Follow the **Getting started** objectives in the bottom-left corner: they walk you through your first automated iron plate line in about five minutes.
 3. Press **H** at any time for the controls, **Esc** for the game menu (save, load, settings, About).
 
@@ -46,6 +79,10 @@ v1 covers the start of the game: hand mining, burner and electric machines, belt
 ## Playing in detail
 
 The game opens on the **title screen**: **Continue** (the newest save), **New game** on a world seed (a random one is suggested; type a number, or any word or phrase, to get the same world every time, and **Copy** its number, the one the game menu shows, to share it), **Load** (any save), **Settings** and **About** (the version, the controls as bound, credits, the game's MIT license and the third-party licenses). The game menu (**Esc**) shows the seed of the game you are playing, with a copy button.
+
+**Demo factory** (on the title screen, or the link [`?demo`](https://zerone0x.github.io/beltworks-play/?demo)) starts a game in a finished factory, built for you on world seed 59: electric drills on iron, copper, coal and stone, two columns of stone furnaces, a bus of iron and copper plates, assembling machines making gears, copper cable, circuits, electric inserters, belts and red and green science packs, three labs, and a steam power plant on coal mined on the spot. Nothing in it is pre-filled but a little starting coal: everything comes from ore. It has already run for 14 minutes of game time when you arrive (a second of work while the page says it is being built), the camera shows all of it (**F** follows you again), and the labs research automation 2 (the bar fills in about a minute and a half), then logistics, fast inserter, logistics 2 and logistics 3, for about an hour. From there it is a normal game: save it, build on, pick or stop a research (the demo then leaves the research to you).
+
+![The demo factory: mining, smelting, the plate bus, the assembly block, labs and the power plant](docs/media/demo-wide.jpg)
 
 A new game starts between four ore patches (iron, copper, coal, stone) with a kit of belts, burner inserters, burner mining drills, stone furnaces, wooden chests and coal in the hotbar. The first goal: a drill on iron ore drops ore onto a belt, an inserter feeds it into a furnace, and another inserter moves the plates into a chest, all on their own once fuelled with coal. From there: steam power, assembling machines, and labs researching technologies from red and then green science packs, made by machines.
 
@@ -168,6 +205,7 @@ npm run preview    # serve dist/
 npm run test:e2e   # Playwright tests against a fresh test-mode build (Chromium)
 npm run test:release # the release check: the production build played with real input (docs/TOOLING.md)
 npm run art        # re-render the Blender sprite models into public/sprites/ (needs Blender 4.2; see docs/ART.md)
+npm run capture:promo # record the demo factory's promo footage and README clip (docs/TOOLING.md, "Demo factory and promo capture")
 ```
 
 Run `npx playwright install chromium` once before the first `npm run test:e2e`. The screenshot baselines live in `tests/e2e/render.spec.ts-snapshots/`; after an intended visual change, regenerate them with `npx playwright test --update-snapshots` and check the new images. CI runs the suite in six shards (docs/TOOLING.md, "End-to-end tests").

@@ -17,6 +17,7 @@
  * them back into whole sections (`SnapshotMessage`).
  */
 
+import type { ProductionCounts } from '../sim/scenarios/production';
 import type { Activity } from '../sim/activity';
 import type { CommandInput } from '../sim/commands';
 import type { SaveMeta } from '../sim/save/container';
@@ -99,6 +100,12 @@ export interface InitMessage {
    * `?scene=` URL parameter, see src/testHook.ts) or accept it.
    */
   renderScene?: string;
+  /**
+   * Start the demo factory (src/sim/scenarios/demo.ts, D72) instead of a new
+   * game: built through commands on its own seed (`seed`, the kit and
+   * `researched` are then ignored). Every build accepts it.
+   */
+  demo?: boolean;
 }
 
 export interface CommandsMessage {
@@ -166,8 +173,33 @@ export interface SetPausedMessage {
   paused: boolean;
 }
 
+/**
+ * Dev and test builds only (the frame-stepped capture, D72): runs `ticks`
+ * ticks (an integer in [0, MAX_STEP_TICKS]) right away, paused or not, and
+ * sends their snapshot.
+ */
+export interface StepMessage {
+  type: 'step';
+  ticks: number;
+}
+
+/** Most ticks one `step` runs. */
+export const MAX_STEP_TICKS = 1_000_000;
+
+/**
+ * Dev and test builds only: asks for the production counters
+ * (src/sim/scenarios/production.ts) since they were last reset; `reset`
+ * starts them again afterwards. Answered with a `production` message.
+ */
+export interface ProductionRequestMessage {
+  type: 'production';
+  reset: boolean;
+}
+
 export type MainToWorker =
   | InitMessage
+  | StepMessage
+  | ProductionRequestMessage
   | CommandsMessage
   | SetViewportMessage
   | InspectMessage
@@ -342,5 +374,17 @@ export interface LoadedMessage {
   error: string | null;
 }
 
+/** The answer to a `production` request. */
+export interface ProductionMessage {
+  type: 'production';
+  counts: ProductionCounts;
+}
+
 export type WorkerToMain =
-  SnapshotWireMessage | StatsMessage | ErrorMessage | CrashedMessage | SavedMessage | LoadedMessage;
+  | SnapshotWireMessage
+  | StatsMessage
+  | ErrorMessage
+  | CrashedMessage
+  | SavedMessage
+  | LoadedMessage
+  | ProductionMessage;

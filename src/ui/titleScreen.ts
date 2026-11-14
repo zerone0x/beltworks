@@ -1,7 +1,7 @@
 /**
  * The title screen (plain DOM, D39), shown before the game starts: Continue
  * (the newest save), New game with a world seed (shown, editable, random or
- * copied), Load (any save slot), Settings (#98's settings panel in its
+ * copied), Demo factory (D72), Load (any save slot), Settings (#98's settings panel in its
  * place; Esc goes back) and About (src/ui/about.ts, the same way), with the
  * version under them. It resolves with what to start; main.ts (through
  * `chooseStart` in saves.ts) does the rest. Nothing here touches the worker
@@ -17,7 +17,8 @@ import { parseSeed, randomSeed } from './seed';
 import type { SettingsPanel } from './settingsPanel';
 
 /** What the player picked: a new game on a seed, or a save to load. */
-export type TitleChoice = { kind: 'new'; seed: number } | { kind: 'load'; slot: SaveSlot };
+export type TitleChoice =
+  { kind: 'new'; seed: number } | { kind: 'load'; slot: SaveSlot } | { kind: 'demo' };
 
 export interface TitleScreenOptions {
   /** Save slots, newest first. */
@@ -179,6 +180,15 @@ export function showTitleScreen(
     if (e.key === 'Enter') startNew();
   });
   panel.append(seedRow, fresh);
+
+  // The demo factory (D72): a running factory from ore to research, to look around in.
+  const demo = button('Demo factory', 'title-demo');
+  Object.assign(demo.style, BIG_BUTTON, { marginTop: '10px' });
+  demo.title = 'A finished factory, from ore to research, running on its own';
+  demo.addEventListener('click', () => {
+    pick({ kind: 'demo' });
+  });
+  panel.append(demo);
 
   // Load: every save slot.
   const load = button('Load', 'title-load');

@@ -355,7 +355,7 @@ src/
     belts/        # transport lines
     power/
     research/     # research state, unlocks, labs
-    scenarios/    # scripted runs shared by tests (determinism)
+    scenarios/    # scripted runs: the determinism scenario, the scene builder, the demo factory (D72)
     commands.ts   # Command union, validation, ordered queue
     state.ts      # SimState (including the World), state hash
     tick.ts       # Sim: enqueue/step/hash, fixed system order

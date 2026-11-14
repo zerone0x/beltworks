@@ -84,6 +84,12 @@ export class GameView {
   /** Whether the camera stays centered on the local player. */
   following = true;
   /**
+   * The clock (ms) snapshots are stamped with and frames drawn at: the page's,
+   * except in the frame-stepped capture (test builds, D72), which runs its own
+   * so every frame shows exactly the state of its tick.
+   */
+  clock: () => number = () => performance.now();
+  /**
    * Whether decorative animation runs (the animation setting): belt
    * surfaces, flywheels, machines' working animations and fire. Items,
    * inserter arms and players move either way: they show the game's state.
@@ -218,11 +224,12 @@ export class GameView {
   applySnapshot(snapshot: SnapshotMessage): void {
     const arrived = this.terrain.applySnapshot(snapshot.chunkWindow, snapshot.chunks);
     this.mapStore.applyChunks(snapshot.chunkWindow, arrived);
-    this.track.push(new Int32Array(snapshot.players), snapshot.ticksRun, performance.now());
+    const now = this.clock();
+    this.track.push(new Int32Array(snapshot.players), snapshot.ticksRun, now);
     this.entityIndex.apply(snapshot.entities);
     this.mapStore.applyEntities(this.entityIndex);
-    this.belts.apply(snapshot.belts, snapshot.tick, performance.now());
-    this.inserters.apply(snapshot.inserters, performance.now());
+    this.belts.apply(snapshot.belts, snapshot.tick, now);
+    this.inserters.apply(snapshot.inserters, now);
     this.power.apply(snapshot.power);
   }
 
@@ -285,7 +292,7 @@ export class GameView {
   }
 
   /** Where the local player is drawn now, in world pixels, or `null` before the first snapshot. */
-  localPlayerPosition(nowMs: number = performance.now()): Point | null {
+  localPlayerPosition(nowMs: number = this.clock()): Point | null {
     const p = this.track.sample(LOCAL_PLAYER_ID, nowMs);
     return p && { x: (p.x * TILE_PX) / SUBTILES_PER_TILE, y: (p.y * TILE_PX) / SUBTILES_PER_TILE };
   }
@@ -295,7 +302,7 @@ export class GameView {
     this.camera.resize(this.app.screen.width, this.app.screen.height);
     this.input.zoomAroundCenter = this.following;
     this.input.update(dtMs);
-    const now = performance.now();
+    const now = this.clock();
     if (this.following) {
       const p = this.localPlayerPosition(now);
       if (p) {
@@ -328,7 +335,7 @@ export class GameView {
     // In map mode the players' bodies leave the hidden buildings' layer for their own.
     this.players.setDepthSorting(sprites);
     if (sprites) {
-      this.terrain.update(undefined, view, this.camera.zoom);
+      this.terrain.update(undefined, view, this.camera.zoom, now);
       // Every entity layer draws only what overlaps the screen (cull.ts).
       const cull = cullRect(view);
       this.belts.animateSurfaces = this.animate;
