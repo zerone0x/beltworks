@@ -22,12 +22,14 @@
  * @property {boolean} [hudVariant] Also record the minimal-HUD variant (the research bar).
  * @property {{ x: number, y: number }} [openPole] Open the power panel of the pole on this tile.
  * @property {number} [still] Which frame (0..1 of the shot) to keep as a high-resolution still.
+ * @property {string} [media] With `--readme`, its still also goes to docs/media/demo-<media>.jpg.
  */
 
 /** @type {Shot[]} */
 export const SHOTS = [
   {
     name: 'a-wide',
+    media: 'wide',
     title: 'The whole factory, slowly zooming out',
     seconds: 8,
     from: { x: 5, y: 0, zoom: 1.0 },
@@ -37,6 +39,7 @@ export const SHOTS = [
   },
   {
     name: 'b-drills',
+    media: 'mining',
     title: 'Electric drills on the iron patch, ore flowing onto the belt',
     seconds: 7,
     from: { x: -15, y: -15.5, zoom: 2.1 },
@@ -45,6 +48,7 @@ export const SHOTS = [
   },
   {
     name: 'c-furnaces',
+    media: 'smelting',
     title: 'The iron furnaces smelting, plates leaving on both sides',
     seconds: 7,
     from: { x: 0.5, y: -12, zoom: 1.7 },
@@ -53,6 +57,7 @@ export const SHOTS = [
   },
   {
     name: 'd-assemblers',
+    media: 'assembly',
     title: 'Assembling machines making gears, circuits and science, inserters swinging',
     seconds: 8,
     from: { x: 12, y: 0.5, zoom: 1.9 },
@@ -61,6 +66,7 @@ export const SHOTS = [
   },
   {
     name: 'e-science-belts',
+    media: 'logistics',
     title: 'Red packs under the bus, onto the green packs belt, through the splitters',
     seconds: 8,
     from: { x: 10, y: 1, zoom: 1.8 },
@@ -86,18 +92,20 @@ export const SHOTS = [
   },
   {
     name: 'f-labs',
-    title: 'Labs using both packs: automation 2 completes, and logistics starts',
-    seconds: 14,
+    media: 'labs',
+    title: 'Labs using both packs: automation 2 completes, and logistics goes on',
+    seconds: 26,
     from: { x: 23, y: 11.5, zoom: 2.0 },
     to: { x: 23.5, y: 12, zoom: 2.2 },
     untilUnits: 34,
     untilResearched: true,
-    holdSeconds: 5,
+    holdSeconds: 17,
     hudVariant: true,
     still: 0.15,
   },
   {
     name: 'g-power',
+    media: 'power',
     title: 'The steam power plant, with its network panel',
     seconds: 7,
     from: { x: 27, y: -1, zoom: 1.4 },
@@ -118,7 +126,7 @@ export const REEL = [
   ['c-furnaces', 1, 5],
   ['d-assemblers', 1, 6],
   ['e-science-belts', 1, 6],
-  ['f-labs', 0, 9],
+  ['f-labs', 3, 11],
   ['g-power', 1, 5],
 ];
 

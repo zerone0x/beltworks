@@ -22,9 +22,10 @@
  * - `readme.gif`: the README clip; `counts.json` and `counts.md`: what the
  *   factory mined, made and used up during each shot, measured in the game
  *   over the shot's own ticks.
- * `--readme` also writes the README clip to docs/demo-factory.gif and
- * 1280x720 copies of the stills (256 colours) to
- * docs/screenshots/demo-<shot>.png.
+ * `--readme` also writes the README clip to docs/demo-factory.gif, 1280 px
+ * JPGs of the stages' stills to docs/media/demo-<stage>.jpg, and a 720p
+ * copy of reel-hud.mp4 with its poster to docs/media/demo-reel.mp4 and
+ * docs/media/demo-reel-poster.jpg.
  *
  *   node tools/promo/capture.mjs [--out promo/out] [--shots a-wide,f-labs]
  *     [--width 1920] [--height 1080] [--crf 12] [--ui-scale 1.5] [--readme]
@@ -62,9 +63,12 @@ const args = parseArgs({
   'max-seconds': 0,
   'assemble-only': false,
   'gif-width': 600,
-  'gif-fps': 10,
-  'gif-colors': 64,
+  'gif-fps': 8,
+  'gif-colors': 48,
   'gif-crop': 1400,
+  'jpg-q': 4,
+  'reel-crf': 31,
+  'poster-at': 5.5,
   timeout: 900_000,
 });
 const FPS = 60;
@@ -341,8 +345,9 @@ const results = args['assemble-only']
   : await record();
 if (!args['assemble-only']) {
   writeFileSync(join(out, 'counts.json'), `${JSON.stringify(results, null, 2)}\n`);
-  writeFileSync(join(out, 'counts.md'), countsTable(results));
 }
+// Also when assembling only: counts.json may hold shots recorded in separate runs.
+writeFileSync(join(out, 'counts.md'), countsTable(results));
 
 /** Cuts `[shot, from, seconds]` segments of the shots' mp4s together (suffix: `-hud` variants where recorded). */
 async function cut(segments, file, filters, codec) {
@@ -413,29 +418,42 @@ if (README_CLIP.every(([name]) => have.has(name))) {
     gif,
   ]);
   console.log(`README clip: ${MB(gif)}`);
-  if (args.readme) {
-    copyFileSync(gif, join(ROOT, 'docs', 'demo-factory.gif'));
-    // The shots with a chosen still (not the README clip's views).
-    for (const r of results.filter(
-      (x) => SHOTS.find((s) => s.name === x.shot)?.still !== undefined,
-    )) {
-      const file = join(out, 'stills', `${r.shot}.png`);
-      if (!existsSync(file)) {
-        // Not written (an older capture): the shot's frame at its still, from the mp4.
-        const at =
-          (SHOTS.find((s) => s.name === r.shot)?.still ?? 0.5) * Math.max(0, r.seconds - 0.05);
-        const video = join(out, 'shots', `${r.shot}.mp4`);
-        await run(['-ss', at.toFixed(3), '-i', video, '-frames:v', '1', file]);
-      }
-      await run([
-        ...['-i', file],
-        // 1280x720 with a 256-colour palette: about half a megabyte each.
-        '-filter_complex',
-        'scale=1280:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=256:stats_mode=single[p];' +
-          '[b][p]paletteuse=dither=sierra2_4a',
-        join(ROOT, 'docs', 'screenshots', `demo-${r.shot}.png`),
-      ]);
+  if (args.readme) copyFileSync(gif, join(ROOT, 'docs', 'demo-factory.gif'));
+}
+if (args.readme) {
+  const media = join(ROOT, 'docs', 'media');
+  mkdirSync(media, { recursive: true });
+  // One still per stage (the shots with a `media` name): 1280 px wide JPGs, 150-300 kB each.
+  for (const r of results) {
+    const shot = SHOTS.find((s) => s.name === r.shot);
+    if (!shot?.media) continue;
+    const file = join(out, 'stills', `${r.shot}.png`);
+    if (!existsSync(file)) {
+      // Not written (an older capture): the shot's frame at its still, from the mp4.
+      const at = (shot.still ?? 0.5) * Math.max(0, r.seconds - 0.05);
+      const video = join(out, 'shots', `${r.shot}.mp4`);
+      await run(['-ss', at.toFixed(3), '-i', video, '-frames:v', '1', file]);
     }
+    await run([
+      ...['-i', file, '-vf', 'scale=1280:-2:flags=lanczos', '-q:v', String(args['jpg-q'])],
+      join(media, `demo-${shot.media}.jpg`),
+    ]);
+  }
+  // The highlight reel with the research bar, 720p and small enough to commit, and its poster.
+  const reel = join(out, 'reel-hud.mp4');
+  if (existsSync(reel)) {
+    const preview = join(media, 'demo-reel.mp4');
+    await run([
+      ...['-i', reel, '-an', '-vf', 'scale=1280:-2:flags=lanczos'],
+      ...['-c:v', 'libx264', '-preset', 'slow', '-crf', String(args['reel-crf'])],
+      ...['-pix_fmt', 'yuv420p', '-movflags', '+faststart', preview],
+    ]);
+    await run([
+      ...['-ss', String(args['poster-at']), '-i', reel, '-frames:v', '1'],
+      ...['-vf', 'scale=1280:-2:flags=lanczos', '-q:v', String(args['jpg-q'])],
+      join(media, 'demo-reel-poster.jpg'),
+    ]);
+    console.log(`README reel: ${MB(preview)}`);
   }
 }
 console.log(`wrote ${relative(ROOT, out)}/`);

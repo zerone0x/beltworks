@@ -144,7 +144,7 @@ function run(): Run {
   const start = sim.tick;
   let first: Run['first'] | null = null;
   let window: Window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
-  let firstWindow: Window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
+  const firstWindow: Window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
   for (let t = 1; t <= WINDOWS * WINDOW; t++) {
     sim.step();
     continueDemoResearch(sim);
@@ -168,7 +168,6 @@ function run(): Run {
     if (t === FIRST) {
       firstWindow.packs = packsOnBelts(sim);
       first = { ...firstWindow, counts: counter.read(), units: unitsDone(sim) };
-      firstWindow = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
     }
     if (t % WINDOW === 0) {
       window.packs = packsOnBelts(sim);
