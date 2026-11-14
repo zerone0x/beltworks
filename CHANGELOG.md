@@ -6,7 +6,7 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 
 ### Added
 
-- **Demo factory** (#142, D72): a "Demo factory" button on the title screen and a `?demo` link start a game in a complete factory, from ore to research (drills, furnaces, a plate bus, assembling machines, red and green science, labs researching automation 2, steam power on mined coal), built through commands by a scripted player; the camera frames it and the objectives stay off. `npm run capture:promo` records frame-stepped footage of it (shots per stage, a highlight reel, stills, production counts) for promo videos and the README clip.
+- **Demo factory** (#142, D72): a "Demo factory" button on the title screen and a `?demo` link start a game in a complete factory, from ore to research (drills, furnaces, a plate bus, assembling machines, red and green science, labs researching one technology after another for about an hour, steam power on mined coal), built through commands by a scripted player; the camera frames it and the objectives stay off. `npm run capture:promo` records frame-stepped footage of it (shots per stage, a highlight reel, stills, production counts) for promo videos and the README clip.
 
 ### Changed
 

@@ -12,14 +12,14 @@
  *
  * - **Mining**: five electric drills on the iron patch drop ore onto a belt
  *   running east along y = -15, two on the copper patch onto one along
- *   y = 8. A row of four drills on the coal patch feeds a belt along y = -15
+ *   y = 8. A row of four drills on the coal patch feeds a belt along y = -16
  *   both ways: west to the furnaces, east to the power plant. One drill on
  *   stone fills a chest, which an inserter empties into a second one.
  * - **Smelting**: two columns of stone furnaces on the axis x = 0. Each
  *   furnace belt is fed from both sides, ore into one lane and coal into the
  *   other (side-loading), and electric inserters move both into the
  *   furnaces, which stand in groups of up to four around a row of poles.
- *   Iron: seven furnaces; copper: four. Electric inserters put the plates
+ *   Iron: eight furnaces; copper: four. Electric inserters put the plates
  *   onto belts that side-load into the plate bus.
  * - **The bus**: a fast belt along y = 0 with iron plates on its north lane
  *   and copper on its south lane, running east into the assembly block. The
@@ -113,7 +113,7 @@ export const DEMO_RESEARCHED: readonly number[] = [
  * science), so the factory is running at its steady pace when the player
  * arrives.
  */
-export const DEMO_WARMUP_TICKS = 10 * 60 * 60;
+export const DEMO_WARMUP_TICKS = 14 * 60 * 60;
 
 /** Coal each boiler gets to start the power plant (the coal drills take over from there). */
 const BOILER_COAL = 5;
@@ -172,35 +172,38 @@ export function demoLayout(): DemoEntity[] {
   const express = ItemId.ExpressTransportBelt;
 
   // --- Iron: five drills on the iron patch onto a belt east along y = -15. ---
-  for (const x of [-17, -14, -11, -8]) {
+  for (const x of [-20, -17, -14, -11, -8]) {
     add(ItemId.ElectricMiningDrill, x, -18, South, { tag: 'iron-drill' });
   }
-  add(ItemId.ElectricMiningDrill, -8, -14, North, { tag: 'iron-drill' });
-  belts(belt, -16, -15, -1, -15, East);
+  belts(belt, -19, -15, -1, -15, East);
 
-  // --- Coal: a row of four drills under a belt along y = -15. The two on the
+  // --- Coal: a row of four drills under a belt along y = -16. The two on the
   // west feed the iron furnaces' belt (west) and the copper furnaces' (down
   // x = 6, under the bus); the two on the east the power plant's (east). ---
-  add(ItemId.ElectricMiningDrill, 8, -14, West, { tag: 'coal-drill' });
-  add(ItemId.ElectricMiningDrill, 11, -14, North, { tag: 'coal-drill' });
-  belts(belt, 12, -15, 1, -15, West);
-  add(belt, 7, -13, West);
-  belts(belt, 6, -13, 6, -2, South);
+  add(ItemId.ElectricMiningDrill, 8, -15, West, { tag: 'coal-drill' });
+  add(ItemId.ElectricMiningDrill, 11, -15, North, { tag: 'coal-drill' });
+  belts(belt, 12, -16, 2, -16, West);
+  add(belt, 1, -16, South);
+  add(belt, 1, -15, West);
+  add(belt, 7, -14, West);
+  belts(belt, 6, -14, 6, -2, South);
   add(ItemId.UndergroundBelt, 6, -1, South);
   add(ItemId.UndergroundBelt, 6, 1, South);
   belts(belt, 6, 2, 6, 7, South);
   belts(belt, 6, 8, 1, 8, West);
   for (const x of [14, 17]) {
-    add(ItemId.ElectricMiningDrill, x, -14, North, { tag: 'plant-coal-drill' });
+    add(ItemId.ElectricMiningDrill, x, -15, North, { tag: 'plant-coal-drill' });
   }
-  belts(belt, 15, -15, 21, -15, East);
-  belts(belt, 22, -15, 22, -9, South);
+  belts(belt, 15, -16, 21, -16, East);
+  belts(belt, 22, -16, 22, -9, South);
   belts(belt, 22, -8, 31, -8, East);
 
-  // --- The iron column: a furnace belt down x = 0 with seven furnaces, in a
-  // group of four around a row of poles at y = -11 and one of three around
-  // y = -3 (8 rows apart, so the two rows' wires never meet over a furnace). ---
-  // Its first belt has nothing behind it, so ore and coal both side-load.
+  // --- The iron column: a furnace belt down x = 0 with eight furnaces, in two
+  // groups of four, each around a row of poles: y = -11 and y = -3 (8 rows
+  // apart, so the two rows' wires never meet over a furnace). A wire hangs
+  // about a tile above the ground, so the row above a row of poles stays
+  // free. ---
+  // Ore (west) and coal (east) side-load onto its second belt, one lane each.
   belts(belt, 0, -16, 0, -2, South);
   /** A furnace west of the belt at `fy` (and one east with `east`), their inserters on row `iy`. */
   const furnacePair = (fy: number, iy: number, tag: string, east = true): void => {
@@ -212,26 +215,26 @@ export function demoLayout(): DemoEntity[] {
     add(ItemId.StoneFurnace, 2, fy, North, { tag: `${tag}-e`, fill: FURNACE_FUEL });
     add(ItemId.ElectricInserter, 4, iy, East);
   };
-  furnacePair(-13, -12, 'iron-furnace');
+  furnacePair(-14, -13, 'iron-furnace');
   furnacePair(-10, -10, 'iron-furnace');
-  furnacePair(-5, -4, 'iron-furnace');
-  furnacePair(-2, -2, 'iron-furnace', false);
+  furnacePair(-6, -5, 'iron-furnace');
+  furnacePair(-2, -2, 'iron-furnace');
   // Iron plates down both sides into the bus's north lane.
-  belts(belt, -5, -12, -5, -1, South);
-  belts(belt, 5, -12, 5, -1, South);
+  belts(belt, -5, -13, -5, -1, South);
+  belts(belt, 5, -13, 5, -1, South);
 
   // --- Copper: two drills onto a belt east along y = 8, and a furnace belt
-  // down x = 0 with four furnaces around a row of poles at y = 12. ---
+  // down x = 0 with four furnaces around a row of poles at y = 13. ---
   for (const x of [-15, -12]) {
     add(ItemId.ElectricMiningDrill, x, 9, North, { tag: 'copper-drill' });
   }
   belts(belt, -14, 8, -1, 8, East);
-  belts(belt, 0, 7, 0, 13, South);
+  belts(belt, 0, 7, 0, 14, South);
   furnacePair(10, 11, 'copper-furnace');
-  furnacePair(13, 13, 'copper-furnace');
+  furnacePair(14, 14, 'copper-furnace');
   // Copper plates up both sides into the bus's south lane, under the ore and coal belts.
   for (const x of [-5, 5]) {
-    belts(belt, x, 13, x, 10, North);
+    belts(belt, x, 14, x, 10, North);
     add(ItemId.UndergroundBelt, x, 9, North);
     add(ItemId.UndergroundBelt, x, 7, North);
     belts(belt, x, 6, x, 1, North);
@@ -361,12 +364,13 @@ export function demoLayout(): DemoEntity[] {
  * within 7 tiles, so the poles stand in straight lines (4 to 7 tiles apart)
  * at least 8 tiles from any other line, and a line meets another only where
  * they are joined end to end or in a T: every wire runs north-south or
- * east-west, and none crosses a machine (tests/sim/demo.test.ts checks both).
+ * east-west, and none crosses a machine. A wire hangs about a tile above the
+ * ground, so nothing tall stands on the row above an east-west line or right
+ * above a pole either (tests/sim/demo.test.ts checks all of it).
  */
 export const DEMO_POLES: readonly (readonly [number, number])[] = [
-  // The spine, west to east along y = -11: the iron drills south of the ore
-  // belt, the first group of iron furnaces, the coal drills, and the tops of
-  // the assembly block's three lines.
+  // The spine, west to east along y = -11: the first group of iron furnaces,
+  // the coal drills, and the tops of the assembly block's three lines.
   [-21, -11],
   [-15, -11],
   [-9, -11],
@@ -384,17 +388,17 @@ export const DEMO_POLES: readonly (readonly [number, number])[] = [
   [-15, -19],
   [-9, -19],
   // Down the west edge of the furnaces: the second group of iron furnaces
-  // (y = -3), then the copper drills and furnaces (y = 12).
+  // (y = -3), then the copper drills and furnaces (y = 13).
   [-9, -7],
   [-9, -3],
   [-3, -3],
   [3, -3],
   [-9, 2],
   [-9, 7],
-  [-9, 12],
-  [-15, 12],
-  [-3, 12],
-  [3, 12],
+  [-9, 13],
+  [-15, 13],
+  [-3, 13],
+  [3, 13],
   // The assembly block: down the free columns x = 12 and 20 (8 apart).
   ...[12, 20].flatMap((x) => [-5, -1, 4, 9, 13].map((y) => [x, y] as const)),
   // The stone drill, south of x = 12.

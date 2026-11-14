@@ -215,10 +215,15 @@ async function record() {
         ([x, y, z]) => window.__beltworks.setCamera(x, y, z),
         [c.x * TILE_PX, c.y * TILE_PX, c.zoom],
       ),
+    /** Automation 2's progress, and what the labs research now (the next technology after it). */
     research: () =>
       page.evaluate((name) => {
         const r = window.__beltworks.research();
-        return { current: r.current, ...r.techs[name] };
+        return {
+          current: r.current,
+          currentUnits: r.techs[r.current]?.unitsDone ?? 0,
+          ...r.techs[name],
+        };
       }, RESEARCH),
   };
   await capture.enter('none');
@@ -315,6 +320,9 @@ async function record() {
         unitsAfter: after.unitsDone,
         percentBefore: Math.round((100 * before.unitsDone) / units),
         percentAfter: Math.round((100 * after.unitsDone) / units),
+        currentBefore: before.current,
+        currentAfter: after.current,
+        currentUnitsAfter: after.currentUnits,
       },
       mined: counts.mined,
       made: counts.made,
@@ -447,7 +455,14 @@ function countsTable(rows) {
     ['green packs made', (r) => r.made['logistic-science-pack']],
     ['red packs used', (r) => r.consumed['automation-science-pack']],
     ['green packs used', (r) => r.consumed['logistic-science-pack']],
-    ['automation 2', (r) => `${r.research.percentBefore}% → ${r.research.percentAfter}%`],
+    [
+      'research',
+      (r) =>
+        `automation 2 ${r.research.percentBefore}% → ${r.research.percentAfter}%` +
+        (r.research.currentAfter && r.research.currentAfter !== RESEARCH
+          ? `, then ${r.research.currentAfter} (${r.research.currentUnitsAfter} units)`
+          : ''),
+    ],
   ];
   const head = `| | ${rows.map((r) => r.shot).join(' | ')} |\n|---|${rows.map(() => '---:').join('|')}|\n`;
   const ticks = `| ticks (60 = 1 s) | ${rows.map((r) => `${r.tickFrom}–${r.tickTo}`).join(' | ')} |\n`;

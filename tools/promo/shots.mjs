@@ -30,8 +30,8 @@ export const SHOTS = [
     name: 'a-wide',
     title: 'The whole factory, slowly zooming out',
     seconds: 8,
-    from: { x: 12, y: -2, zoom: 1.0 },
-    to: { x: 13, y: -2, zoom: 0.68 },
+    from: { x: 5, y: 0, zoom: 1.0 },
+    to: { x: 5, y: 0, zoom: 0.78 },
     hudVariant: true,
     still: 1,
   },
@@ -40,14 +40,14 @@ export const SHOTS = [
     title: 'Electric drills on the iron patch, ore flowing onto the belt',
     seconds: 7,
     from: { x: -15, y: -15.5, zoom: 2.1 },
-    to: { x: -7, y: -15.5, zoom: 2.1 },
+    to: { x: -8, y: -15.5, zoom: 2.1 },
     still: 0.5,
   },
   {
     name: 'c-furnaces',
     title: 'The iron furnaces smelting, plates leaving on both sides',
     seconds: 7,
-    from: { x: 0.5, y: -12.5, zoom: 1.7 },
+    from: { x: 0.5, y: -12, zoom: 1.7 },
     to: { x: 0.5, y: -10, zoom: 2.2 },
     still: 0.6,
   },
@@ -55,44 +55,44 @@ export const SHOTS = [
     name: 'd-assemblers',
     title: 'Assembling machines making gears, circuits and science, inserters swinging',
     seconds: 8,
-    from: { x: 27.5, y: 1, zoom: 1.9 },
-    to: { x: 35.5, y: 1, zoom: 1.9 },
+    from: { x: 12, y: 0.5, zoom: 1.9 },
+    to: { x: 20, y: 0.5, zoom: 1.9 },
     still: 0.4,
   },
   {
     name: 'e-science-belts',
-    title: 'Red packs under the bus, onto the green packs belt, through the splitter',
+    title: 'Red packs under the bus, onto the green packs belt, through the splitters',
     seconds: 8,
-    from: { x: 24, y: 3, zoom: 1.8 },
-    to: { x: 38, y: 13, zoom: 1.8 },
+    from: { x: 10, y: 1, zoom: 1.8 },
+    to: { x: 22, y: 12, zoom: 1.8 },
     still: 0.7,
   },
   // The README clip's two views: the camera stands still, so a GIF of them stays small.
   {
-    name: 'r-smelting',
-    title: 'README clip: mining and smelting into the bus (still camera)',
-    seconds: 6,
-    from: { x: -3, y: -3, zoom: 1.05 },
-    to: { x: -3, y: -3, zoom: 1.05 },
+    name: 'r-factory',
+    title: 'README clip: the whole factory (still camera)',
+    seconds: 7,
+    from: { x: 5, y: -0.5, zoom: 0.8 },
+    to: { x: 5, y: -0.5, zoom: 0.8 },
     hudVariant: true,
   },
   {
     name: 'r-science',
     title: 'README clip: the assembly block, science and labs (still camera)',
-    seconds: 7,
-    from: { x: 32, y: 5, zoom: 1.1 },
-    to: { x: 32, y: 5, zoom: 1.1 },
+    seconds: 6,
+    from: { x: 19, y: 3.5, zoom: 1.35 },
+    to: { x: 19, y: 3.5, zoom: 1.35 },
     hudVariant: true,
   },
   {
     name: 'f-labs',
-    title: 'Labs using both packs while automation 2 completes',
-    seconds: 12,
-    from: { x: 40, y: 14.5, zoom: 1.9 },
-    to: { x: 41.5, y: 14.5, zoom: 2.3 },
-    untilUnits: 38,
+    title: 'Labs using both packs: automation 2 completes, and logistics starts',
+    seconds: 14,
+    from: { x: 26, y: 12.5, zoom: 2.0 },
+    to: { x: 26.5, y: 12.5, zoom: 2.3 },
+    untilUnits: 34,
     untilResearched: true,
-    holdSeconds: 2,
+    holdSeconds: 5,
     hudVariant: true,
     still: 0.15,
   },
@@ -100,9 +100,9 @@ export const SHOTS = [
     name: 'g-power',
     title: 'The steam power plant, with its network panel',
     seconds: 7,
-    from: { x: 21, y: -16, zoom: 1.4 },
-    to: { x: 23, y: -15, zoom: 1.6 },
-    openPole: { x: 27, y: -17 },
+    from: { x: 27, y: -1, zoom: 1.4 },
+    to: { x: 28, y: 0, zoom: 1.6 },
+    openPole: { x: 28, y: 0 },
     still: 0.8,
   },
 ];
@@ -118,18 +118,19 @@ export const REEL = [
   ['c-furnaces', 1, 5],
   ['d-assemblers', 1, 6],
   ['e-science-belts', 1, 6],
-  ['f-labs', 0, 7],
+  ['f-labs', 0, 9],
   ['g-power', 1, 5],
 ];
 
 /**
  * The README clip (docs/demo-factory.gif): a short loop of two still views
- * (with the research bar), small enough to embed.
+ * (with the research bar), the whole factory and then its science, small
+ * enough to embed.
  * @type {[string, number, number][]}
  */
 export const README_CLIP = [
-  ['r-smelting', 0, 6],
-  ['r-science', 0, 7],
+  ['r-factory', 0, 7],
+  ['r-science', 0, 6],
 ];
 
 /** Ease in and out (a half cosine): 0 at 0, 1 at 1, flat at both ends. */

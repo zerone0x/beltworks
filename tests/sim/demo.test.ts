@@ -40,56 +40,59 @@ const WINDOWS = 12;
 /**
  * Least share of the first two minutes each tagged machine spends working
  * (`Working`), by tag prefix: the drills feeding the furnaces, the iron
- * furnaces, the red science machines and the labs run flat out; the machines
- * making intermediates (and the green science machines, which wait for
- * them while those fill their output slots) wait between crafts; the copper
- * furnaces make more than the machines use, so some of them wait.
+ * furnaces, the science machines and the labs run flat out; the machines
+ * making intermediates wait between crafts; the copper furnaces make more
+ * than the machines use, so some of them wait.
  */
 const BUSY: readonly (readonly [prefix: string, share: number])[] = [
-  ['iron-drill', 0.5],
-  ['copper-drill', 0.5],
+  ['iron-drill', 0.9],
+  ['copper-drill', 0.9],
   ['coal-drill', 0.5],
   ['plant-coal-drill', 0.5],
   ['stone-drill', 0.9],
   ['iron-furnace', 0.9],
   ['copper-furnace', 0.3],
   ['boiler', 0.9],
-  ['gears', 0.5],
+  ['gears', 0.6],
   ['red-', 0.9],
-  ['green-', 0.2],
-  ['cable', 0.3],
-  ['circuits', 0.2],
-  ['inserters', 0.15],
-  ['belts', 0.05],
-  ['lab-', 0.8],
+  ['green-', 0.9],
+  ['cable', 0.4],
+  ['circuits', 0.3],
+  ['inserters', 0.2],
+  ['belts', 0.2],
+  ['lab-', 0.9],
 ];
 
 /**
- * Least share of every five-minute window of the long run each tagged
- * machine of these groups spends working, by tag prefix (after the first
- * window, which `BUSY` covers): the labs never stop, the science machines
- * hardly (the red ones wait for copper a little while the machines making
- * intermediates fill their output slots, in the first ten minutes), and
- * nothing between the ore and them stays blocked. The copper furnaces aren't
- * here: four keep the copper coming in those first minutes, then the last
- * one in line waits for room on its plate belt.
+ * Least share of every five-minute window of the long run the tagged
+ * machines of each group spend working, by tag prefix (after the first
+ * window, which `BUSY` covers), and how many of the group may work less: the
+ * labs and the science machines never stop, and neither does anything
+ * between the ore and them. The smelting is sized for the first minutes,
+ * while the machines making intermediates fill their output slots (the
+ * warm-up covers most of that); once those are full it makes more than the
+ * machines use, so the last furnaces in line (one iron, two copper: the
+ * copper plates of the east side join the bus after the west side's) and
+ * the last drill on the iron belt wait for room, while the rest keep going.
  */
-const BUSY_LONG: readonly (readonly [prefix: string, share: number])[] = [
-  ['lab-', 0.9],
-  ['red-', 0.6],
-  ['green-', 0.3],
-  ['gears', 0.3],
-  ['cable', 0.2],
-  ['circuits', 0.1],
-  ['inserters', 0.1],
-  ['belts', 0.05],
-  ['iron-furnace', 0.2],
-  ['iron-drill', 0.2],
-  ['boiler', 0.9],
+const BUSY_LONG: readonly (readonly [prefix: string, share: number, idle: number])[] = [
+  ['lab-', 0.85, 0],
+  ['red-', 0.9, 0],
+  ['green-', 0.9, 0],
+  ['gears', 0.5, 0],
+  ['cable', 0.3, 0],
+  ['circuits', 0.2, 0],
+  ['inserters', 0.2, 0],
+  ['belts', 0.1, 0],
+  ['iron-furnace', 0.2, 1],
+  ['copper-furnace', 0.2, 2],
+  ['iron-drill', 0.2, 1],
+  ['copper-drill', 0.2, 0],
+  ['boiler', 0.9, 0],
 ];
 
 /** Science packs on the science belts at any window's end, at most: they don't back up. */
-const MOST_PACKS_ON_BELTS = 60;
+const MOST_PACKS_ON_BELTS = 100;
 
 interface Window {
   /** Working ticks by entity id. */
@@ -185,7 +188,8 @@ function footprint(e: DemoEntity): { x: number; y: number; w: number; h: number 
   return { x: e.x, y: e.y, ...footprintSize(proto, e.dir) };
 }
 
-describe('demo factory', () => {
+// The first test that needs it plays the hour (about 10 s).
+describe('demo factory', { timeout: 60_000 }, () => {
   it('lays out every entity inside its bounds, without overlaps, with everything in the kit', () => {
     const layout = demoLayout();
     const taken = new Set<string>();
@@ -221,7 +225,10 @@ describe('demo factory', () => {
     // Every pair of poles within reach of each other is wired (polesConnect),
     // so where the poles stand decides the wires. On camera, a wire should run
     // north-south or east-west, never over a machine, and never double up
-    // along another wire. No exceptions.
+    // along another wire. A wire hangs about a tile above the ground (the
+    // pole's height), so it shows over the row above its tiles: no machine
+    // stands there along an east-west wire, nor right above a pole, whose top
+    // would cover it. No exceptions.
     const layout = demoLayout();
     const pole = entityForItem(ItemId.SmallElectricPole)!;
     const machines = new Map<string, string>();
@@ -234,6 +241,9 @@ describe('demo factory', () => {
     }
     let wires = 0;
     for (const [ax, ay] of DEMO_POLES) {
+      expect(machines.get(at(ax, ay - 1)), `a machine behind the pole at ${at(ax, ay)}`).toBe(
+        undefined,
+      );
       const directions = new Set<string>();
       for (const [bx, by] of DEMO_POLES) {
         if ((ax === bx && ay === by) || !polesConnect(pole, ax, ay, pole, bx, by)) continue;
@@ -247,6 +257,10 @@ describe('demo factory', () => {
         directions.add(direction);
         for (let x = ax + dx, y = ay + dy; x !== bx || y !== by; x += dx, y += dy) {
           expect(machines.get(at(x, y)), `wire ${wire} over the machine at ${at(x, y)}`).toBe(
+            undefined,
+          );
+          if (dy !== 0) continue;
+          expect(machines.get(at(x, y - 1)), `wire ${wire} in front of ${at(x, y - 1)}`).toBe(
             undefined,
           );
         }
@@ -370,16 +384,21 @@ describe('demo factory', () => {
         MOST_PACKS_ON_BELTS,
       );
       if (i === 0) return;
-      for (const [tag, ids] of tagged) {
-        const rule = BUSY_LONG.find(([prefix]) => tag.startsWith(prefix));
-        if (!rule) continue;
-        for (const id of ids) {
-          const share = (w.working.get(id) ?? 0) / WINDOW;
-          expect(
-            share,
-            `${tag} (${String(id)}) works ${pct(share)}, ${when}`,
-          ).toBeGreaterThanOrEqual(rule[1]);
-        }
+      for (const [prefix, least, idle] of BUSY_LONG) {
+        const shares = [...tagged]
+          .filter(([tag]) => tag.startsWith(prefix))
+          .flatMap(([tag, ids]) =>
+            ids.map((id) => `${tag} (${String(id)}) ${pct((w.working.get(id) ?? 0) / WINDOW)}`),
+          );
+        expect(shares.length, prefix).toBeGreaterThan(0);
+        const below = [...tagged]
+          .filter(([tag]) => tag.startsWith(prefix))
+          .flatMap(([, ids]) => ids)
+          .filter((id) => (w.working.get(id) ?? 0) / WINDOW < least);
+        expect(
+          below.length,
+          `${prefix} below ${pct(least)}, ${when}: ${shares.join(', ')}`,
+        ).toBeLessThanOrEqual(idle);
       }
     });
     // Stone: the drill fills a chest that an inserter empties into another;
