@@ -28,7 +28,7 @@
  *
  *   node tools/promo/capture.mjs [--out promo/out] [--shots a-wide,f-labs]
  *     [--width 1920] [--height 1080] [--crf 12] [--ui-scale 1.5] [--readme]
- *     [--url http://localhost:4173/] [--max-seconds 2] [--timeout 900000]
+ *     [--url http://localhost:4173/] [--max-seconds 2] [--timeout 900000] [--gif-crop 1400]
  *
  * `--max-seconds` shortens every shot (a quick preview; the camera moves
  * faster). Without `--url` it builds into out/promo-dist/ and serves that. Chromium:
@@ -64,6 +64,7 @@ const args = parseArgs({
   'gif-width': 600,
   'gif-fps': 10,
   'gif-colors': 64,
+  'gif-crop': 1400,
   timeout: 900_000,
 });
 const FPS = 60;
@@ -400,7 +401,8 @@ if (README_CLIP.every(([name]) => have.has(name))) {
   await cut(
     clip,
     join(out, 'readme-master.mp4'),
-    `,fps=${args['gif-fps']},scale=${args['gif-width']}:-2:flags=lanczos`,
+    (args['gif-crop'] > 0 ? `,crop=${args['gif-crop']}:ih` : '') +
+      `,fps=${args['gif-fps']},scale=${args['gif-width']}:-2:flags=lanczos`,
     h264,
   );
   await run([

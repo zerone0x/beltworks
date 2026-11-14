@@ -113,9 +113,9 @@ Output, in `promo/out/` (git-ignored; `--out` to change):
 | `reel.mp4`, `reel-hud.mp4` | A ~40 s highlight reel of the shots, simple cuts, no sound or text |
 | `stills/<shot>.png` | A full-size frame of each shot |
 | `counts.json`, `counts.md` | What the factory mined, made and used up during each shot, and the research before and after, counted in the worker over the shot's own ticks |
-| `readme.gif` | The README clip: two still-camera views (`r-factory`, the whole factory, and `r-science`, with the research bar; a still camera keeps a GIF small), 600 px wide at 10 fps, under 3 MB |
+| `readme.gif` | The README clip: two still-camera views (`r-factory`, the whole factory, and `r-science`, with the research bar; a still camera keeps a GIF small), cropped to the middle 1400 px, 600 px wide at 10 fps, under 3 MB |
 
-`--readme` also copies the README clip to `docs/demo-factory.gif` and 1280×720 copies of the stills (256 colours, about half a megabyte each) to `docs/screenshots/demo-<shot>.png`. Other flags: `--shots a-wide,f-labs` (only those; the factory's state then differs from a full run), `--max-seconds 2` (a quick preview), `--width`/`--height`, `--crf`, `--ui-scale`, `--gif-width`/`--gif-fps`/`--gif-colors`, `--url` (a running test build instead of building one). It needs an ffmpeg with libx264 (`FFMPEG`, else `PATH`; a static build works) and Chromium (`PROMO_CHROME` or `GPU_CHROME` picks the binary, as for `npm run test:gpu`).
+`--readme` also copies the README clip to `docs/demo-factory.gif` and 1280×720 copies of the stills (256 colours, about half a megabyte each) to `docs/screenshots/demo-<shot>.png`. Other flags: `--shots a-wide,f-labs` (only those; the factory's state then differs from a full run), `--max-seconds 2` (a quick preview), `--width`/`--height`, `--crf`, `--ui-scale`, `--gif-width`/`--gif-fps`/`--gif-colors`, `--gif-crop` (the README clip keeps the middle 1400 px of each 1920 px frame, where the factory is; 0 keeps all of it), `--url` (a running test build instead of building one). It needs an ffmpeg with libx264 (`FFMPEG`, else `PATH`; a static build works) and Chromium (`PROMO_CHROME` or `GPU_CHROME` picks the binary, as for `npm run test:gpu`).
 
 ## Benchmarks
 
