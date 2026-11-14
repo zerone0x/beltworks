@@ -23,6 +23,7 @@ import {
 } from '../sim/snapshot';
 import { Sim } from '../sim/tick';
 import { systemActivity } from '../sim/activity';
+import type { ProductionCounter } from '../sim/scenarios/production';
 import { ChunkStreamer, sanitizeViewport } from './chunkStream';
 import { BENCH_SCENES, RenderScene, isGridScene, isRenderScene } from './renderScene';
 import { FixedStepClock } from './loop';
@@ -31,6 +32,7 @@ import { sharedNow } from './snapshotMeter';
 import {
   LOCAL_PLAYER_ID,
   MAX_CATCH_UP_TICKS,
+  MAX_STEP_TICKS,
   MAX_TIME_SCALE,
   STATS_INTERVAL_TICKS,
   TICKS_PER_SECOND,
@@ -70,6 +72,8 @@ let crashed = false;
 let crashNextTick = false;
 /** Dev and test builds only: the scripted render scene sent instead of the simulation's entities. */
 let scene: RenderScene | null = null;
+/** Dev and test builds only (`production`): counters of what the factory makes, read after every tick. */
+let counter: ProductionCounter | null = null;
 /** What the main thread has of each delta section, and the writers they are encoded into. */
 const deltas = new SnapshotEncoder();
 
@@ -109,6 +113,7 @@ function runDueTicks(current: Sim): void {
     for (let i = 0; i < ticks; i++) {
       if (crashNextTick) throw new Error('crash requested by a test (crashForTest)');
       current.step();
+      counter?.observe();
     }
     statStepMs += performance.now() - start;
     sendSnapshot(ticks);
@@ -210,6 +215,7 @@ function start(next: Sim): void {
   clock.advance(scaledNow());
   statTicks = statStepMs = statDropped = 0;
   inspected = 0;
+  counter = null;
   schedule();
 }
 
@@ -233,6 +239,15 @@ async function handle(msg: MainToWorker): Promise<void> {
           return;
         }
         scene = new RenderScene(name);
+      }
+      if (msg.demo !== undefined && typeof msg.demo !== 'boolean') {
+        throw new Error(`invalid demo flag: ${String(msg.demo)}`);
+      }
+      if (msg.demo && !msg.save) {
+        // The demo factory (D72), built through commands (imported only when asked for).
+        const { buildDemo } = await import('../sim/scenarios/demo');
+        start(buildDemo());
+        return;
       }
       const startingKit = validateKit(msg.startingKit);
       const researched = validateResearched(msg.researched);
@@ -298,6 +313,43 @@ async function handle(msg: MainToWorker): Promise<void> {
         timer = null;
       }
       if (sim) schedule();
+      break;
+    }
+    case 'step': {
+      // Production builds never send it, and reject it (a compile-time check).
+      if (!(import.meta.env.DEV || import.meta.env.MODE === 'test')) {
+        throw new Error('step is only available in dev and test builds');
+      }
+      if (!Number.isInteger(msg.ticks) || msg.ticks < 0 || msg.ticks > MAX_STEP_TICKS) {
+        throw new Error(`invalid ticks to step: ${String(msg.ticks)}`);
+      }
+      if (!sim) throw new Error('step received before init');
+      if (crashed) return;
+      try {
+        for (let i = 0; i < msg.ticks; i++) {
+          sim.step();
+          counter?.observe();
+        }
+      } catch (err) {
+        crashed = true;
+        post({ type: 'crashed', message: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      sendSnapshot(msg.ticks);
+      break;
+    }
+    case 'production': {
+      // Production builds never send it, and reject it (a compile-time check).
+      if (!(import.meta.env.DEV || import.meta.env.MODE === 'test')) {
+        throw new Error('production is only available in dev and test builds');
+      }
+      if (!sim) throw new Error('production received before init');
+      if (!counter) {
+        const { ProductionCounter } = await import('../sim/scenarios/production');
+        counter = new ProductionCounter(sim);
+      }
+      post({ type: 'production', counts: counter.read() });
+      if (msg.reset) counter.reset();
       break;
     }
     case 'crashForTest':

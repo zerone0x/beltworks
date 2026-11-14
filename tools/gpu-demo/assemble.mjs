@@ -21,9 +21,8 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { delimiter, join, relative, resolve } from 'node:path';
-import { ROOT, parseArgs } from './common.mjs';
+import { join, relative, resolve } from 'node:path';
+import { ROOT, findFfmpeg, parseArgs } from './common.mjs';
 
 const args = parseArgs({ fps: 30, out: 'out/gpu-demo', crf: 18, name: 'gpu-demo.mp4' });
 const out = resolve(ROOT, args.out);
@@ -36,83 +35,7 @@ if (frames.length === 0) {
   process.exit(1);
 }
 
-/** Every ffmpeg binary worth trying, in order, without duplicates. */
-function candidates() {
-  const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
-  const list = [];
-  if (process.env.FFMPEG) list.push(process.env.FFMPEG);
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    if (dir) list.push(join(dir, exe));
-  }
-  const caches = [
-    process.env.PLAYWRIGHT_BROWSERS_PATH,
-    join(homedir(), '.cache', 'ms-playwright'),
-    join(homedir(), 'Library', 'Caches', 'ms-playwright'),
-    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'ms-playwright'),
-  ];
-  for (const cache of caches) {
-    if (!cache || !existsSync(cache)) continue;
-    const dirs = readdirSync(cache)
-      .filter((d) => d.startsWith('ffmpeg-'))
-      .sort()
-      .reverse();
-    for (const d of dirs) {
-      for (const name of ['ffmpeg-linux', 'ffmpeg-mac', 'ffmpeg-win64.exe', 'ffmpeg']) {
-        list.push(join(cache, d, name));
-      }
-    }
-  }
-  return [...new Set(list)].filter((p) => existsSync(p) && statSync(p).isFile());
-}
-
-/** @param {string} bin @param {string} what */
-function probe(bin, what) {
-  try {
-    return execFileSync(bin, ['-hide_banner', `-${what}`], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-  } catch {
-    return '';
-  }
-}
-
-/**
- * What `bin` lacks for PNG frames to mp4, or the encoder to use.
- * @param {string} bin
- * @returns {{ encoder: string } | { missing: string[] }}
- */
-function capabilities(bin) {
-  const has = (/** @type {string} */ list, /** @type {string} */ name) =>
-    new RegExp(`^\\s*\\S+\\s+${name}\\s`, 'm').test(list);
-  const decoders = probe(bin, 'decoders');
-  const encoders = probe(bin, 'encoders');
-  const muxers = probe(bin, 'muxers');
-  const missing = [];
-  if (!has(decoders, 'png')) missing.push('png decoder');
-  if (!has(muxers, 'mp4')) missing.push('mp4 muxer');
-  const encoder = ['libx264', 'mpeg4'].find((e) => has(encoders, e));
-  if (!encoder) missing.push('libx264 or mpeg4 encoder');
-  return missing.length > 0 || !encoder ? { missing } : { encoder };
-}
-
-let ffmpeg = '';
-let encoder = '';
-for (const bin of candidates()) {
-  const caps = capabilities(bin);
-  if ('encoder' in caps) {
-    ffmpeg = bin;
-    encoder = caps.encoder;
-    break;
-  }
-  console.log(`skipping ${bin}: no ${caps.missing.join(', no ')}`);
-}
-if (!ffmpeg) {
-  console.error(
-    'No ffmpeg that can turn PNG frames into an mp4 was found. Install one, or point FFMPEG at it.',
-  );
-  process.exit(1);
-}
+const { ffmpeg, encoder } = findFfmpeg();
 
 const mp4 = join(out, args.name);
 const quality =

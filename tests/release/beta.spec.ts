@@ -187,3 +187,37 @@ test('a factory researching with red and green science runs in the production bu
   );
   expect(errors).toEqual([]);
 });
+
+test('the demo factory starts from ?demo and from the title screen, and researches', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const errors = collectErrors(page);
+  // The link: straight into the factory, without the title screen or the objectives.
+  await page.goto('./?demo');
+  const status = page.locator('#research-status');
+  await expect(status).toContainText('Researching Automation 2', { timeout: 60_000 });
+  await expect(page.locator('#start-screen')).toHaveCount(0);
+  await expect(page.locator('#onboarding')).toHaveCount(0);
+  const percent = async () => Number(/(\d+)%/.exec((await status.textContent()) ?? '')?.[1]);
+  const before = await percent();
+  const start = Date.now();
+  // A unit is 2.5%; the two labs finish one about every 5 s.
+  await expect
+    .poll(percent, { timeout: 90_000, intervals: [1000] })
+    .toBeGreaterThanOrEqual(before + 5);
+  const after = await percent();
+  const seconds = Math.round((Date.now() - start) / 1000);
+  await shot(page, testInfo, 'release-demo.png');
+  console.log(
+    `release check: demo research ${String(before)}% -> ${String(after)}% in ${String(seconds)} s`,
+  );
+
+  // The button: the game menu's New game (confirmed) leads back to the title screen.
+  await page.keyboard.press('Escape');
+  await page.locator('#menu-new-game').click();
+  await page.locator('#menu-new-game').click();
+  await page.locator('#title-demo').click();
+  await expect(status).toContainText('Researching Automation 2', { timeout: 60_000 });
+  expect(errors).toEqual([]);
+});

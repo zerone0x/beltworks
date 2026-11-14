@@ -4,6 +4,7 @@
  * updates-per-second estimate.
  */
 
+import type { ProductionCounts } from '../sim/scenarios/production';
 import type { Activity } from '../sim/activity';
 import type { CommandInput } from '../sim/commands';
 import type { SaveMeta } from '../sim/save/container';
@@ -76,13 +77,17 @@ export class SimClient {
   }
   /** Why the simulation stopped, once it has (see `onCrash`). */
   crashed: string | null = null;
+  /** `stepForTest` calls waiting for their snapshot, in order. */
+  private readonly steps: { target: number; resolve: (tick: number) => void }[] = [];
+  /** `productionForTest` calls waiting for their answer, in order. */
+  private readonly productions: ((counts: ProductionCounts) => void)[] = [];
 
   /**
    * `startingKit` replaces the default kit and `researched` technologies are
    * researched from the start; `renderScene` replaces the simulation's
    * entities in snapshots with a scripted scene (dev and test builds only,
    * see `InitMessage`). With `save`, the game continues from that save
-   * instead (see `onLoaded`).
+   * instead (see `onLoaded`); with `demo`, the demo factory starts (D72).
    */
   constructor(
     seed: number,
@@ -90,6 +95,7 @@ export class SimClient {
     researched?: number[],
     save?: Uint8Array,
     renderScene?: string,
+    demo = false,
   ) {
     this.worker = new Worker(new URL('./sim.worker.ts', import.meta.url), {
       type: 'module',
@@ -113,6 +119,7 @@ export class SimClient {
         ...(startingKit && { startingKit }),
         ...(researched && { researched }),
         ...(buffer && { save: buffer }),
+        ...(demo && { demo: true }),
         ...(renderScene && { renderScene }),
       } satisfies MainToWorker,
       buffer ? [buffer] : [],
@@ -173,6 +180,27 @@ export class SimClient {
     this.worker.terminate();
   }
 
+  /**
+   * Dev and test builds only (the frame-stepped capture, D72): runs `ticks`
+   * ticks now and resolves with the tick of their snapshot once it arrived
+   * (and went to `onSnapshot`).
+   */
+  stepForTest(ticks: number): Promise<number> {
+    const target = (this.latestSnapshot?.tick ?? 0) + ticks;
+    return new Promise((resolve) => {
+      this.steps.push({ target, resolve });
+      this.send({ type: 'step', ticks });
+    });
+  }
+
+  /** Dev and test builds only: the production counters since the last reset (see `ProductionRequestMessage`). */
+  productionForTest(reset: boolean): Promise<ProductionCounts> {
+    return new Promise((resolve) => {
+      this.productions.push(resolve);
+      this.send({ type: 'production', reset });
+    });
+  }
+
   /** Dev and test builds only: makes the simulation's next tick throw (see `CrashForTestMessage`). */
   crashForTest(): void {
     this.send({ type: 'crashForTest' });
@@ -208,6 +236,9 @@ export class SimClient {
         const snapshot: SnapshotMessage = { ...msg, ...this.sections.decode(msg) };
         this.latestSnapshot = snapshot;
         this.onSnapshot?.(snapshot);
+        while (this.steps.length > 0 && this.steps[0]!.target <= snapshot.tick) {
+          this.steps.shift()!.resolve(snapshot.tick);
+        }
         const applyMs = performance.now() - start;
         this.meter.record(msg.encodeMs, msg.bytes, received - msg.sentAt, applyMs, msg.ticksRun);
         break;
@@ -231,6 +262,9 @@ export class SimClient {
       }
       case 'loaded':
         this.onLoaded?.(msg);
+        break;
+      case 'production':
+        this.productions.shift()?.(msg.counts);
         break;
     }
   }

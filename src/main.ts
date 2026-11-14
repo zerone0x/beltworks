@@ -60,7 +60,8 @@ import {
 import { Minimap, minimapState } from './ui/minimap';
 import { PowerHistory } from './ui/powerHistory';
 import { PowerPanel } from './ui/powerPanel';
-import { SaveController, chooseStart, type StartChoice } from './ui/saves';
+import { SaveController, chooseStart, demoFromUrl, type StartChoice } from './ui/saves';
+import { demoFraming } from './ui/demo';
 import { SettingsStore, type Settings } from './ui/settings';
 import { SettingsPanel } from './ui/settingsPanel';
 import { TechTreePanel } from './ui/techTree';
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
         defaultSeed: DEFAULT_SEED,
         settings: settingsPanel,
         about,
+        demo: demoFromUrl(search),
       });
   const client = new SimClient(
     start.seed,
@@ -122,6 +124,7 @@ async function main(): Promise<void> {
     testHook?.researchedFromUrl(window.location.search),
     start.save,
     renderScene,
+    start.demo,
   );
   startedClient = client;
   // The worker starts the world while the renderer's code finishes loading (if it hasn't yet).
@@ -290,8 +293,11 @@ async function main(): Promise<void> {
   let playerAt: { x: number; y: number } | null = null;
   // The first five minutes' objectives (D54): UI state, advanced by the snapshots; closed or
   // not per browser, the step per world (a new game's first, else the loaded save's, #107).
+  // Not in the demo factory (D72): it is built already.
   const onboardingOn =
-    !renderScene && (testHook?.onboardingFromUrl(search, import.meta.env.MODE) ?? true);
+    !renderScene &&
+    !start.demo &&
+    (testHook?.onboardingFromUrl(search, import.meta.env.MODE) ?? true);
   const patches = startingPatches(start.seed);
   const storedOnboarding = onboardingOn ? loadStored() : null;
   const onboarding = storedOnboarding
@@ -465,6 +471,12 @@ async function main(): Promise<void> {
   const view = new GameView(app, (viewport) => {
     client.setViewport(viewport);
   });
+  if (start.demo) {
+    // The demo factory (D72): the camera frames it (F follows the player again).
+    const frame = demoFraming(app.screen.width, app.screen.height);
+    view.following = false;
+    view.camera.set(frame.x * TILE_PX, frame.y * TILE_PX, frame.zoom);
+  }
   const minimap = new Minimap(document.body, view.mapStore, (tile) => {
     view.following = false;
     view.camera.set(tile.x * TILE_PX, tile.y * TILE_PX);
@@ -802,6 +814,10 @@ async function main(): Promise<void> {
         resolution: app.renderer.resolution,
       }),
       hotbarPins: () => pins,
+      canvas: app.canvas,
+      setUiScale: (scale) => {
+        uiScale.set(scale);
+      },
     });
   }
 }
