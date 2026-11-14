@@ -19,8 +19,11 @@ const ready = (page: Page) =>
     { timeout: 60_000 },
   );
 
+/** Units the labs finished, over every technology. */
 const units = (page: Page) =>
-  page.evaluate(() => window.__beltworks!.research().techs['automation-2']!.unitsDone);
+  page.evaluate(() =>
+    Object.values(window.__beltworks!.research().techs).reduce((n, t) => n + t.unitsDone, 0),
+  );
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -35,7 +38,10 @@ test('?demo runs the factory from ore to research', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   await page.goto('./?demo');
+  // The worker takes a moment to build the factory, and the page says so meanwhile.
+  await expect(page.locator('#demo-building')).toHaveText('Building the demo factory…');
   await ready(page);
+  await expect(page.locator('#demo-building')).toHaveCount(0);
   // No objectives: the factory is built already; the camera frames it instead of following.
   await expect(page.locator('#onboarding')).toHaveCount(0);
   const camera = await page.evaluate(() => ({
@@ -49,12 +55,12 @@ test('?demo runs the factory from ore to research', async ({ page }) => {
   const research = await page.evaluate(() => window.__beltworks!.research().current);
   expect(research).toBe('automation-2');
 
-  // A minute of game time, counted in the worker, sped up.
+  // Two minutes of game time, counted in the worker, sped up.
   await page.evaluate(() => window.__beltworks!.capture.production(true));
   const before = await units(page);
   const tick0 = await page.evaluate(() => window.__beltworks!.latestTick());
   await setTimeScale(page, 8);
-  await page.waitForFunction((t) => window.__beltworks!.latestTick() >= t + 3600, tick0, {
+  await page.waitForFunction((t) => window.__beltworks!.latestTick() >= t + 7200, tick0, {
     timeout: 90_000,
   });
   // Key machines are at work at the end of it.
@@ -67,7 +73,7 @@ test('?demo runs the factory from ore to research', async ({ page }) => {
   }, MachineState.Working);
   await setTimeScale(page, 1);
   const counts = await page.evaluate(() => window.__beltworks!.capture.production(false));
-  expect(counts.ticks).toBeGreaterThanOrEqual(3600);
+  expect(counts.ticks).toBeGreaterThanOrEqual(7200);
   for (const ore of ['iron-ore', 'copper-ore', 'coal'])
     expect(counts.mined[ore], ore).toBeGreaterThan(50);
   for (const item of [
@@ -82,13 +88,20 @@ test('?demo runs the factory from ore to research', async ({ page }) => {
   }
   expect(counts.consumed['automation-science-pack']).toBeGreaterThan(5);
   expect(counts.consumed['logistic-science-pack']).toBeGreaterThan(5);
-  expect(await units(page)).toBeGreaterThan(before + 5);
+  expect(await units(page)).toBeGreaterThan(before + 20);
   expect(working['stone-furnace'] ?? 0).toBeGreaterThanOrEqual(8);
-  expect(working['electric-mining-drill'] ?? 0).toBeGreaterThanOrEqual(8);
+  expect(working['electric-mining-drill'] ?? 0).toBeGreaterThanOrEqual(6);
   expect(working['assembling-machine-1'] ?? 0).toBeGreaterThanOrEqual(4);
+  expect(working.lab ?? 0).toBeGreaterThanOrEqual(2);
   expect(working.boiler ?? 0).toBe(2);
-  // The research bar at the top of the screen shows it.
-  await expect(page.getByText(/Researching Automation 2: \d+%/)).toBeVisible();
+  // Automation 2 is done, and the labs went on to the next technology of the chain,
+  // which the research bar at the top of the screen shows.
+  const after = await page.evaluate(() => window.__beltworks!.research());
+  expect(after.techs['automation-2']!.researched).toBe(true);
+  expect(['logistics', 'fast-inserter', 'logistics-2']).toContain(after.current);
+  await expect(
+    page.getByText(/Researching (Logistics|Fast inserter|Logistics 2): \d+%/),
+  ).toBeVisible();
   expect(errors).toEqual([]);
 });
 

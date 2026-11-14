@@ -202,7 +202,7 @@ test('the demo factory starts from ?demo and from the title screen, and research
   const percent = async () => Number(/(\d+)%/.exec((await status.textContent()) ?? '')?.[1]);
   const before = await percent();
   const start = Date.now();
-  // A unit is 2.5%; the two labs finish one about every 5 s.
+  // A unit is 2.5%; the three labs finish one every 2 s or so.
   await expect
     .poll(percent, { timeout: 90_000, intervals: [1000] })
     .toBeGreaterThanOrEqual(before + 5);

@@ -36,7 +36,7 @@ import { browserProbe, missingFeatures, showFatal, showUnsupported } from './ui/
 import { GameMenu, savedLabel } from './ui/gameMenu';
 import { HelpPanel } from './ui/help';
 import { actionFor } from './ui/keybindings';
-import { whileLoading } from './ui/loading';
+import { statusNote, whileLoading } from './ui/loading';
 import { startStep } from './ui/onboarding';
 import { OnboardingPanel, loadStored } from './ui/onboardingPanel';
 import {
@@ -127,9 +127,11 @@ async function main(): Promise<void> {
     start.demo,
   );
   startedClient = client;
+  // The demo factory takes the worker a second or two to build (D72): say so until it runs.
+  let demoBuilding = start.demo ? statusNote('demo-building', 'Building the demo factory…') : null;
   // The worker starts the world while the renderer's code finishes loading (if it hasn't yet).
   const { Application, GameView, SPRITE_ATLASES, loadSpriteAtlases, loadTerrainArt } =
-    await whileLoading(rendererCode);
+    await whileLoading(rendererCode, !demoBuilding);
   const overlay = new DebugOverlay(document.body);
   // Players turn the debug overlay on (F3, or the settings); test builds always show it (specs read it).
   const debugAlways = testHook !== null;
@@ -377,6 +379,8 @@ async function main(): Promise<void> {
   // The simulation stopped for good (D61): say so and offer the newest save (or the title screen).
   // A crash from before this point (the worker can fail while the renderer loads) is reported now.
   client.onCrash = (message) => {
+    demoBuilding?.remove();
+    demoBuilding = null;
     saves.stopAutosave();
     menu?.close();
     const offer = (slot: Awaited<ReturnType<SaveController['latest']>>): void => {
@@ -683,6 +687,8 @@ async function main(): Promise<void> {
   /** The ore under a drill ghost's area, summed again only when its chunks change. */
   const drillOre = new DrillAreaOreCache();
   client.onSnapshot = (snapshot) => {
+    demoBuilding?.remove();
+    demoBuilding = null;
     view.applySnapshot(snapshot);
     // Autosaves count ticks of play (none run while the menu pauses the game).
     saves.onTick(snapshot.tick);
