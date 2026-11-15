@@ -3,8 +3,10 @@
  * screen's "Demo factory" button start it in the build that deploys (this
  * suite's build differs from it only by the test hook, which these tests
  * use to read the game). The worker builds the factory through commands on
- * its own seed; within a minute of game time ore is mined and smelted, both
- * science packs are made, the labs use them and the research bar moves.
+ * its own seed and researches its military branch while it warms up (D77);
+ * then, in two minutes of game time, ore and stone are mined and smelted, the
+ * three science packs are made, the labs use them on research speed and the
+ * research bar moves.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -19,10 +21,16 @@ const ready = (page: Page) =>
     { timeout: 60_000 },
   );
 
-/** Units the labs finished, over every technology. */
+/**
+ * Units the labs finished, over every technology; research speed's levels
+ * count with their units (level n takes 100 × n, D74).
+ */
 const units = (page: Page) =>
   page.evaluate(() =>
-    Object.values(window.__beltworks!.research().techs).reduce((n, t) => n + t.unitsDone, 0),
+    Object.values(window.__beltworks!.research().techs).reduce(
+      (n, t) => n + t.unitsDone + (100 * t.levels * (t.levels + 1)) / 2,
+      0,
+    ),
   );
 
 function collectErrors(page: Page): string[] {
@@ -49,11 +57,12 @@ test('?demo runs the factory from ore to research', async ({ page }) => {
     following: window.__beltworks!.following(),
   }));
   expect(camera.following).toBe(false);
-  expect(camera.zoom).toBeGreaterThanOrEqual(0.3);
+  expect(camera.zoom).toBeGreaterThanOrEqual(0.25);
   expect(camera.zoom).toBeLessThanOrEqual(1);
   await expect(page.locator('#start-screen')).toHaveCount(0);
-  const research = await page.evaluate(() => window.__beltworks!.research().current);
-  expect(research).toBe('automation-2');
+  const research = await page.evaluate(() => window.__beltworks!.research());
+  expect(research.current).toBe('research-speed');
+  expect(research.techs['military-science-pack']!.researched).toBe(true);
 
   // Two minutes of game time, counted in the worker, sped up.
   await page.evaluate(() => window.__beltworks!.capture.production(true));
@@ -74,34 +83,36 @@ test('?demo runs the factory from ore to research', async ({ page }) => {
   await setTimeScale(page, 1);
   const counts = await page.evaluate(() => window.__beltworks!.capture.production(false));
   expect(counts.ticks).toBeGreaterThanOrEqual(7200);
-  for (const ore of ['iron-ore', 'copper-ore', 'coal'])
+  for (const ore of ['iron-ore', 'copper-ore', 'coal', 'stone'])
     expect(counts.mined[ore], ore).toBeGreaterThan(50);
   for (const item of [
     'iron-plate',
     'copper-plate',
+    'steel-plate',
+    'stone-brick',
     'iron-gear-wheel',
     'electronic-circuit',
+    'grenade',
+    'piercing-rounds-magazine',
     'automation-science-pack',
     'logistic-science-pack',
+    'military-science-pack',
   ]) {
     expect(counts.made[item], item).toBeGreaterThan(5);
   }
-  expect(counts.consumed['automation-science-pack']).toBeGreaterThan(5);
-  expect(counts.consumed['logistic-science-pack']).toBeGreaterThan(5);
+  for (const pack of ['automation-science-pack', 'logistic-science-pack', 'military-science-pack'])
+    expect(counts.consumed[pack], pack).toBeGreaterThan(5);
+  // Research speed at a quarter of a unit a second (D77): 30 units in two minutes.
   expect(await units(page)).toBeGreaterThan(before + 20);
-  expect(working['stone-furnace'] ?? 0).toBeGreaterThanOrEqual(8);
-  expect(working['electric-mining-drill'] ?? 0).toBeGreaterThanOrEqual(6);
-  expect(working['assembling-machine-1'] ?? 0).toBeGreaterThanOrEqual(4);
-  expect(working.lab ?? 0).toBeGreaterThanOrEqual(2);
-  expect(working.boiler ?? 0).toBe(2);
-  // Automation 2 is done, and the labs went on to the next technology of the chain,
-  // which the research bar at the top of the screen shows.
+  expect(working['stone-furnace'] ?? 0).toBeGreaterThanOrEqual(18);
+  expect(working['electric-mining-drill'] ?? 0).toBeGreaterThanOrEqual(12);
+  expect(working['assembling-machine-1'] ?? 0).toBeGreaterThanOrEqual(5);
+  expect(working.lab ?? 0).toBeGreaterThanOrEqual(1);
+  expect(working.boiler ?? 0).toBe(3);
+  // The labs stay on research speed, which the research bar at the top of the screen shows.
   const after = await page.evaluate(() => window.__beltworks!.research());
-  expect(after.techs['automation-2']!.researched).toBe(true);
-  expect(['logistics', 'fast-inserter', 'logistics-2']).toContain(after.current);
-  await expect(
-    page.getByText(/Researching (Logistics|Fast inserter|Logistics 2): \d+%/),
-  ).toBeVisible();
+  expect(after.current).toBe('research-speed');
+  await expect(page.getByText(/Researching Research speed \d+: \d+%/)).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -112,7 +123,7 @@ test('the title screen starts the demo factory', async ({ page }) => {
   await page.locator('#title-demo').click();
   await ready(page);
   await expect(page.locator('#start-screen')).toHaveCount(0);
-  expect(await page.evaluate(() => window.__beltworks!.research().current)).toBe('automation-2');
+  expect(await page.evaluate(() => window.__beltworks!.research().current)).toBe('research-speed');
   const entities = await page.evaluate(() => window.__beltworks!.entities().length);
   expect(entities).toBeGreaterThan(200);
   // The game menu offers the demo's seed to share.

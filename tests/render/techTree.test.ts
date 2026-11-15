@@ -108,7 +108,7 @@ describe('tech tree', () => {
     expect(techName(r, speed)).toBe('Research speed 3');
     expect(techProgress(r, speed)).toBe(76 / 300);
     expect(costText(t, 2)).toBe(
-      '300 × (Automation science pack + Logistic science pack), 15 s each',
+      '300 × (Automation science pack + Logistic science pack + Military science pack), 15 s each',
     );
     expect(costText(t)).toMatch(/^100 × /);
     expect(unlocksText(t)).toBe('Each level: labs research 10% faster');
