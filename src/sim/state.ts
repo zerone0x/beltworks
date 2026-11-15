@@ -16,6 +16,7 @@ import { createEntityTables } from './entities/registry';
 import type { EntityTypeTable } from './entities/table';
 import { FNV1A32_OFFSET_BASIS, fnv1a32 } from './hash';
 import { PlayerTable } from './player';
+import { furnaceTable } from './entities/furnace';
 import { labTable } from './research/lab';
 import { ResearchState } from './research/research';
 import { DEFAULT_FORCE } from './research/unlocks';
@@ -77,6 +78,7 @@ export function createSimState(options: SimOptions): SimState {
   for (const tech of options.researched ?? []) research.markResearched(DEFAULT_FORCE, tech);
   const entities = new Entities(options.entityTables ?? createEntityTables());
   labTable(entities)?.attach(research);
+  furnaceTable(entities)?.attach(research);
   return {
     tick: 0,
     seed,

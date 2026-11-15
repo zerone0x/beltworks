@@ -209,7 +209,8 @@ describe('technology data', () => {
     const seen = new Set<number>();
     for (const id of TECH_IDS) {
       for (const r of TECHNOLOGIES[id].unlocks) {
-        expect(recipePrototype(r)?.category).toBe('hand');
+        // Hand recipes, and steel: the one locked smelting recipe (D76).
+        expect(recipePrototype(r)?.category).toBe(r === RecipeId.SteelPlate ? 'smelting' : 'hand');
         expect(seen.has(r)).toBe(false);
         seen.add(r);
         expect(unlockingTechnology(r)).toBe(id);
@@ -274,10 +275,15 @@ describe('technology data', () => {
       'electronics',
       'fast-inserter',
       'logistic-science-pack',
+      'military',
+      'stone-wall',
+      'steel-processing',
       'automation-2',
       'logistics-2',
       'logistics-3',
       'research-speed',
+      'military-2',
+      'military-science-pack',
     ]);
     // Green packs need their technology: a new game makes red ones only.
     researched.clear();
@@ -473,6 +479,7 @@ describe('labs', () => {
     expect(r.entities.slots(lab)).toEqual([
       { item: RED, count: 5 },
       { item: GREEN, count: 5 },
+      { item: 0, count: 0 },
     ]);
     // A red and green technology takes one of each.
     const g = rig({
@@ -486,6 +493,7 @@ describe('labs', () => {
     expect(g.entities.status(glab)).toBe(MachineState.Working);
     expect(g.entities.slots(glab)).toEqual([
       { item: RED, count: 2 },
+      { item: 0, count: 0 },
       { item: 0, count: 0 },
     ]);
     g.step(TECHNOLOGIES[TechId.Automation2].ticksPerUnit);
@@ -571,11 +579,21 @@ describe('labs', () => {
 });
 
 const SPEED = TECHNOLOGIES[TechId.ResearchSpeed];
-/** Every technology but the repeatable ones: what research speed needs first. */
-const FINITE = TECH_IDS.filter((id) => !TECHNOLOGIES[id].repeatable);
+/** The military branch (D76): research speed doesn't wait for it, so the demo's chain still ends on it. */
+const MILITARY_BRANCH: readonly number[] = [
+  TechId.Military,
+  TechId.StoneWall,
+  TechId.SteelProcessing,
+  TechId.Military2,
+  TechId.MilitarySciencePack,
+];
+/** Every technology but the repeatable ones and the military branch: what research speed needs first. */
+const FINITE = TECH_IDS.filter(
+  (id) => !TECHNOLOGIES[id].repeatable && !MILITARY_BRANCH.includes(id),
+);
 
 describe('repeatable research (D74)', () => {
-  it('is research speed: red + green, behind every other technology, 100 × n units for level n', () => {
+  it('is research speed: red + green, behind every other technology but the military branch, 100 × n units for level n', () => {
     expect(SPEED.repeatable).toBe(true);
     expect(SPEED.name).toBe('research-speed');
     expect(SPEED.packs).toEqual([RED, GREEN]);
@@ -722,4 +740,54 @@ describe('repeatable research (D74)', () => {
     expect(sim.state.research.currentOf(0)).toBe(k);
     expectRoundTrip(sim, 600);
   }, 60_000);
+});
+
+describe('military science packs in labs (D76)', () => {
+  const MILITARY = ItemId.MilitarySciencePack;
+
+  it('go into their own slot, up to a stack, by hand', () => {
+    const r = rig();
+    const [lab] = r.labs as [number];
+    r.inventory.add(MILITARY, 250);
+    expect(r.entities.accepts(lab, MILITARY)).toBe(true);
+    r.feed(lab, MILITARY, 250);
+    expect(r.entities.slots(lab)).toEqual([
+      { item: 0, count: 0 },
+      { item: 0, count: 0 },
+      { item: MILITARY, count: 200 },
+    ]);
+    expect(r.inventory.count(MILITARY)).toBe(50);
+    // Nothing costs them yet, so a red technology leaves them be.
+    r.feed(lab, RED, 2);
+    r.research(TechId.Automation);
+    r.step(2);
+    expect(r.entities.status(lab)).toBe(MachineState.Working);
+    expect(r.entities.slots(lab)[2]).toEqual({ item: MILITARY, count: 200 });
+  });
+
+  it('are taken one per unit by a technology that costs them: a pure data change (D74)', () => {
+    const speed = TECHNOLOGIES[TechId.ResearchSpeed] as { packs: readonly number[] };
+    const packs = speed.packs;
+    speed.packs = [RED, GREEN, MILITARY];
+    try {
+      const r = rig({ researched: FINITE });
+      const [lab] = r.labs as [number];
+      r.feed(lab, RED, 3);
+      r.feed(lab, GREEN, 3);
+      r.research(TechId.ResearchSpeed);
+      r.step(2);
+      expect(r.entities.status(lab)).toBe(MachineState.NoInput);
+      r.inventory.add(MILITARY, 3);
+      r.feed(lab, MILITARY, 3);
+      r.step();
+      expect(r.entities.status(lab)).toBe(MachineState.Working);
+      expect(r.table.unitTech(lab)).toBe(TechId.ResearchSpeed);
+      expect(r.entities.slots(lab).map((s) => s.count)).toEqual([2, 2, 2]);
+      const ticks = ticksUntil(r, () => r.units(TechId.ResearchSpeed) === 3);
+      expect(ticks).toBeLessThanOrEqual(3 * SPEED.ticksPerUnit + 3);
+      expect(r.entities.slots(lab).map((s) => s.count)).toEqual([0, 0, 0]);
+    } finally {
+      speed.packs = packs;
+    }
+  });
 });

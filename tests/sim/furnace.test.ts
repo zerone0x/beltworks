@@ -74,6 +74,8 @@ describe('shared M1 numbers', () => {
       [[[ItemId.IronOre, 1]], [[ItemId.IronPlate, 1]], PLATE_TICKS],
       [[[ItemId.CopperOre, 1]], [[ItemId.CopperPlate, 1]], PLATE_TICKS],
       [[[ItemId.Stone, 2]], [[ItemId.StoneBrick, 1]], PLATE_TICKS],
+      // Steel (D76): 5 iron plates, 16 s.
+      [[[ItemId.IronPlate, 5]], [[ItemId.SteelPlate, 1]], 960],
     ]);
     for (const r of recipes) {
       for (const [item, count] of [...r.inputs, ...r.outputs]) {
@@ -84,6 +86,7 @@ describe('shared M1 numbers', () => {
     expect(new Set(recipes.map((r) => r.id)).size).toBe(recipes.length);
     expect(smeltingRecipeFor(ItemId.IronOre)?.id).toBe(RecipeId.IronPlate);
     expect(smeltingRecipeFor(ItemId.Stone)?.id).toBe(RecipeId.StoneBrick);
+    expect(smeltingRecipeFor(ItemId.IronPlate)?.id).toBe(RecipeId.SteelPlate);
     expect(smeltingRecipeFor(ItemId.Coal)).toBeUndefined();
   });
 });
