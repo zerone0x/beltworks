@@ -51,6 +51,15 @@ export class ResearchState {
     this.levels = new Uint32Array(forces * TECH_SLOTS);
   }
 
+  /**
+   * Called when a technology becomes researched (`completeUnit`,
+   * `markResearched`; not a repeatable level, and not `load`: a save's
+   * subscriptions already match its research). `createSimState` uses it to
+   * wake inserters waiting on furnaces that take more items now (D76). Not
+   * state.
+   */
+  onResearched: ((force: number, tech: number) => void) | null = null;
+
   /** Whether `force` is a force of this state. */
   hasForce(force: number): boolean {
     return Number.isInteger(force) && force >= 0 && force < this.forces;
@@ -150,6 +159,7 @@ export class ResearchState {
       return true;
     }
     if (this.current[force] === tech) this.current[force] = 0;
+    this.onResearched?.(force, tech);
     return true;
   }
 
@@ -160,8 +170,10 @@ export class ResearchState {
   markResearched(force: number, tech: number): void {
     const t = technologyPrototype(tech);
     if (!t || t.repeatable || !this.hasForce(force)) return;
+    const was = this.isResearched(force, tech);
     this.units[force * TECH_SLOTS + tech] = t.units;
     if (this.current[force] === tech) this.current[force] = 0;
+    if (!was) this.onResearched?.(force, tech);
   }
 
   /**

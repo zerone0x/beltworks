@@ -19,12 +19,16 @@ import {
 import { BuildResult, placeEntity } from '../../src/sim/entities/build';
 import { Direction } from '../../src/sim/entities/direction';
 import { FurnaceSlot, furnaceTable } from '../../src/sim/entities/furnace';
+import { InserterState, inserterTable } from '../../src/sim/entities/inserter';
 import { MachineState } from '../../src/sim/entities/machine';
 import { TransferResult, insertIntoEntity } from '../../src/sim/entities/transfer';
 import { tileCenter } from '../../src/sim/fixed';
 import { LAB_SLOTS, labSlotOf } from '../../src/sim/research/lab';
 import { isRecipeUnlocked } from '../../src/sim/research/unlocks';
-import { Sim } from '../../src/sim/tick';
+import { beltTable } from '../../src/sim/belts/belts';
+import { BELT_LENGTH, BeltLane } from '../../src/sim/belts/line';
+import { LAB_INSERTER_LIMIT } from '../../src/data/entities';
+import { Sim, setResearch } from '../../src/sim/tick';
 import { expectRoundTrip, reload } from './saveRoundTrip';
 
 /**
@@ -348,11 +352,198 @@ describe('steel in a stone furnace (D76)', () => {
   });
 });
 
+describe('inserters asleep on a furnace’s source when steel processing completes (D76)', () => {
+  // A source -> burner inserter on (3, 0) facing east -> fuelled stone
+  // furnace on (4..5, 0..1). Before steel processing the furnace takes no
+  // plates, so the inserter goes to sleep on its source; nothing about the
+  // source changes after that, so only the research can wake it.
+  function line(source: (s: Sim) => number) {
+    const s = sim([
+      { item: ItemId.BurnerInserter, count: 1 },
+      { item: ItemId.WoodenChest, count: 1 },
+      { item: ItemId.TransportBelt, count: 10 },
+      { item: ItemId.StoneFurnace, count: 1 },
+    ]);
+    const { state } = s;
+    const { entities } = state;
+    const src = source(s);
+    expect(placeEntity(state, 0, ItemId.BurnerInserter, 3, 0, Direction.East)).toBe(
+      BuildResult.Ok,
+    );
+    const ins = entities.at(3, 0);
+    expect(placeEntity(state, 0, ItemId.StoneFurnace, 4, 0, Direction.North)).toBe(BuildResult.Ok);
+    const furnace = entities.at(4, 0);
+    entities.insert(ins, ItemId.Coal, 5);
+    entities.insert(furnace, ItemId.Coal, 5);
+    return { s, src, ins, furnace };
+  }
+
+  function chestOfPlates(s: Sim): number {
+    expect(placeEntity(s.state, 0, ItemId.WoodenChest, 2, 0, Direction.North)).toBe(
+      BuildResult.Ok,
+    );
+    const chest = s.state.entities.at(2, 0);
+    s.state.entities.insert(chest, ItemId.IronPlate, 50);
+    return chest;
+  }
+
+  /** A belt from (-3, 0) east to (2, 0), where it ends, backed up with plates. */
+  function stalledBeltOfPlates(s: Sim): number {
+    s.state.players.y[0] = tileCenter(4); // off the belt
+    for (let x = -3; x <= 2; x++) {
+      expect(placeEntity(s.state, 0, ItemId.TransportBelt, x, 0, Direction.East)).toBe(
+        BuildResult.Ok,
+      );
+    }
+    const belts = beltTable(s.state.entities)!;
+    const first = s.state.entities.at(-3, 0);
+    const pos = belts.beltOffset(first) + BELT_LENGTH / 2;
+    for (let t = 0; t < 600; t++) {
+      belts.insertAt(belts.beltLine(first), BeltLane.Left, pos, ItemId.IronPlate);
+      belts.insertAt(belts.beltLine(first), BeltLane.Right, pos, ItemId.IronPlate);
+      s.step();
+    }
+    return s.state.entities.at(2, 0);
+  }
+
+  /** Asleep on its source, the furnace input empty. */
+  function expectAsleepOn(s: Sim, ins: number, src: number, furnace: number): void {
+    const { entities } = s.state;
+    expect(inserterTable(entities)!.status(ins)).toBe(InserterState.WaitingForSource);
+    expect(entities.wake.watchersOf(src)).toEqual([ins]);
+    expect(entities.slots(furnace)[FurnaceSlot.Input]!.count).toBe(0);
+  }
+
+  const sources = [
+    ['a chest of iron plates', chestOfPlates],
+    ['a stalled full belt of iron plates', stalledBeltOfPlates],
+  ] as const;
+  const completions = [
+    // Labs finishing its last unit (`ResearchState.completeUnit`).
+    [
+      'labs complete it',
+      (s: Sim) => {
+        const r = s.state.research;
+        while (!r.isResearched(0, TechId.SteelProcessing)) r.completeUnit(0, TechId.SteelProcessing);
+      },
+    ],
+    // Without labs (tests and tools: `markResearched`).
+    ['it is marked researched', (s: Sim) => s.state.research.markResearched(0, TechId.SteelProcessing)],
+  ] as const;
+
+  for (const [what, source] of sources) {
+    for (const [how, complete] of completions) {
+      it(`makes steel from ${what} once ${how}`, () => {
+        const { s, src, ins, furnace } = line(source);
+        steps(s, 300);
+        expectAsleepOn(s, ins, src, furnace);
+        // Asleep, it would stay so: a whole steel craft's time changes nothing.
+        steps(s, STEEL_SMELTING_TICKS);
+        expectAsleepOn(s, ins, src, furnace);
+        complete(s);
+        steps(s, 3000);
+        expect(s.state.entities.slots(furnace)[FurnaceSlot.Output]!.item).toBe(ItemId.SteelPlate);
+        expect(s.state.entities.slots(furnace)[FurnaceSlot.Output]!.count).toBeGreaterThan(0);
+      });
+    }
+  }
+
+  it('wakes nothing for a technology that unlocks no smelting recipe', () => {
+    const { s, src, ins, furnace } = line(chestOfPlates);
+    steps(s, 300);
+    s.state.research.markResearched(0, TechId.StoneWall);
+    // Woken, it would leave the sleep list only after a step.
+    expect(inserterTable(s.state.entities)!.activeCount).toBe(0);
+    steps(s, 10);
+    expectAsleepOn(s, ins, src, furnace);
+  });
+});
+
 describe('labs and the military science pack (D76)', () => {
   it('have a slot for it', () => {
     expect(SCIENCE_PACKS).toEqual([RED, GREEN, MILITARY]);
     expect(LAB_SLOTS).toBe(3);
     expect(labSlotOf(MILITARY)).toBe(2);
+  });
+
+  // A chest -> burner inserter on (3, 0) facing east -> lab on (4..6, 0..2),
+  // without power, so it never uses a pack: only the inserter moves them.
+  function labLine(research: number) {
+    const s = sim(
+      [
+        { item: ItemId.BurnerInserter, count: 1 },
+        { item: ItemId.WoodenChest, count: 1 },
+        { item: ItemId.Lab, count: 1 },
+      ],
+      [TechId.Automation, TechId.Logistics, TechId.LogisticSciencePack],
+    );
+    const { state } = s;
+    const { entities } = state;
+    const place = (item: number, x: number) => {
+      expect(placeEntity(state, 0, item, x, 0, Direction.East)).toBe(BuildResult.Ok);
+      return entities.at(x, 0);
+    };
+    const chest = place(ItemId.WoodenChest, 2);
+    const ins = place(ItemId.BurnerInserter, 3);
+    const lab = place(ItemId.Lab, 4);
+    entities.insert(ins, ItemId.Coal, 5);
+    expect(setResearch(state, 0, research)).toBe(true);
+    return { s, chest, ins, lab };
+  }
+
+  it('let an inserter feeding a full lab sleep on the lab alone, whatever its unused military slot (counters)', () => {
+    // Research red + green; the lab's red and green slots full (D75), its
+    // military slot empty. The chest offers only red and green.
+    const { s, chest, ins, lab } = labLine(TechId.Logistics2);
+    const { entities } = s.state;
+    expect(entities.insert(lab, RED, LAB_INSERTER_LIMIT, true)).toBe(LAB_INSERTER_LIMIT);
+    expect(entities.insert(lab, GREEN, LAB_INSERTER_LIMIT, true)).toBe(LAB_INSERTER_LIMIT);
+    entities.insert(chest, RED, 10);
+    entities.insert(chest, GREEN, 10);
+    steps(s, 10);
+    expect(entities.hasRoom(lab)).toBe(false);
+    expect(entities.status(ins)).toBe(InserterState.WaitingForTarget);
+    expect(entities.wake.watchersOf(lab)).toEqual([ins]);
+    expect(entities.wake.watchersOf(chest)).toEqual([]);
+    // The chest changing every tick (another inserter filling it, say) wakes
+    // it no more: 0 inserter steps in 100 ticks, not one a tick.
+    const table = inserterTable(entities)!;
+    let stepped = 0;
+    for (let t = 0; t < 100; t++) {
+      entities.insert(chest, RED, 1);
+      s.step();
+      stepped += table.steppedCount;
+    }
+    expect(stepped).toBe(0);
+    // A free slot the research uses still counts.
+    expect(entities.take(lab, labSlotOf(GREEN), 1)).toBe(1);
+    expect(entities.hasRoom(lab)).toBe(true);
+  });
+
+  it('wake an inserter asleep on a lab when the research switches to one using more packs', () => {
+    // Research red only (military), the red slot full: the inserter sleeps on the lab
+    // alone, so green arriving in the chest doesn't wake it (unused).
+    const { s, chest, ins, lab } = labLine(TechId.Military);
+    const { entities } = s.state;
+    expect(entities.insert(lab, RED, LAB_INSERTER_LIMIT, true)).toBe(LAB_INSERTER_LIMIT);
+    entities.insert(chest, RED, 10);
+    steps(s, 10);
+    expect(entities.wake.watchersOf(chest)).toEqual([]);
+    expect(entities.wake.watchersOf(lab)).toEqual([ins]);
+    entities.insert(chest, GREEN, 10);
+    steps(s, 100);
+    expect(entities.slots(lab)[labSlotOf(GREEN)]!.count).toBe(0);
+    // Red + green now: the green slot counts, and the green goes in.
+    expect(setResearch(s.state, 0, TechId.Logistics2)).toBe(true);
+    steps(s, 300);
+    expect(entities.slots(lab)[labSlotOf(GREEN)]!.count).toBe(LAB_INSERTER_LIMIT);
+  });
+
+  it('count no room with no current research', () => {
+    const { s, lab } = labLine(TechId.Military);
+    expect(s.state.entities.hasRoom(lab)).toBe(true);
+    expect(setResearch(s.state, 0, 0)).toBe(true);
+    expect(s.state.entities.hasRoom(lab)).toBe(false);
   });
 });
 
