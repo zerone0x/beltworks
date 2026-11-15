@@ -693,3 +693,71 @@ describe('burner inserter', () => {
     expect(run(true)).not.toBe(run(false));
   });
 });
+
+describe('insertion limits (D75)', () => {
+  it('tops a furnace up to two ores from a chest, then moves the coal behind them', () => {
+    // Chest (2, 0) with ore in its first slots and coal behind → burner
+    // inserter (3, 0) facing east, with no fuel of its own → furnace (4..5, 0..1).
+    const s = setup();
+    const source = s.place(ItemId.WoodenChest, 2, 0);
+    const inserter = s.place(ItemId.BurnerInserter, 3, 0, East);
+    const furnace = s.place(ItemId.StoneFurnace, 4, 0);
+    s.entities.insert(source, ORE, 100);
+    s.entities.insert(source, COAL, 20);
+    let firstWork = -1;
+    for (let t = 0; t < 60 * 60 && firstWork < 0; t++) {
+      s.step();
+      if (s.entities.status(furnace) === MachineState.Working) firstWork = t;
+    }
+    // Two ores, then coal: it lights on the third swing, not after 50 ores.
+    expect(firstWork).toBeGreaterThanOrEqual(0);
+    expect(firstWork).toBeLessThanOrEqual(3 * CYCLE_TICKS);
+    expect(s.entities.slots(furnace)[FurnaceSlot.Input]!.count).toBeLessThanOrEqual(2);
+    // It keeps smelting from then on, and never holds more than its limits.
+    s.step(20 * PLATE_TICKS);
+    expect(s.count(furnace, PLATE)).toBeGreaterThanOrEqual(19);
+    const [input, fuel] = s.entities.slots(furnace);
+    expect(input!.count).toBeLessThanOrEqual(2);
+    expect(fuel!.count).toBeLessThanOrEqual(5);
+    expect(s.count(source, ORE)).toBeGreaterThanOrEqual(100 - 20 - 3);
+  });
+
+  it('lets ore and coal pass the first furnaces on a belt, so the last one works within a minute', () => {
+    const s = setup();
+    // A belt from (-5, 2) east to (8, 2), where it ends; four burner
+    // inserters on (0|2|4|6, 3) face south into furnaces on (0..7, 4..5).
+    // Coal goes onto the left lane, ore onto the right lane, about one of
+    // each a second: what the first inserter alone could move.
+    const belts: number[] = [];
+    for (let x = -5; x <= 8; x++) belts.push(s.place(ItemId.TransportBelt, x, 2, East));
+    const furnaces: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      s.entities.insert(s.place(ItemId.BurnerInserter, 2 * i, 3, South), COAL, 1);
+      furnaces.push(s.place(ItemId.StoneFurnace, 2 * i, 4));
+    }
+    const table = beltTable(s.entities)!;
+    const first = belts[0]!;
+    const pos = table.beltOffset(first) + BELT_LENGTH / 2;
+    const firstWork = furnaces.map(() => -1);
+    for (let t = 0; t < 3 * 60 * 60; t++) {
+      if (t % 60 === 0) {
+        const line = table.beltLine(first);
+        table.insertAt(line, BeltLane.Left, pos, COAL);
+        table.insertAt(line, BeltLane.Right, pos, ORE);
+      }
+      s.step();
+      furnaces.forEach((f, i) => {
+        if (firstWork[i]! < 0 && s.entities.status(f) === MachineState.Working) firstWork[i] = t;
+      });
+    }
+    for (const t of firstWork) {
+      expect(t).toBeGreaterThanOrEqual(0);
+      expect(t).toBeLessThan(60 * 60);
+    }
+    for (const f of furnaces) {
+      const [input, fuel] = s.entities.slots(f);
+      expect(input!.count).toBeLessThanOrEqual(2);
+      expect(fuel!.count).toBeLessThanOrEqual(5);
+    }
+  });
+});
