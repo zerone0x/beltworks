@@ -6,8 +6,12 @@
 import { DEMO_BOUNDS } from '../sim/scenarios/demoInfo';
 import { TILE_PX } from '../render/camera';
 
-/** The zoom range the framing keeps to: medium zooms, out of map mode and not too close. */
-export const DEMO_ZOOM_MIN = 0.3;
+/**
+ * The zoom range the framing keeps to: out of map mode (below `MAP_ZOOM`,
+ * 0.25) and not too close. The floor is map mode's edge, so the whole
+ * factory (65 tiles wide, D77) fits a window 600 px wide.
+ */
+export const DEMO_ZOOM_MIN = 0.25;
 export const DEMO_ZOOM_MAX = 1;
 
 /**

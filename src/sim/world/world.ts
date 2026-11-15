@@ -201,6 +201,27 @@ export class World {
   }
 
   /**
+   * Sets the amount of resource on tile `(x, y)` to `amount` (a positive
+   * integer that fits in the amount column), if the tile has a resource, and
+   * returns whether it had: a tile without one stays without one. Scenarios
+   * set up their world with it before the first tick (the demo's ore, D77);
+   * the chunk counts as modified, so the save and the state hash carry it.
+   */
+  setAmount(x: number, y: number, amount: number): boolean {
+    if (!Number.isInteger(amount) || amount <= 0 || amount > 0xffff_ffff) {
+      throw new RangeError(`resource amount must be a positive uint32, got ${String(amount)}`);
+    }
+    const cx = x >> CHUNK_SHIFT;
+    const cy = y >> CHUNK_SHIFT;
+    const chunk = this.getChunk(cx, cy);
+    const i = ((y & CHUNK_MASK) << CHUNK_SHIFT) | (x & CHUNK_MASK);
+    if (chunk.resource[i] === ResourceId.None) return false;
+    chunk.amount[i] = amount;
+    this.markModified(cx, cy);
+    return true;
+  }
+
+  /**
    * Saves the modified chunks (the seed is saved with the simulation):
    * everything else is a pure function of the seed and is generated again.
    */

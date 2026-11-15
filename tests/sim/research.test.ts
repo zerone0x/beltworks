@@ -190,7 +190,7 @@ describe('technology data', () => {
     }
   });
 
-  it('costs red, or red and green behind the logistic science pack', () => {
+  it('costs red, or red and green behind the logistic science pack, and only research speed military too', () => {
     const ancestors = (id: number): Set<number> => {
       const out = new Set<number>();
       for (const p of technologyPrototype(id)!.prerequisites) {
@@ -201,7 +201,9 @@ describe('technology data', () => {
     };
     for (const id of TECH_IDS) {
       const { packs } = TECHNOLOGIES[id];
-      expect([[RED], [RED, GREEN]]).toContainEqual(packs);
+      expect([[RED], [RED, GREEN], [RED, GREEN, ItemId.MilitarySciencePack]]).toContainEqual(packs);
+      // Military packs: research speed only (D77), the demo factory's never-ending research.
+      if (packs.includes(ItemId.MilitarySciencePack)) expect(id).toBe(TechId.ResearchSpeed);
       expect(packs.every((p) => SCIENCE_PACKS.includes(p))).toBe(true);
       if (packs.includes(GREEN)) expect(ancestors(id).has(TechId.LogisticSciencePack)).toBe(true);
     }
@@ -286,9 +288,10 @@ describe('technology data', () => {
       'automation-2',
       'logistics-2',
       'logistics-3',
-      'research-speed',
       'military-2',
       'military-science-pack',
+      // Research speed costs military packs (D77): it waits for their recipe.
+      'research-speed',
     ]);
     // Green packs need their technology: a new game makes red ones only.
     researched.clear();
@@ -646,10 +649,10 @@ const FINITE = TECH_IDS.filter(
 );
 
 describe('repeatable research (D74)', () => {
-  it('is research speed: red + green, behind every other technology but the military branch, 100 × n units for level n', () => {
+  it('is research speed: red + green + military, behind every other technology but the military branch, 100 × n units for level n', () => {
     expect(SPEED.repeatable).toBe(true);
     expect(SPEED.name).toBe('research-speed');
-    expect(SPEED.packs).toEqual([RED, GREEN]);
+    expect(SPEED.packs).toEqual([RED, GREEN, ItemId.MilitarySciencePack]);
     expect(SPEED.labSpeedPerLevel).toBe(10);
     expect(TECH_IDS.filter((id) => TECHNOLOGIES[id].repeatable)).toEqual([TechId.ResearchSpeed]);
     // Its prerequisites lead back to every finite technology.
@@ -728,10 +731,15 @@ describe('repeatable research (D74)', () => {
   });
 
   it('keeps labs working across a level: units in progress count for the next one', () => {
-    const r = rig({ labs: 3, researched: FINITE });
+    const r = rig({
+      labs: 3,
+      researched: FINITE,
+      kit: [{ item: ItemId.MilitarySciencePack, count: 200 }],
+    });
     for (const lab of r.labs) {
       r.feed(lab, RED, 10);
       r.feed(lab, GREEN, 10);
+      r.feed(lab, ItemId.MilitarySciencePack, 10);
     }
     const tech = TechId.ResearchSpeed;
     // Two units short of level 1, with three labs: one unit spills over.
@@ -755,10 +763,14 @@ describe('repeatable research (D74)', () => {
 
   it('makes labs 10% faster per level', () => {
     const unitTicks = (levels: number): number => {
-      const r = rig({ researched: FINITE });
+      const r = rig({
+        researched: FINITE,
+        kit: [{ item: ItemId.MilitarySciencePack, count: 200 }],
+      });
       const [lab] = r.labs as [number];
       r.feed(lab, RED, 10);
       r.feed(lab, GREEN, 10);
+      r.feed(lab, ItemId.MilitarySciencePack, 10);
       r.state.research.setLevels(0, TechId.ResearchSpeed, levels);
       r.research(TechId.ResearchSpeed);
       return ticksUntil(r, () => r.units(TechId.ResearchSpeed) > 0);
@@ -771,6 +783,10 @@ describe('repeatable research (D74)', () => {
 
   it('saves and loads mid-level, labs and all, and runs on identically across the next level', () => {
     const sim = buildDemo();
+    // A first network query compresses the power grid's union-find paths,
+    // which the save writes (not the hash): query once, so that the loaded
+    // copy saves to the same bytes.
+    sim.hash();
     const { research } = sim.state;
     for (const id of FINITE) research.markResearched(0, id);
     research.setLevels(0, TechId.ResearchSpeed, 2);
@@ -818,11 +834,8 @@ describe('military science packs in labs (D76)', () => {
     expect(r.entities.slots(lab)[2]).toEqual({ item: MILITARY, count: 200 });
   });
 
-  it('are taken one per unit by a technology that costs them: a pure data change (D74)', () => {
-    const speed = TECHNOLOGIES[TechId.ResearchSpeed] as { packs: readonly number[] };
-    const packs = speed.packs;
-    speed.packs = [RED, GREEN, MILITARY];
-    try {
+  it('are taken one per unit by research speed, which costs them (D77)', () => {
+    {
       const r = rig({ researched: FINITE });
       const [lab] = r.labs as [number];
       r.feed(lab, RED, 3);
@@ -839,8 +852,6 @@ describe('military science packs in labs (D76)', () => {
       const ticks = ticksUntil(r, () => r.units(TechId.ResearchSpeed) === 3);
       expect(ticks).toBeLessThanOrEqual(3 * SPEED.ticksPerUnit + 3);
       expect(r.entities.slots(lab).map((s) => s.count)).toEqual([0, 0, 0]);
-    } finally {
-      speed.packs = packs;
     }
   });
 });

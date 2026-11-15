@@ -1,50 +1,45 @@
 /**
- * The demo factory (#142, docs/DECISIONS.md, D72): a complete, automated
- * factory from ore to research, built on a fixed seed by a scripted player
- * through commands only (`Move`, `Place`, `SetRecipe`, `Insert`,
+ * The demo factory (#142, docs/DECISIONS.md, D72 and D77): a complete,
+ * automated factory from ore to research, built on a fixed seed by a scripted
+ * player through commands only (`Move`, `Place`, `SetRecipe`, `Insert`,
  * `SetResearch`), like the benchmark scenes. Nothing is pre-filled but a
- * little starting coal in the boilers and furnaces: every plate, gear,
- * circuit and science pack comes from ore mined on the spot.
+ * little starting coal in the boilers: every plate, gear, circuit, steel
+ * plate, brick and science pack comes from ore mined on the spot.
  *
- * The flow reads from west to east, outwards from the middle of the starting
- * area (seed `DEMO_SEED`: iron ore north-west, copper south-west, coal
- * north-east, stone south-east):
+ * It is sized from rates (D77): research speed at a quarter of a unit a
+ * second, each unit a red, a green and a military pack, so every line makes
+ * 0.25 packs a second and four labs use them. Each line ends in the labs or in
+ * a fuel slot, never in a chest. The layout, around the four ore patches of
+ * `DEMO_SEED` (iron north-west, copper south-west, coal north-east, stone
+ * south-east):
  *
- * - **Mining**: five electric drills on the iron patch drop ore onto a belt
- *   running east along y = -15, three on the copper patch onto one along
- *   y = 8. A row of four drills on the coal patch feeds a belt along y = -16
- *   both ways: west to the furnaces, east to the power plant. One drill on
- *   stone fills a chest, which an inserter empties into a second one.
- * - **Smelting**: two columns of stone furnaces on the axis x = 0. Each
- *   furnace belt is fed from both sides, ore into one lane and coal into the
- *   other (side-loading), and electric inserters move both into the
- *   furnaces, which stand in groups of up to four around a row of poles.
- *   Iron: eight furnaces; copper: four. Electric inserters put the plates
- *   onto belts that side-load into the plate bus.
- * - **The bus**: a fast belt along y = 0 with iron plates on its north lane
- *   and copper on its south lane, running east into the assembly block. The
- *   copper column's coal crosses it underground.
- * - **Intermediates** (the assembly block, x 9..23): a second belt along
- *   y = 1 carries gears (south lane) and circuits (north lane). The row above
- *   the bus (gears, then three red science machines) and the row below it
- *   (copper cable into electronic circuits, electric inserters, transport
- *   belts) take from both belts, with an inserter from the near belt and a
- *   long-handed inserter from the far one.
- * - **Science**: the electric inserters and transport belts drop onto the
- *   two lanes of a belt that feeds three green science machines; their packs
- *   go onto an express belt. The red packs go up onto another, west, down
- *   under the bus and onto the green packs' belt's other lane.
- * - **Research**: three labs end the green machines' row, fed through two
- *   splitters. They research {@link DEMO_RESEARCH_CHAIN} one technology
- *   after the other, for about an hour of game time.
- * - **Power**: two boilers facing south with two steam engines each, east
- *   of the assembly block, fed by burner inserters through buffer chests
- *   from the coal belt. Small electric poles in straight lines carry the
- *   power everywhere ({@link DEMO_POLES}).
+ * - **Iron**: eight drills on both sides of an ore belt (7.25 drills' worth),
+ *   which runs up and along the top to a column of twelve furnaces (11.6
+ *   furnaces' worth) down x = 0, ore on one lane, coal on the other. Their
+ *   plates side-load into the bus's north lane.
+ * - **Copper**: three drills (2.5 drills' worth) and four furnaces below the
+ *   bus, plates into its south lane.
+ * - **Coal**: five drills feed a splitter: the power plant north, the
+ *   military block and on to the brick furnaces south. Two more drills feed
+ *   the iron and copper furnaces' coal lanes only.
+ * - **Red and green** (the D72 assembly block, x 9..23): gears, cable into
+ *   circuits, electric inserters and transport belts, two red machines (an
+ *   assembling machine 2 and a 1) and two green ones (2s).
+ * - **Military** (x 25..39, on the same 4-tile slots): two grenade machines
+ *   and two steel furnaces above the bus, firearm magazines into piercing
+ *   rounds below it, the bus ending where its last iron and copper are
+ *   taken. Grenades come down a belt beside them and side-load onto the
+ *   piercing rounds' belt, which feeds the two military machines (a 2 and a
+ *   1); five stone drills, four brick furnaces and a wall machine feed them
+ *   walls.
+ * - **Research**: the red and green packs on one belt and the military packs
+ *   on another, each shared out to four labs by three splitters, a half and
+ *   two quarters, so the four labs get the same.
+ * - **Power**: three boilers with two steam engines each; small electric
+ *   poles in straight lines ({@link DEMO_POLES}).
  *
- * The production is sized to the labs, which hold up to a stack of each
- * pack: they take what the science machines make for the whole chain, so
- * nothing backs up into the science belts while they research.
+ * The labs research the military branch while the factory warms up
+ * ({@link buildDemo}), and then research speed for good.
  */
 
 import { ENTITIES, entityForItem } from '../../data/entities';
@@ -54,34 +49,41 @@ import { TechId } from '../../data/technologies';
 import { isWalkable } from '../../data/tiles';
 import { Direction } from '../entities/direction';
 import { inBuildReach } from '../entities/placement';
-import { forceOf } from '../research/unlocks';
+import { forceOf, isRecipeUnlocked } from '../research/unlocks';
 import { footprintSize } from '../entities/store';
 import { tileCenter } from '../fixed';
 import { PLAYER_SPEED } from '../player';
 import { STARTING_KIT } from '../../data/start';
 import { Sim } from '../tick';
+import type { World } from '../world/world';
 import { Builder } from './builder';
 import { DEMO_SEED, DEMO_SPAWN } from './demoInfo';
 
 export { DEMO_BOUNDS, DEMO_SEED, DEMO_SPAWN } from './demoInfo';
 
-/** The technology the labs research first. */
-export const DEMO_RESEARCH = TechId.Automation2;
-
 /**
- * What the labs research, in order (D72): each one starts as the last one
- * completes ({@link DemoResearch}). The tech tree lasts about an hour of
- * game time; the chain then ends on research speed, a repeatable technology
- * (D74) that goes on level after level, so the labs never run out of work.
+ * What the labs research, in order (D72, D77): each one starts as the last
+ * one completes ({@link DemoResearch}). The military branch unlocks steel,
+ * walls, piercing rounds, grenades and the military pack; the factory
+ * researches it during the warm-up ({@link buildDemo}), from its own red and
+ * green packs, and the chain then ends on research speed, a repeatable
+ * technology (D74) that costs red, green and military packs and goes on level
+ * after level, so the labs never run out of work.
  */
 export const DEMO_RESEARCH_CHAIN: readonly number[] = [
-  DEMO_RESEARCH,
-  TechId.Logistics,
-  TechId.FastInserter,
-  TechId.Logistics2,
-  TechId.Logistics3,
+  TechId.SteelProcessing,
+  TechId.StoneWall,
+  TechId.Military,
+  TechId.Military2,
+  TechId.MilitarySciencePack,
   TechId.ResearchSpeed,
 ];
+
+/** The technology the labs research first. */
+export const DEMO_RESEARCH = DEMO_RESEARCH_CHAIN[0]!;
+
+/** The technology the labs research for good once the factory is built. */
+export const DEMO_FINAL_RESEARCH = TechId.ResearchSpeed;
 
 /**
  * The demo's player picking the next research (D72): when the research it
@@ -142,31 +144,76 @@ export class DemoResearch {
   }
 }
 
-/** Researched from the start: everything the demo's recipes need, and automation 2's prerequisites. */
+/**
+ * Researched from the start: every technology but the military branch and
+ * research speed (whose prerequisites they are), so the assembling machines
+ * can make what the layout needs and the labs go straight to the military
+ * branch.
+ */
 export const DEMO_RESEARCHED: readonly number[] = [
   TechId.Automation,
   TechId.Electronics,
   TechId.LogisticSciencePack,
+  TechId.Logistics,
+  TechId.FastInserter,
+  TechId.Automation2,
+  TechId.Logistics2,
+  TechId.Logistics3,
 ];
 
 /**
- * Ticks the factory runs on its own once built, before the game starts: long
- * enough for every furnace and machine to fill its input and fuel slots
- * from what the drills mine, and for the machines making intermediates to
- * fill their output slots (which take the first plates away from the
- * science), so the factory is running at its steady pace when the player
- * arrives.
+ * Most ticks the factory may take, once built, to research the military
+ * branch (\`DEMO_RESEARCH_CHAIN\` up to research speed) from the packs it makes:
+ * \`buildDemo\` throws past it.
  */
-export const DEMO_WARMUP_TICKS = 14 * 60 * 60;
+export const DEMO_UNLOCK_TICKS_MAX = 40 * 60 * 60;
+
+/**
+ * Ticks the factory runs on its own once the military recipes are set,
+ * before the game starts: long enough for the military line to fill its
+ * machines and belts and for every line to run at its steady pace.
+ */
+export const DEMO_WARMUP_TICKS = 15 * 60 * 60;
+
+/**
+ * Ore each tile under a demo drill holds (D77): {@link enrichDemoOre} sets it
+ * on every ore tile in the layout's mining areas before the first tick. The
+ * starting patches hold up to 1 600 a tile, about 4 to 19 hours of a drill
+ * flat out, and the line ran dry after 3; at this amount a tile lasts more
+ * than a week even mined flat out by every drill that reaches it.
+ */
+export const DEMO_ORE_PER_TILE = 1_000_000;
+
+/**
+ * Where a drill of the layout mines: the tiles of its mining area, or nothing
+ * for anything that isn't a drill.
+ */
+function miningTiles(e: DemoEntity): { x: number; y: number }[] {
+  const proto = entityForItem(e.item);
+  if (proto?.miningTicks === undefined) return [];
+  const size = proto.miningArea ?? proto.width;
+  const offset = (proto.width - size) >> 1;
+  const tiles: { x: number; y: number }[] = [];
+  for (let dy = 0; dy < size; dy++)
+    for (let dx = 0; dx < size; dx++) tiles.push({ x: e.x + offset + dx, y: e.y + offset + dy });
+  return tiles;
+}
+
+/**
+ * Gives the demo's ore what "never stops" needs (D77): every ore tile a drill
+ * of `layout` mines holds {@link DEMO_ORE_PER_TILE}. Part of setting up the
+ * demo's world, like its seed, before any tick: no tile gains a resource,
+ * and nothing outside the drills' areas changes. The chunks it touches count
+ * as modified, so a saved demo keeps its ore; other games never call it.
+ */
+export function enrichDemoOre(world: World, layout: readonly DemoEntity[]): void {
+  for (const e of layout) {
+    for (const { x, y } of miningTiles(e)) world.setAmount(x, y, DEMO_ORE_PER_TILE);
+  }
+}
 
 /** Coal each boiler gets to start the power plant (the coal drills take over from there). */
 const BOILER_COAL = 5;
-/**
- * Coal each furnace starts with: inserters fill a furnace's fuel slot from
- * the coal lane up to a stack, so the furnaces nearest the start of the belt
- * take all the coal at first; this keeps the others going meanwhile.
- */
-const FURNACE_FUEL: ItemStack = { item: ItemId.Coal, count: 10 };
 
 const { North, East, South, West } = Direction;
 
@@ -215,68 +262,59 @@ export function demoLayout(): DemoEntity[] {
   const fast = ItemId.FastTransportBelt;
   const express = ItemId.ExpressTransportBelt;
 
-  // --- Iron: five drills on the iron patch onto a belt east along y = -15. ---
-  for (const x of [-20, -17, -14, -11, -8]) {
+  // --- Iron: eight drills on both sides of an ore belt along y = -15, which
+  // runs east, up x = -6 and along y = -24 to the top of the iron furnaces. ---
+  for (const x of [-18, -15, -12, -9])
     add(ItemId.ElectricMiningDrill, x, -18, South, { tag: 'iron-drill' });
+  for (const x of [-19, -16, -13, -10])
+    add(ItemId.ElectricMiningDrill, x, -14, North, { tag: 'iron-drill' });
+  belts(belt, -18, -15, -7, -15, East);
+  belts(belt, -6, -15, -6, -23, North);
+  belts(belt, -6, -24, -1, -24, East);
+  // Coal for the iron furnaces: a drill, up x = 6 and west along y = -24.
+  add(ItemId.ElectricMiningDrill, 7, -18, West, { tag: 'fuel-drill' });
+  belts(belt, 6, -17, 6, -23, North);
+  belts(belt, 6, -24, 1, -24, West);
+  // The iron column: a furnace belt down x = 0 with twelve furnaces, in three
+  // groups of four around a row of poles (y = -19, -11, -3; 8 rows apart, so
+  // the rows' wires never meet over a furnace).
+  belts(belt, 0, -25, 0, -2, South);
+  const furnacePair = (cx: number, fy: number, iy: number, tag: string): void => {
+    add(ItemId.ElectricInserter, cx - 1, iy, West);
+    add(ItemId.StoneFurnace, cx - 3, fy, North, { tag });
+    add(ItemId.ElectricInserter, cx - 4, iy, West);
+    add(ItemId.ElectricInserter, cx + 1, iy, East);
+    add(ItemId.StoneFurnace, cx + 2, fy, North, { tag });
+    add(ItemId.ElectricInserter, cx + 4, iy, East);
+  };
+  for (const [fy, iy] of [
+    [-22, -21],
+    [-18, -18],
+    [-14, -13],
+    [-10, -10],
+    [-6, -5],
+    [-2, -2],
+  ] as const) {
+    furnacePair(0, fy, iy, 'iron-furnace');
   }
-  belts(belt, -19, -15, -1, -15, East);
+  belts(belt, -5, -21, -5, -1, South);
+  belts(belt, 5, -21, 5, -1, South);
 
-  // --- Coal: a row of four drills under a belt along y = -16. The two on the
-  // west feed the iron furnaces' belt (west) and the copper furnaces' (down
-  // x = 6, under the bus); the two on the east the power plant's (east). ---
-  add(ItemId.ElectricMiningDrill, 8, -15, West, { tag: 'coal-drill' });
-  add(ItemId.ElectricMiningDrill, 11, -15, North, { tag: 'coal-drill' });
-  belts(belt, 12, -16, 2, -16, West);
-  add(belt, 1, -16, South);
-  add(belt, 1, -15, West);
-  add(belt, 7, -14, West);
+  // --- Copper (as D72): three drills onto a belt along y = 8, four furnaces
+  // down x = 0 below the bus, their coal from a fuel drill down x = 6 (under
+  // the bus). ---
+  for (const x of [-18, -15, -12])
+    add(ItemId.ElectricMiningDrill, x, 9, North, { tag: 'copper-drill' });
+  belts(belt, -17, 8, -1, 8, East);
+  add(ItemId.ElectricMiningDrill, 7, -15, West, { tag: 'fuel-drill' });
   belts(belt, 6, -14, 6, -2, South);
   add(ItemId.UndergroundBelt, 6, -1, South);
   add(ItemId.UndergroundBelt, 6, 1, South);
   belts(belt, 6, 2, 6, 7, South);
   belts(belt, 6, 8, 1, 8, West);
-  for (const x of [14, 17]) {
-    add(ItemId.ElectricMiningDrill, x, -15, North, { tag: 'plant-coal-drill' });
-  }
-  belts(belt, 15, -16, 21, -16, East);
-  belts(belt, 22, -16, 22, -9, South);
-  belts(belt, 22, -8, 31, -8, East);
-
-  // --- The iron column: a furnace belt down x = 0 with eight furnaces, in two
-  // groups of four, each around a row of poles: y = -11 and y = -3 (8 rows
-  // apart, so the two rows' wires never meet over a furnace). A wire hangs
-  // about a tile above the ground, so the row above a row of poles stays
-  // free. ---
-  // Ore (west) and coal (east) side-load onto its second belt, one lane each.
-  belts(belt, 0, -16, 0, -2, South);
-  /** A furnace west of the belt at `fy` (and one east with `east`), their inserters on row `iy`. */
-  const furnacePair = (fy: number, iy: number, tag: string, east = true): void => {
-    add(ItemId.ElectricInserter, -1, iy, West);
-    add(ItemId.StoneFurnace, -3, fy, North, { tag: `${tag}-w`, fill: FURNACE_FUEL });
-    add(ItemId.ElectricInserter, -4, iy, West);
-    if (!east) return;
-    add(ItemId.ElectricInserter, 1, iy, East);
-    add(ItemId.StoneFurnace, 2, fy, North, { tag: `${tag}-e`, fill: FURNACE_FUEL });
-    add(ItemId.ElectricInserter, 4, iy, East);
-  };
-  furnacePair(-14, -13, 'iron-furnace');
-  furnacePair(-10, -10, 'iron-furnace');
-  furnacePair(-6, -5, 'iron-furnace');
-  furnacePair(-2, -2, 'iron-furnace');
-  // Iron plates down both sides into the bus's north lane.
-  belts(belt, -5, -13, -5, -1, South);
-  belts(belt, 5, -13, 5, -1, South);
-
-  // --- Copper: three drills onto a belt east along y = 8, and a furnace belt
-  // down x = 0 with four furnaces around a row of poles at y = 13. ---
-  for (const x of [-18, -15, -12]) {
-    add(ItemId.ElectricMiningDrill, x, 9, North, { tag: 'copper-drill' });
-  }
-  belts(belt, -17, 8, -1, 8, East);
   belts(belt, 0, 7, 0, 14, South);
-  furnacePair(10, 11, 'copper-furnace');
-  furnacePair(14, 14, 'copper-furnace');
-  // Copper plates up both sides into the bus's south lane, under the ore and coal belts.
+  furnacePair(0, 10, 11, 'copper-furnace');
+  furnacePair(0, 14, 14, 'copper-furnace');
   for (const x of [-5, 5]) {
     belts(belt, x, 14, x, 10, North);
     add(ItemId.UndergroundBelt, x, 9, North);
@@ -284,38 +322,39 @@ export function demoLayout(): DemoEntity[] {
     belts(belt, x, 6, x, 1, North);
   }
 
-  // --- The bus: iron plates on the north lane, copper on the south lane. ---
-  belts(fast, -6, 0, 23, 0, East);
+  // --- The bus: iron plates on the north lane, copper on the south lane. Its
+  // last tile is where the last steel furnace takes iron and the piercing
+  // rounds machine copper, so neither lane ends in a dead end. ---
+  belts(fast, -6, 0, 37, 0, East);
 
-  // --- The assembly block: slots of 3×3 machines 4 tiles apart from x = 9;
-  // the free column between two slots carries the poles. ---
+  // --- Red and green (the D72 assembly block): slots of 3×3 machines 4
+  // tiles apart from x = 9; the free columns x = 12 and 20 carry the poles. ---
   const X0 = 9;
   const slot = (k: number): number => X0 + 4 * k;
-  // Gears and circuits: a belt along y = 1.
-  belts(belt, X0, 1, slot(3) + 2, 1, East);
-  // The upper row: gears, then three red science machines. Each machine's
-  // inserters stand on the side of the poles that power it.
+  belts(belt, X0, 1, slot(3), 1, East);
   add(ItemId.AssemblingMachine1, slot(0), -4, North, {
     recipe: RecipeId.IronGearWheel,
     tag: 'gears',
   });
   add(ItemId.FastInserter, slot(0) + 1, -1, North);
   add(ItemId.LongHandedInserter, slot(0) + 2, -1, South);
-  for (const k of [1, 2, 3]) {
-    const x = slot(k);
-    const near = k === 2 ? x + 1 : x;
-    add(ItemId.AssemblingMachine1, x, -4, North, {
-      recipe: RecipeId.AutomationSciencePack,
-      tag: `red-${String(k)}`,
-    });
-    add(ItemId.ElectricInserter, near, -1, North);
-    add(ItemId.LongHandedInserter, near + 1, -1, North);
-    add(ItemId.FastInserter, x + 1, -5, North);
-  }
-  // The lower row: copper cable into circuits, electric inserters, transport belts.
+  add(ItemId.AssemblingMachine2, slot(1), -4, North, {
+    recipe: RecipeId.AutomationSciencePack,
+    tag: 'red',
+  });
+  add(ItemId.ElectricInserter, slot(1), -1, North);
+  add(ItemId.LongHandedInserter, slot(1) + 1, -1, North);
+  add(ItemId.FastInserter, slot(1) + 1, -5, North);
+  add(ItemId.AssemblingMachine1, slot(2), -4, North, {
+    recipe: RecipeId.AutomationSciencePack,
+    tag: 'red',
+  });
+  add(ItemId.ElectricInserter, slot(2) + 1, -1, North);
+  add(ItemId.LongHandedInserter, slot(2) + 2, -1, North);
+  add(ItemId.FastInserter, slot(2) + 1, -5, North);
   add(ItemId.AssemblingMachine1, slot(0), 3, North, { recipe: RecipeId.CopperCable, tag: 'cable' });
   add(ItemId.LongHandedInserter, slot(0) + 1, 2, South);
-  add(ItemId.FastInserter, slot(0) + 3, 3, East);
+  add(ItemId.FastInserter, slot(0) + 3, 5, East);
   add(ItemId.AssemblingMachine1, slot(1), 3, North, {
     recipe: RecipeId.ElectronicCircuit,
     tag: 'circuits',
@@ -334,68 +373,161 @@ export function demoLayout(): DemoEntity[] {
   });
   add(ItemId.ElectricInserter, slot(3), 2, South);
   add(ItemId.LongHandedInserter, slot(3) + 1, 2, South);
-  // Electric inserters and belts onto the two lanes of the green machines' belt.
   add(ItemId.ElectricInserter, slot(2) + 2, 6, South);
   add(belt, slot(2) + 2, 7, East);
   add(ItemId.ElectricInserter, slot(3), 6, South);
   add(belt, slot(3), 7, West);
   add(belt, slot(2) + 3, 7, South);
-  // It ends short of the red packs' belt, so nothing side-loads onto it.
   belts(belt, slot(2) + 3, 8, X0 + 1, 8, West);
-  // Three green science machines, their packs onto an express belt along y = 14.
-  for (const k of [0, 1, 2]) {
+  for (const k of [0, 1]) {
     const x = slot(k);
     add(ItemId.ElectricInserter, x + 1, 9, South);
-    add(ItemId.AssemblingMachine1, x, 10, North, {
+    add(ItemId.AssemblingMachine2, x, 10, North, {
       recipe: RecipeId.LogisticSciencePack,
-      tag: `green-${String(k)}`,
+      tag: 'green',
     });
     add(ItemId.FastInserter, x + 1, 13, South);
   }
-
-  // --- Research: the red packs go west and down under the bus, onto the north
-  // lane of the green packs' belt. Three labs end the green machines' row; two
-  // splitters share the packs out (a half, then two quarters), since a lab
-  // takes all the packs it gets up to a stack. ---
-  belts(express, slot(3) + 1, -6, X0, -6, West);
+  // Red packs west, down under the bus and onto the green packs' belt.
+  belts(express, slot(2) + 1, -6, X0, -6, West);
   belts(express, X0 - 1, -6, X0 - 1, -2, South);
   add(ItemId.ExpressUndergroundBelt, X0 - 1, -1, South);
   add(ItemId.ExpressUndergroundBelt, X0 - 1, 1, South);
   belts(express, X0 - 1, 2, X0 - 1, 13, South);
-  belts(express, X0 - 2, 14, slot(3) - 2, 14, East);
-  const lab = (k: number): number => slot(3 + k);
-  add(ItemId.Splitter, lab(0) - 1, 14, East, { tag: 'science-splitter' });
-  belts(express, lab(0), 14, lab(0) + 2, 14, East);
-  belts(express, lab(0), 15, lab(1) - 2, 15, East);
-  add(ItemId.Splitter, lab(1) - 1, 15, East, { tag: 'science-splitter' });
-  belts(express, lab(1), 15, lab(1) + 2, 15, East);
-  belts(express, lab(1), 16, lab(2) - 1, 16, East);
-  belts(express, lab(2), 16, lab(2), 15, North);
-  belts(express, lab(2), 14, lab(2) + 2, 14, East);
-  add(ItemId.FastInserter, lab(0) + 1, 13, North);
-  add(ItemId.LongHandedInserter, lab(1) + 1, 13, North);
-  add(ItemId.FastInserter, lab(2) + 1, 13, North);
-  for (const k of [0, 1, 2]) add(ItemId.Lab, lab(k), 10, North, { tag: `lab-${String(k)}` });
+  belts(express, slot(1) + 1, 14, X0 - 1, 14, West);
+  belts(express, X0 - 2, 14, X0 - 2, 17, South);
 
-  // --- Stone: a drill into a chest, emptied into a second one. ---
-  add(ItemId.ElectricMiningDrill, 14, 16, West, { tag: 'stone-drill' });
-  add(ItemId.IronChest, 13, 17, North, { tag: 'stone-chest' });
-  add(ItemId.ElectricInserter, 13, 18, South);
-  add(ItemId.IronChest, 13, 19, North, { tag: 'stone-chest' });
-
-  // --- Power, east of the labs and the assembly block: two boilers facing
-  // south with two steam engines each, fed by burner inserters (which fuel
-  // themselves) through buffer chests from the plant's coal belt. ---
-  for (const x of [25, 29]) {
-    add(ItemId.BurnerInserter, x + 1, -7, South);
-    add(ItemId.IronChest, x + 1, -6, North, { tag: 'coal-chest' });
-    add(ItemId.BurnerInserter, x + 1, -5, South);
-    add(ItemId.Boiler, x + 1, -4, South, {
+  // --- Coal: five drills onto a belt along y = -16, split between the power
+  // plant (north) and the military block (south). ---
+  for (const x of [11, 17]) add(ItemId.ElectricMiningDrill, x, -19, South, { tag: 'coal-drill' });
+  for (const x of [11, 14, 17])
+    add(ItemId.ElectricMiningDrill, x, -15, North, { tag: 'coal-drill' });
+  belts(belt, 12, -16, 20, -16, East);
+  add(ItemId.Splitter, 21, -17, East);
+  belts(belt, 22, -17, 22, -23, North);
+  belts(belt, 22, -24, 34, -24, East);
+  belts(belt, 22, -16, 22, -7, South);
+  // --- Power: three boilers facing south with two steam engines each. ---
+  for (const x of [25, 29, 33]) {
+    add(ItemId.ElectricInserter, x + 1, -23, South);
+    add(ItemId.Boiler, x + 1, -22, South, {
       fill: { item: ItemId.Coal, count: BOILER_COAL },
       tag: 'boiler',
     });
-    add(ItemId.SteamEngine, x, -1, South);
-    add(ItemId.SteamEngine, x, 4, South);
+    add(ItemId.SteamEngine, x, -19, South);
+    add(ItemId.SteamEngine, x, -14, South);
+  }
+
+  // --- Military, upper row along the bus: grenades and steel. Machines
+  // stand in the 4-tile slots of the assembly block (poles in the free
+  // columns x = 28 and 36), coal comes along y = -6, grenades go along
+  // y = -7 and steel along y = 1. ---
+  belts(belt, 22, -6, 38, -6, East);
+  for (const x of [25, 29]) {
+    const near = x === 25 ? x + 1 : x;
+    add(ItemId.AssemblingMachine1, x, -4, North, { recipe: RecipeId.Grenade, tag: 'grenade' });
+    add(ItemId.ElectricInserter, near, -1, North);
+    add(ItemId.FastInserter, near, -5, South);
+    add(ItemId.LongHandedInserter, near + 1, -5, North);
+  }
+  belts(belt, 27, -7, 39, -7, East);
+  belts(belt, 40, -7, 40, 6, South);
+  for (const x of [34, 37]) {
+    add(ItemId.StoneFurnace, x, -3, North, { tag: 'steel-furnace' });
+    add(ItemId.ElectricInserter, x, -1, North);
+    add(ItemId.LongHandedInserter, x + 1, -4, South);
+    add(ItemId.LongHandedInserter, x + 1, -1, South);
+  }
+  belts(belt, 35, 1, 38, 1, East);
+  // Lower row: firearm magazines into piercing rounds.
+  add(ItemId.AssemblingMachine1, 33, 3, North, {
+    recipe: RecipeId.FirearmMagazine,
+    tag: 'firearm',
+  });
+  add(ItemId.LongHandedInserter, 34, 2, South);
+  add(ItemId.ElectricInserter, 36, 5, East);
+  add(ItemId.AssemblingMachine1, 37, 3, North, {
+    recipe: RecipeId.PiercingRoundsMagazine,
+    tag: 'piercing',
+  });
+  add(ItemId.LongHandedInserter, 37, 2, South);
+  add(ItemId.ElectricInserter, 38, 2, South);
+  add(ItemId.ElectricInserter, 38, 6, South);
+  // Piercing rounds (south lane) and grenades (side-loaded onto the north
+  // lane) west to the military packs.
+  belts(belt, 41, 7, 30, 7, West);
+  for (const x of [33, 29]) {
+    const near = x === 33 ? x + 1 : x + 1;
+    add(ItemId.ElectricInserter, near, 8, South);
+    add(x === 33 ? ItemId.AssemblingMachine2 : ItemId.AssemblingMachine1, x, 9, North, {
+      recipe: RecipeId.MilitarySciencePack,
+      tag: 'military',
+    });
+    add(ItemId.ElectricInserter, x === 33 ? x + 2 : x, 12, North);
+    add(ItemId.LongHandedInserter, x + 1, 12, South);
+  }
+  belts(belt, 35, 13, 29, 13, West);
+  add(ItemId.ElectricInserter, 36, 13, West);
+  add(ItemId.AssemblingMachine1, 37, 12, North, { recipe: RecipeId.StoneWall, tag: 'walls' });
+  add(ItemId.ElectricInserter, 37, 15, North);
+  add(ItemId.ElectricInserter, 38, 15, North);
+  // Military packs west and down x = 24 to the labs.
+  belts(express, 34, 14, 26, 14, West);
+  belts(express, 25, 14, 25, 16, South);
+  add(ItemId.ExpressUndergroundBelt, 25, 17, South);
+  add(ItemId.ExpressUndergroundBelt, 25, 19, South);
+  belts(express, 25, 20, 25, 28, South);
+  belts(express, 25, 29, 9, 29, West);
+  add(express, 8, 29, North);
+
+  // --- Stone: five drills, bricks in four furnaces, then walls. ---
+  for (const x of [10, 13, 16, 19]) {
+    add(ItemId.ElectricMiningDrill, x, 15, South, { tag: 'stone-drill' });
+  }
+  add(ItemId.ElectricMiningDrill, 21, 12, South, { tag: 'stone-drill' });
+  belts(belt, 22, 15, 22, 17, South);
+  belts(belt, 11, 18, 26, 18, East);
+  add(ItemId.UndergroundBelt, 27, 18, East);
+  add(ItemId.UndergroundBelt, 29, 18, East);
+  belts(belt, 30, 18, 32, 18, East);
+  belts(belt, 33, 17, 33, 23, South);
+  // Coal for the brick furnaces: on from the steel furnaces, down x = 42.
+  add(ItemId.UndergroundBelt, 39, -6, East);
+  add(ItemId.UndergroundBelt, 41, -6, East);
+  belts(belt, 42, -6, 42, 17, South);
+  belts(belt, 42, 18, 40, 18, West);
+  add(ItemId.UndergroundBelt, 39, 18, West);
+  add(ItemId.UndergroundBelt, 37, 18, West);
+  belts(belt, 36, 18, 34, 18, West);
+  furnacePair(33, 19, 20, 'brick-furnace');
+  furnacePair(33, 23, 23, 'brick-furnace');
+  belts(belt, 28, 23, 28, 17, North);
+  belts(belt, 28, 16, 37, 16, East);
+  belts(belt, 38, 23, 38, 16, North);
+
+  // --- Research: four labs in two pairs, each pair flanking the two halves
+  // of a splitter: red and green from above, military from below. ---
+  add(ItemId.Splitter, 7, 18, South, { tag: 'science-splitter' });
+  belts(express, 7, 19, -2, 19, West);
+  add(express, -3, 19, South);
+  add(express, 8, 19, South);
+  add(ItemId.Splitter, 7, 28, North, { tag: 'science-splitter' });
+  belts(express, 7, 27, -2, 27, West);
+  add(express, -3, 27, North);
+  add(express, 8, 27, North);
+  for (const c of [-3, 7]) {
+    add(ItemId.Splitter, c, 20, South, { tag: 'science-splitter' });
+    belts(express, c, 21, c, 23, South);
+    belts(express, c + 1, 21, c + 1, 23, South);
+    add(ItemId.ElectricInserter, c - 1, 23, West);
+    add(ItemId.ElectricInserter, c + 2, 23, East);
+    add(ItemId.Lab, c - 4, 21, North, { tag: 'lab' });
+    add(ItemId.Lab, c + 3, 21, North, { tag: 'lab' });
+    add(ItemId.ElectricInserter, c - 2, 24, North);
+    add(ItemId.ElectricInserter, c + 3, 24, North);
+    add(ItemId.Splitter, c, 26, North, { tag: 'science-splitter' });
+    belts(express, c, 25, c - 2, 25, West);
+    belts(express, c + 1, 25, c + 3, 25, East);
   }
 
   // --- Small electric poles. ---
@@ -405,53 +537,93 @@ export function demoLayout(): DemoEntity[] {
 
 /**
  * Where the small electric poles stand. A small pole is wired to every pole
- * within 7 tiles, so the poles stand in straight lines (4 to 7 tiles apart)
- * at least 8 tiles from any other line, and a line meets another only where
- * they are joined end to end or in a T: every wire runs north-south or
- * east-west, and none crosses a machine. A wire hangs about a tile above the
- * ground, so nothing tall stands on the row above an east-west line or right
- * above a pole either (tests/sim/demo.test.ts checks all of it).
+ * within 7 tiles, so the poles stand in straight lines (3 to 7 tiles apart),
+ * and two poles of different lines are either in line with each other or
+ * more than 7 tiles apart: every wire runs north-south or east-west, none
+ * crosses a machine or doubles up along another, and the wires form a tree.
+ * A wire hangs about a tile above the ground, so no machine stands on the
+ * row above an east-west wire, and a pole's top covers the tile north of it,
+ * so nothing at all stands there (#149; tests/sim/demo.test.ts checks all of
+ * it). The lines: the iron drills and the iron column's three rows of poles
+ * along the top and down the west edge, on to the copper furnaces and the
+ * labs along y = 25; a column at x = 10 and a line along y = -25 to the coal
+ * drills and the power plant; the assembly block's columns x = 12 and 20 and
+ * the military block's x = 28 and 36, which go up through the power plant.
  */
 export const DEMO_POLES: readonly (readonly [number, number])[] = [
-  // The spine, west to east along y = -11: the first group of iron furnaces,
-  // the coal drills, and the tops of the assembly block's three lines.
-  [-21, -11],
-  [-15, -11],
-  [-9, -11],
-  [-3, -11],
-  [3, -11],
-  [7, -11],
-  [12, -11],
-  [16, -11],
-  [20, -11],
-  [24, -11],
-  [28, -11],
-  // The west edge, up to a line along the iron drills north of the ore belt.
-  [-21, -15],
-  [-21, -19],
+  [-3, -19],
+  [3, -19],
+  [-8, -19],
   [-15, -19],
-  [-9, -19],
-  // Down the west edge of the furnaces: the second group of iron furnaces
-  // (y = -3), then the copper drills and furnaces (y = 13).
-  [-9, -7],
+  [-22, -19],
+  [-22, -15],
+  [-22, -10],
+  [-17, -10],
+  [-10, -10],
+  [-22, -5],
+  [-22, 1],
+  [-22, 7],
+  [-22, 13],
+  [-22, 19],
+  [-22, 25],
+  [-15, 13],
+  [-9, 13],
+  [-3, 13],
+  [3, 13],
+  [-9, 6],
+  [-9, 1],
   [-9, -3],
   [-3, -3],
   [3, -3],
-  [-9, 2],
-  [-9, 7],
-  [-9, 13],
-  [-15, 13],
-  [-3, 13],
-  [3, 13],
-  // The assembly block: down the free columns x = 12 and 20 (8 apart).
-  ...[12, 20].flatMap((x) => [-5, -1, 4, 9, 13].map((y) => [x, y] as const)),
-  // The stone drill, south of x = 12.
-  [12, 18],
-  // The engines and the labs: down x = 28, between the two boilers' rows.
-  [28, -5],
-  [28, 0],
-  [28, 5],
-  [28, 11],
+  [-16, 25],
+  [-11, 25],
+  [-6, 25],
+  [1, 25],
+  [4, 25],
+  [11, 25],
+  [-3, -11],
+  [3, -11],
+  [10, -25],
+  [16, -25],
+  [20, -25],
+  [24, -25],
+  [28, -25],
+  [32, -25],
+  [36, -25],
+  [12, -11],
+  [12, -4],
+  [12, -2],
+  [12, 4],
+  [12, 10],
+  [12, 13],
+  [20, -18],
+  [20, -11],
+  [20, -5],
+  [20, -1],
+  [20, 4],
+  [28, -18],
+  [28, -12],
+  [28, -8],
+  [28, -3],
+  [28, 3],
+  [28, 10],
+  [36, -18],
+  [36, -12],
+  [36, -8],
+  [36, -3],
+  [36, 4],
+  [36, 10],
+  [36, 15],
+  [16, 25],
+  [23, 25],
+  [23, 22],
+  [30, 22],
+  [35, 22],
+  [10, -19],
+  [8, -11],
+  [16, -11],
+  [20, 11],
+  [20, 14],
 ];
 
 /** Everything the layout places, counted by item. */
@@ -491,19 +663,26 @@ const key = (x: number, y: number): string => `${String(x)},${String(y)}`;
 
 /**
  * Builds the demo factory: a new game on {@link DEMO_SEED} where the player
- * walks around placing the layout, sets the recipes, fuels the boilers,
- * starts the research and walks to {@link DEMO_SPAWN}. Deterministic: the
- * same simulation (state hash) every time.
+ * walks around placing the layout and setting the recipes it has unlocked,
+ * fuels the boilers and starts the research. The factory then researches the
+ * military branch from its own red and green packs (at most
+ * `unlockTicksMax` ticks, else it throws), the player sets the military recipes
+ * it unlocked and walks to {@link DEMO_SPAWN}, and the factory runs
+ * `warmup` ticks more on research speed, so the player arrives at a factory
+ * at its steady pace. Deterministic: the same simulation (state hash) every
+ * time.
  */
-export function buildDemo(warmup = DEMO_WARMUP_TICKS): Sim {
+export function buildDemo(warmup = DEMO_WARMUP_TICKS, unlockTicksMax = DEMO_UNLOCK_TICKS_MAX): Sim {
   const layout = demoLayout();
   const sim = new Sim({
     seed: DEMO_SEED,
     startingKit: demoKit(layout),
     researched: DEMO_RESEARCHED,
   });
-  const builder = new Builder(sim);
   const world = sim.state.world;
+  enrichDemoOre(world, layout);
+  const builder = new Builder(sim);
+  const force = forceOf(sim.state, 0);
   // The player never stands where something will go.
   const taken = new Set<string>();
   for (const e of layout) {
@@ -566,27 +745,51 @@ export function buildDemo(warmup = DEMO_WARMUP_TICKS): Sim {
     if (j === i) throw new Error(`the builder can't reach ${JSON.stringify(layout[i])}`);
     const batch = layout.slice(i, j);
     ids.push(...builder.place(batch.map(({ item, x, y, dir }) => ({ item, x, y, dir }))));
-    // Recipes for the machines just placed (in reach: they were placed from here).
+    // Recipes for the machines just placed (in reach: they were placed from
+    // here); the military ones wait until the labs have unlocked them.
     batch.forEach((e, k) => {
-      if (e.recipe !== undefined) builder.setRecipe(ids[i + k]!, e.recipe);
+      if (e.recipe !== undefined && isRecipeUnlocked(sim.state, force, e.recipe)) {
+        builder.setRecipe(ids[i + k]!, e.recipe);
+      }
     });
     i = j;
   }
-  // Fuel the boilers and furnaces last, so nothing runs while the factory is built.
-  layout.forEach((e, i) => {
-    if (!e.fill) return;
-    const f = footprintOf(e);
+  /** Walks to entity `i` of the layout unless it is in reach already. */
+  const reach = (i: number): void => {
     const { x: px, y: py } = builder.position;
-    if (!inBuildReach(px, py, f.x, f.y, f.w, f.h)) {
+    if (!reachable(px, py, layout[i]!)) {
       const stand = standFor(i);
       builder.walkTo(stand.x, stand.y);
     }
+  };
+  // Fuel the boilers last, so nothing runs while the factory is built.
+  layout.forEach((e, i) => {
+    if (!e.fill) return;
+    reach(i);
     builder.insert([{ entity: ids[i]!, item: e.fill.item, count: e.fill.count }]);
   });
-  builder.walkTo(DEMO_SPAWN.x, DEMO_SPAWN.y);
-  for (let t = 0; t < warmup; t++) sim.step();
-  // The labs start on automation 2 as the player arrives: the research bar starts at 0.
+  // The labs research the military branch from the red and green packs the
+  // factory makes, the demo's player picking each next technology.
   builder.setResearch(DEMO_RESEARCH);
+  const player = new DemoResearch(sim);
+  for (let t = 0; !sim.state.research.isResearched(force, TechId.MilitarySciencePack); t++) {
+    if (t >= unlockTicksMax)
+      throw new Error('the demo factory never researched its military branch');
+    sim.step();
+    player.afterTick();
+  }
+  // Then the player sets the recipes the research unlocked.
+  layout.forEach((e, i) => {
+    if (e.recipe === undefined || sim.state.entities.selectedRecipe(ids[i]!) === e.recipe) return;
+    reach(i);
+    builder.setRecipe(ids[i]!, e.recipe);
+    player.afterTick();
+  });
+  builder.walkTo(DEMO_SPAWN.x, DEMO_SPAWN.y);
+  for (let t = 0; t < warmup; t++) {
+    sim.step();
+    player.afterTick();
+  }
   return sim;
 }
 

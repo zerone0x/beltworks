@@ -228,8 +228,12 @@ describe('military science technologies (D76)', () => {
     expect(isRecipeUnlocked(sim([]).state, 0, RecipeId.FirearmMagazine)).toBe(true);
   });
 
-  it('keep research speed red + green: the demo has no military line yet', () => {
-    expect(TECHNOLOGIES[TechId.ResearchSpeed].packs).toEqual([RED, GREEN]);
+  it('make research speed cost red + green + military, now that the demo makes military packs (D77)', () => {
+    expect(TECHNOLOGIES[TechId.ResearchSpeed].packs).toEqual([
+      RED,
+      GREEN,
+      ItemId.MilitarySciencePack,
+    ]);
   });
 });
 

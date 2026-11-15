@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ENTITIES, entityForItem } from '../../src/data/entities';
+import { ENTITIES, SAT_ONE, entityForItem, inserterReach } from '../../src/data/entities';
 import { ItemId } from '../../src/data/items';
+import { RecipeId } from '../../src/data/recipes';
 import { ResourceId } from '../../src/data/resources';
 import { TECHNOLOGIES, TechId } from '../../src/data/technologies';
+import { DIRECTION_DX, DIRECTION_DY } from '../../src/sim/entities/direction';
 import { footprintSize } from '../../src/sim/entities/store';
 import { MachineState } from '../../src/sim/entities/machine';
 import { powerGrid } from '../../src/sim/power/grid';
@@ -10,145 +12,176 @@ import { polesConnect, supplyRect } from '../../src/sim/power/geometry';
 import { DEFAULT_FORCE } from '../../src/sim/research/unlocks';
 import {
   DEMO_BOUNDS,
+  DEMO_FINAL_RESEARCH,
+  DEMO_ORE_PER_TILE,
   DEMO_POLES,
-  DEMO_RESEARCH,
   DEMO_RESEARCH_CHAIN,
+  DEMO_SEED,
   DEMO_SPAWN,
   DemoResearch,
   buildDemo,
   demoKit,
   demoLayout,
   demoTagged,
+  enrichDemoOre,
   type DemoEntity,
 } from '../../src/sim/scenarios/demo';
 import { ProductionCounter } from '../../src/sim/scenarios/production';
-import type { Sim } from '../../src/sim/tick';
+import { Sim } from '../../src/sim/tick';
+import { World } from '../../src/sim/world/world';
 import { reload, stepTogether } from './saveRoundTrip';
 
 const hex = (h: number): string => `0x${h.toString(16).padStart(8, '0')}`;
 const pct = (share: number): string => `${(100 * share).toFixed(0)}%`;
 
 const MINUTE = 60 * 60;
-/** The first window the production checks cover: two minutes of play after the demo starts. */
-const FIRST = 2 * MINUTE;
-/** Research units the labs finish within `FIRST`, at least. */
-const UNITS = 30;
 /**
- * The long run: an hour and a half of play after the demo starts, in
- * five-minute windows: the tech tree ends after about 64 minutes, and the
- * labs then research research speed, level after level (D74).
+ * The run the production checks play after the demo is built: an hour by
+ * default (CI), in ten-minute windows. `DEMO_MINUTES=180 npx vitest run
+ * tests/sim/demo.test.ts` plays three hours with the same checks (the long
+ * probe, opt-in: about two minutes).
  */
-const WINDOW = 5 * MINUTE;
-const WINDOWS = 18;
-/** The windows of the first hour, which the tech tree's technologies fill. */
-const HOUR_WINDOWS = 12;
+const RUN_MINUTES = Number(process.env.DEMO_MINUTES ?? 60);
+const WINDOW = 10 * MINUTE;
+const WINDOWS = Math.max(1, Math.floor(RUN_MINUTES / 10));
 
 /**
- * Least share of the first two minutes each tagged machine spends working
- * (`Working`), by tag prefix: the drills feeding the furnaces, every
- * furnace, the science machines and the labs run flat out (the promo
- * footage is taken then, and an idle furnace shows dark on camera); the
- * machines making intermediates wait between crafts. Inserters top a
- * furnace up to 2 ores and 5 coal (D75), so the coal drills and the last
- * copper drill wait for room on their belts once the furnaces are topped up.
+ * The research pace the factory is sized for (D77): units of research speed
+ * per second, each a red, a green and a military pack. Two red machines (an
+ * assembling machine 2 and a 1), two green ones (2s) and two military ones
+ * (a 2 and a 1) make exactly 0.25 packs of each per second.
  */
-const BUSY: readonly (readonly [prefix: string, share: number])[] = [
-  ['iron-drill', 0.9],
-  ['copper-drill', 0.45],
-  ['coal-drill', 0.15],
-  ['plant-coal-drill', 0.5],
-  ['stone-drill', 0.9],
-  ['iron-furnace', 0.9],
-  ['copper-furnace', 0.9],
-  ['boiler', 0.9],
-  ['gears', 0.6],
-  ['red-', 0.9],
-  ['green-', 0.9],
-  ['cable', 0.4],
-  ['circuits', 0.2],
-  ['inserters', 0.2],
-  ['belts', 0.2],
-  ['lab-', 0.9],
-];
+const PACKS_PER_SECOND = 0.25;
+/** Labs: four, each a unit per 15 s at research speed level 0. */
+const LABS = 4;
 
 /**
- * Least share of every five-minute window of the long run the tagged
- * machines of each group spend working, by tag prefix (after the first
- * window, which `BUSY` covers), and how many of the group may work less: the
- * labs and the science machines never stop, and neither does anything
- * between the ore and them. The smelting is sized for the first minutes,
- * while the machines making intermediates fill their output slots (the
- * warm-up covers most of that); once those are full it makes more than the
- * machines use, so the last furnaces in line (one iron, two copper: the
- * copper plates of the east side join the bus after the west side's) and
- * the last drill on the iron and copper belts wait for room, while the rest
- * keep going. The science machines make more packs than the labs use, and
- * since a lab takes only 2 of each from inserters (D75) the extra fills the
- * science belts instead of the labs' slots: after about 40 minutes one red
- * and one green machine wait for room, and the machines feeding them (and
- * the furnaces and drills behind those) slow down with them. The labs never
- * stop.
+ * Least share of every window each tagged machine spends working
+ * (`Working`), by tag, and how many of the tag may work less than 90% (the
+ * rest work at least 90%). Each floor is the machine's expected share
+ * (what the science needs of it, over what it can make) less a margin:
+ * - the science machines, every furnace, the stone drills, the grenade
+ *   machines and the boilers are what the line is sized on: 100% expected;
+ * - the intermediates make more than the science needs, so they wait
+ *   between crafts: gears 0.625 of a machine (62%), cable 0.375, circuits
+ *   and electric inserters 0.25, transport belts 0.125, firearm magazines
+ *   0.25 (31% while its output slot fills), piercing rounds 0.75, walls 0.25;
+ * - ore and coal drills come in whole drills: 8 iron drills for 7.25 drills'
+ *   worth of ore and 3 copper ones for 2.5, so the one at the head of each
+ *   ore belt waits for room (about 50%); 5 coal drills for about 4.5 drills'
+ *   worth (the power plant takes what the machines draw), so two of them
+ *   work about 77%; the two fuel drills feed only the iron (54%) and copper
+ *   (18%) furnaces' coal lanes.
  */
-const BUSY_LONG: readonly (readonly [prefix: string, share: number, idle: number])[] = [
-  ['lab-', 0.85, 0],
-  ['red-', 0.9, 1],
-  ['green-', 0.9, 1],
-  ['gears', 0.4, 0],
-  ['cable', 0.2, 0],
-  ['circuits', 0.15, 0],
-  ['inserters', 0.15, 0],
-  ['belts', 0.05, 0],
-  ['iron-furnace', 0.2, 3],
-  ['copper-furnace', 0.2, 2],
-  ['iron-drill', 0.2, 2],
-  ['copper-drill', 0.2, 2],
+const BUSY: readonly (readonly [tag: string, floor: number, below90: number])[] = [
+  ['iron-drill', 0.2, 1],
+  ['copper-drill', 0.4, 1],
+  ['coal-drill', 0.6, 2],
+  ['fuel-drill', 0.12, 2],
+  ['stone-drill', 0.9, 0],
+  ['iron-furnace', 0.55, 1],
+  ['copper-furnace', 0.9, 0],
+  ['steel-furnace', 0.9, 0],
+  ['brick-furnace', 0.9, 0],
   ['boiler', 0.9, 0],
+  ['gears', 0.55, 1],
+  ['cable', 0.33, 1],
+  ['circuits', 0.2, 1],
+  ['inserters', 0.2, 1],
+  ['belts', 0.1, 1],
+  ['firearm', 0.2, 1],
+  ['piercing', 0.7, 1],
+  ['walls', 0.2, 1],
+  ['grenade', 0.9, 0],
+  ['red', 0.9, 0],
+  ['green', 0.9, 0],
+  ['military', 0.9, 0],
 ];
 
 /**
- * Science packs on the science belts at any window's end of the first hour,
- * at most: the science machines make a little more than the three labs use,
- * and the labs take only 2 of each from inserters (D75), so the extra waits
- * on the belts: they fill up within the first five minutes (about 340 of the
- * 388 they hold, the red lane first) and stay full.
+ * The labs' expected share at research speed level `levels`: they make
+ * 15 / (1 + 0.1 levels) s per unit and get a unit's packs every
+ * 1 / PACKS_PER_SECOND s between the four of them (D74: research speed makes
+ * labs faster, so they wait a little longer for the next pack each level).
  */
-const MOST_PACKS_ON_BELTS = 360;
-/**
- * And after the hour, on research speed (D74): they stay as full as in the
- * hour (338–340 from minute 60 to 90).
- */
-const MOST_PACKS_ON_BELTS_LATER = 360;
-/** Packs the science belts may gain over the last three windows (they don't fill up). */
-const MOST_PACKS_GAINED_LATE = 10;
+const labShare = (levels: number): number =>
+  (PACKS_PER_SECOND * TECHNOLOGIES[TechId.ResearchSpeed].ticksPerUnit) /
+  60 /
+  LABS /
+  (1 + levels / 10);
+/** Most the four labs' shares may differ in a window: the splitters share the packs out evenly. */
+const LAB_SPREAD = 0.05;
+
+/** Packs the science belts may gain or lose over the run, at most (they don't fill up or run dry). */
+const PACKS_DRIFT = 30;
 
 interface Window {
   /** Working ticks by entity id. */
   working: Map<number, number>;
   minSatisfaction: number;
+  /** Ticks some lab had nothing to research. */
+  noResearch: number;
+  /** Research speed levels done at the window's end. */
+  levels: number;
   /** Science packs on the science belts at the window's end. */
   packs: number;
+  /** Each science pack made in the window. */
+  made: number[];
+  /** Units the drills mined in the window, by ore name. */
+  mined: Record<string, number>;
 }
 
 interface Run {
   sim: Sim;
-  /** The first `FIRST` ticks. */
-  first: Window & { counts: ReturnType<ProductionCounter['read']>; units: number };
-  /** The long run's windows, the first one included. */
   windows: Window[];
-  /** The tick (since the demo started) each technology of the chain completed at. */
-  completedAt: Map<number, number>;
-  /** The tick (since the demo started) each level of research speed completed at. */
+  /** The tick (since the run started) each research speed level completed at. */
   levelsAt: number[];
-  /** The last tick (since the demo started) a lab had nothing to research, or -1. */
-  lastNoResearch: number;
+  counts: ReturnType<ProductionCounter['read']>;
+  /** Inserters that pick from a belt, and the windows each one moved in. */
+  beltInserterMoves: Map<number, number>;
+  /** Drills that ran out of ore (reported `Depleted`), with the tick it first happened. */
+  depleted: Map<number, number>;
 }
+
+const DAY = 24 * 60 * 60;
+
+/** The ore each drill of the layout mines, by tag, and its item's name. */
+const DRILL_ORE: Readonly<Record<string, { resource: number; item: string }>> = {
+  'iron-drill': { resource: ResourceId.IronOre, item: 'iron-ore' },
+  'copper-drill': { resource: ResourceId.CopperOre, item: 'copper-ore' },
+  'coal-drill': { resource: ResourceId.Coal, item: 'coal' },
+  'fuel-drill': { resource: ResourceId.Coal, item: 'coal' },
+  'stone-drill': { resource: ResourceId.Stone, item: 'stone' },
+};
+
+/**
+ * The tiles drill `e` of the layout mines, worked out here rather than taken
+ * from the scenario: an electric mining drill (3×3) mines the 5×5 tiles
+ * centred on it.
+ */
+function drillArea(e: DemoEntity): { x: number; y: number }[] {
+  expect(e.item, `drill at ${at(e.x, e.y)}`).toBe(ItemId.ElectricMiningDrill);
+  const tiles: { x: number; y: number }[] = [];
+  for (let y = e.y - 1; y <= e.y + 3; y++)
+    for (let x = e.x - 1; x <= e.x + 3; x++) tiles.push({ x, y });
+  return tiles;
+}
+
+/** The layout's drills: every entity that mines, each tagged with its ore. */
+function layoutDrills(): DemoEntity[] {
+  const drills = demoLayout().filter((e) => entityForItem(e.item)?.miningTicks !== undefined);
+  for (const e of drills) expect(DRILL_ORE[e.tag ?? ''], `ore of ${at(e.x, e.y)}`).toBeDefined();
+  return drills;
+}
+
+const PACK_NAMES = ['automation-science-pack', 'logistic-science-pack', 'military-science-pack'];
 
 const SCIENCE_BELTS: number[] = [ItemId.ExpressTransportBelt, ItemId.ExpressUndergroundBelt];
 
 function packsOnBelts(sim: Sim): number {
   let packs = 0;
   for (const e of demoLayout()) {
-    if (!SCIENCE_BELTS.includes(e.item)) continue;
+    if (!SCIENCE_BELTS.includes(e.item) && e.tag !== 'science-splitter') continue;
     for (const { count } of sim.state.entities.contents(sim.state.entities.at(e.x, e.y))) {
       packs += count;
     }
@@ -156,69 +189,137 @@ function packsOnBelts(sim: Sim): number {
   return packs;
 }
 
-const unitsDone = (sim: Sim): number =>
-  DEMO_RESEARCH_CHAIN.reduce((n, tech) => n + sim.state.research.unitsDone(DEFAULT_FORCE, tech), 0);
+const at = (x: number, y: number): string => `(${String(x)}, ${String(y)})`;
+
+/** The tiles entity `e` of the layout covers. */
+function footprint(e: DemoEntity): { x: number; y: number; w: number; h: number } {
+  const proto = entityForItem(e.item) ?? ENTITIES[1];
+  return { x: e.x, y: e.y, ...footprintSize(proto, e.dir) };
+}
+
+/** The tile inserter `e` of the layout picks up from. */
+function pickupTile(e: DemoEntity): { x: number; y: number } {
+  const reach = inserterReach(entityForItem(e.item)!);
+  return { x: e.x - DIRECTION_DX[e.dir]! * reach, y: e.y - DIRECTION_DY[e.dir]! * reach };
+}
+
+const isInserter = (e: DemoEntity): boolean => entityForItem(e.item)?.swingTicks !== undefined;
+const isBelt = (e: DemoEntity): boolean => entityForItem(e.item)?.beltSpeed !== undefined;
+
+let built: Sim | null = null;
+/** The demo as the player finds it (built once; tests take copies, save and load). */
+function demo(): Sim {
+  if (!built) {
+    built = buildDemo();
+    // A first network query compresses the power grid's union-find paths,
+    // which the save writes (the hash doesn't see them): query once, so the
+    // copy below saves to the same bytes as the original.
+    built.hash();
+  }
+  return reload(built);
+}
 
 let cached: Run | null = null;
 /**
- * The demo, built and run for an hour with its player picking the next
- * research as the worker does (once for every test that needs it).
+ * The demo played for `RUN_MINUTES` with its research player, as the worker
+ * runs it (once for every test that needs it).
  */
 function run(): Run {
   if (cached) return cached;
-  const sim = buildDemo();
-  const ids = [...demoTagged(sim).values()].flat();
+  const sim = demo();
+  const tagged = demoTagged(sim);
+  const ids = [...tagged.values()].flat();
+  const labs = tagged.get('lab')!;
+  const beltTiles = new Set(
+    demoLayout()
+      .filter(isBelt)
+      .map((e) => at(e.x, e.y)),
+  );
+  const beltInserters = demoLayout()
+    .filter((e) => isInserter(e) && beltTiles.has(at(pickupTile(e).x, pickupTile(e).y)))
+    .map((e) => sim.state.entities.at(e.x, e.y));
+  const beltInserterMoves = new Map<number, number>(beltInserters.map((id) => [id, 0]));
   const counter = new ProductionCounter(sim);
   const grid = powerGrid(sim.state.entities)!;
-  const completedAt = new Map<number, number>();
-  const levelsAt: number[] = [];
-  let lastNoResearch = -1;
-  const labs = [...demoTagged(sim)].filter(([tag]) => tag.startsWith('lab-')).flatMap(([, l]) => l);
-  const windows: Window[] = [];
-  const start = sim.tick;
   const player = new DemoResearch(sim);
-  let first: Run['first'] | null = null;
-  let window: Window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
-  const firstWindow: Window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
+  const levelsAt: number[] = [];
+  const windows: Window[] = [];
+  const fresh = (): Window => ({
+    working: new Map(),
+    minSatisfaction: Infinity,
+    noResearch: 0,
+    levels: 0,
+    packs: 0,
+    made: [],
+    mined: {},
+  });
+  const depleted = new Map<number, number>();
+  const windowCounter = new ProductionCounter(sim);
+  let window = fresh();
+  let moved = new Set<number>();
+  const levels = (): number => sim.state.research.levelsDone(DEFAULT_FORCE, TechId.ResearchSpeed);
+  const startLevels = levels();
   for (let t = 1; t <= WINDOWS * WINDOW; t++) {
     sim.step();
     player.afterTick();
-    if (t <= FIRST) counter.observe();
+    counter.observe();
+    windowCounter.observe();
     for (const id of ids) {
-      if (sim.state.entities.status(id) === MachineState.Working) {
+      const status = sim.state.entities.status(id);
+      if (status === MachineState.Working) {
         window.working.set(id, (window.working.get(id) ?? 0) + 1);
-        if (t <= FIRST) firstWindow.working.set(id, (firstWindow.working.get(id) ?? 0) + 1);
+      } else if (status === MachineState.Depleted && !depleted.has(id)) {
+        depleted.set(id, t);
       }
-    }
-    for (const net of grid.networkIds()) {
-      const s = grid.network(net)!.satisfaction;
-      window.minSatisfaction = Math.min(window.minSatisfaction, s);
-      if (t <= FIRST) firstWindow.minSatisfaction = Math.min(firstWindow.minSatisfaction, s);
-    }
-    for (const tech of DEMO_RESEARCH_CHAIN) {
-      if (!completedAt.has(tech) && sim.state.research.isResearched(DEFAULT_FORCE, tech)) {
-        completedAt.set(tech, sim.tick - start);
-      }
-    }
-    if (sim.state.research.levelsDone(DEFAULT_FORCE, TechId.ResearchSpeed) > levelsAt.length) {
-      levelsAt.push(sim.tick - start);
     }
     for (const id of labs) {
-      if (sim.state.entities.status(id) === MachineState.NoResearch)
-        lastNoResearch = sim.tick - start;
+      if (sim.state.entities.status(id) === MachineState.NoResearch) window.noResearch++;
     }
-    if (t === FIRST) {
-      firstWindow.packs = packsOnBelts(sim);
-      first = { ...firstWindow, counts: counter.read(), units: unitsDone(sim) };
+    for (const id of beltInserters) {
+      if (sim.state.entities.status(id) === MachineState.Working) moved.add(id);
     }
+    for (const net of grid.networkIds()) {
+      window.minSatisfaction = Math.min(window.minSatisfaction, grid.network(net)!.satisfaction);
+    }
+    if (levels() - startLevels > levelsAt.length) levelsAt.push(t);
     if (t % WINDOW === 0) {
+      window.levels = levels();
       window.packs = packsOnBelts(sim);
+      const counts = windowCounter.read();
+      window.made = PACK_NAMES.map((pack) => counts.made[pack] ?? 0);
+      window.mined = counts.mined;
+      windowCounter.reset();
       windows.push(window);
-      window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
+      window = fresh();
+      for (const id of moved) beltInserterMoves.set(id, beltInserterMoves.get(id)! + 1);
+      moved = new Set();
     }
   }
-  cached = { sim, first: first!, windows, completedAt, levelsAt, lastNoResearch };
+  cached = { sim, windows, levelsAt, counts: counter.read(), beltInserterMoves, depleted };
+  if (process.env.DEMO_MINUTES !== undefined) logWindows(cached);
   return cached;
+}
+
+/**
+ * The long probe's table (vitest drops console.log): per window, the packs
+ * made a second, the lowest lab share, the ore mined and the drills dry.
+ */
+function logWindows({ sim, windows, depleted }: Run): void {
+  const labs = demoTagged(sim).get('lab')!;
+  const ores = ['iron-ore', 'copper-ore', 'coal', 'stone'];
+  const rows = [
+    `| minutes | red/s | green/s | military/s | labs (lowest) | level | ${ores.join(' | ')} | drills dry |`,
+    `|---|---|---|---|---|---|${ores.map(() => '---|').join('')}---|`,
+  ];
+  windows.forEach((w, i) => {
+    const end = WINDOW * (i + 1);
+    const dry = [...depleted.values()].filter((t) => t <= end).length;
+    const low = Math.min(...labs.map((id) => (w.working.get(id) ?? 0) / WINDOW));
+    rows.push(
+      `| ${String(10 * i)}-${String(10 * i + 10)} | ${w.made.map((n) => (n / (WINDOW / 60)).toFixed(3)).join(' | ')} | ${pct(low)} | ${String(w.levels)} | ${ores.map((o) => String(w.mined[o] ?? 0)).join(' | ')} | ${String(dry)} |`,
+    );
+  });
+  process.stderr.write(`${rows.join('\n')}\n`);
 }
 
 /** Plays `ticks` ticks of the demo with its research player, as the worker does. */
@@ -234,16 +335,8 @@ function pick(sim: Sim, tech: number): void {
   sim.enqueue({ type: 'SetResearch', playerId: 0, tech, tick: sim.tick });
 }
 
-const at = (x: number, y: number): string => `(${String(x)}, ${String(y)})`;
-
-/** The tiles entity `e` of the layout covers. */
-function footprint(e: DemoEntity): { x: number; y: number; w: number; h: number } {
-  const proto = entityForItem(e.item) ?? ENTITIES[1];
-  return { x: e.x, y: e.y, ...footprintSize(proto, e.dir) };
-}
-
-// The first test that needs it plays the hour and a half (about 15 s).
-describe('demo factory', { timeout: 120_000 }, () => {
+// The first test that needs it builds the demo (about 4 s) and plays the hour (about 30 s).
+describe('demo factory', { timeout: 600_000 }, () => {
   it('lays out every entity inside its bounds, without overlaps, with everything in the kit', () => {
     const layout = demoLayout();
     const taken = new Set<string>();
@@ -253,8 +346,8 @@ describe('demo factory', { timeout: 120_000 }, () => {
         for (let x = f.x; x < f.x + f.w; x++) {
           expect(taken.has(at(x, y)), `overlap at ${at(x, y)}`).toBe(false);
           taken.add(at(x, y));
-          expect(x >= DEMO_BOUNDS.x0 && x <= DEMO_BOUNDS.x1).toBe(true);
-          expect(y >= DEMO_BOUNDS.y0 && y <= DEMO_BOUNDS.y1).toBe(true);
+          expect(x >= DEMO_BOUNDS.x0 && x <= DEMO_BOUNDS.x1, `x of ${at(x, y)}`).toBe(true);
+          expect(y >= DEMO_BOUNDS.y0 && y <= DEMO_BOUNDS.y1, `y of ${at(x, y)}`).toBe(true);
         }
       }
     }
@@ -264,38 +357,46 @@ describe('demo factory', { timeout: 120_000 }, () => {
     for (const e of layout) expect(kit.get(e.item) ?? 0).toBeGreaterThan(0);
   });
 
-  it('pre-fills nothing but coal', () => {
+  it('pre-fills nothing but a little coal in the boilers', () => {
     // Every plate, gear, circuit and pack is made from mined ore (D72); the
-    // builder only gives the boilers and furnaces a little coal to start with.
+    // builder only gives the boilers coal to start the power plant with.
+    // Inserters cap what they put into furnaces (D75), so the furnaces
+    // nearest the start of a furnace belt no longer take all the coal and
+    // need no head start.
     const fills = demoLayout().filter((e) => e.fill);
     expect(fills.length).toBeGreaterThan(0);
     for (const e of fills) {
-      expect(e.fill!.item, `what ${e.tag ?? at(e.x, e.y)} starts with`).toBe(ItemId.Coal);
-      expect(e.fill!.count).toBeLessThanOrEqual(10);
+      expect(e.item, `what ${e.tag ?? at(e.x, e.y)} is`).toBe(ItemId.Boiler);
+      expect(e.fill!.item).toBe(ItemId.Coal);
+      expect(e.fill!.count).toBeLessThanOrEqual(5);
     }
   });
 
-  it('wires its poles in straight lines that cross no machine', () => {
+  it('wires its poles in straight lines that cross no machine, with nothing in front of a pole', () => {
     // Every pair of poles within reach of each other is wired (polesConnect),
     // so where the poles stand decides the wires. On camera, a wire should run
     // north-south or east-west, never over a machine, and never double up
     // along another wire. A wire hangs about a tile above the ground (the
     // pole's height), so it shows over the row above its tiles: no machine
-    // stands there along an east-west wire, nor right above a pole, whose top
-    // would cover it. No exceptions.
+    // stands there along an east-west wire. A pole's top covers the tile
+    // north of it, so nothing at all stands there (#149). No exceptions.
     const layout = demoLayout();
     const pole = entityForItem(ItemId.SmallElectricPole)!;
     const machines = new Map<string, string>();
+    const anything = new Map<string, string>();
     for (const e of layout) {
       const f = footprint(e);
-      if (f.w < 2 || f.h < 2) continue;
       for (let y = f.y; y < f.y + f.h; y++) {
-        for (let x = f.x; x < f.x + f.w; x++) machines.set(at(x, y), e.tag ?? String(e.item));
+        for (let x = f.x; x < f.x + f.w; x++) {
+          const name = e.tag ?? entityForItem(e.item)!.name;
+          anything.set(at(x, y), name);
+          if (f.w >= 2 && f.h >= 2) machines.set(at(x, y), name);
+        }
       }
     }
     let wires = 0;
     for (const [ax, ay] of DEMO_POLES) {
-      expect(machines.get(at(ax, ay - 1)), `a machine behind the pole at ${at(ax, ay)}`).toBe(
+      expect(anything.get(at(ax, ay - 1)), `something right behind the pole at ${at(ax, ay)}`).toBe(
         undefined,
       );
       const directions = new Set<string>();
@@ -320,17 +421,18 @@ describe('demo factory', { timeout: 120_000 }, () => {
         }
       }
     }
+    // A tree: one wire fewer than poles, and (below) one network.
     expect(wires / 2).toBe(DEMO_POLES.length - 1);
   });
 
   it('powers every electric entity from one network', () => {
-    const sim = buildDemo();
+    const sim = demo();
     const grid = powerGrid(sim.state.entities)!;
     expect(grid.networkCount).toBe(1);
     const pole = entityForItem(ItemId.SmallElectricPole)!;
     for (const e of demoLayout()) {
       const proto = entityForItem(e.item)!;
-      if (proto.energySource !== 'electric') continue;
+      if (proto.energySource !== 'electric' && e.item !== ItemId.SteamEngine) continue;
       const f = footprint(e);
       const covered = DEMO_POLES.some(([px, py]) => {
         const r = supplyRect(pole, px, py);
@@ -341,195 +443,282 @@ describe('demo factory', { timeout: 120_000 }, () => {
     }
   });
 
+  it('ends every belt on an inserter or another belt, so nothing gathers at a dead end', () => {
+    // A belt whose last tile no inserter takes from would keep what reaches
+    // it there for good, and gather more (the mall belt of #151). Every line
+    // ends where an inserter picks up, or runs on into another belt (a
+    // side-load, a splitter, an underground).
+    const layout = demoLayout();
+    const belts = new Set<string>();
+    for (const e of layout.filter(isBelt)) {
+      const f = footprint(e);
+      for (let y = f.y; y < f.y + f.h; y++)
+        for (let x = f.x; x < f.x + f.w; x++) belts.add(at(x, y));
+    }
+    const pickups = new Set(
+      layout.filter(isInserter).map((e) => {
+        const p = pickupTile(e);
+        return at(p.x, p.y);
+      }),
+    );
+    const deadEnds: string[] = [];
+    for (const e of layout) {
+      const proto = entityForItem(e.item);
+      if (!proto?.beltSpeed || proto.splitter) continue;
+      const isEntrance = (() => {
+        if (!proto.undergroundMaxGap) return false;
+        // An entrance is the one of a pair whose partner lies in front of it.
+        const dx = DIRECTION_DX[e.dir]!;
+        const dy = DIRECTION_DY[e.dir]!;
+        for (let k = 1; k <= proto.undergroundMaxGap + 1; k++) {
+          const other = layout.find((o) => o.x === e.x + dx * k && o.y === e.y + dy * k);
+          if (other?.item === e.item && other.dir === e.dir) return true;
+        }
+        return false;
+      })();
+      if (isEntrance) continue;
+      const front = at(e.x + DIRECTION_DX[e.dir]!, e.y + DIRECTION_DY[e.dir]!);
+      if (belts.has(front) || pickups.has(at(e.x, e.y))) continue;
+      deadEnds.push(`${entityForItem(e.item)!.name} at ${at(e.x, e.y)}`);
+    }
+    expect(deadEnds).toEqual([]);
+  });
+
   it('is built through commands the same way every time (same state hash)', () => {
     const a = buildDemo();
     const b = buildDemo();
     expect(hex(b.hash())).toBe(hex(a.hash()));
     stepTogether(a, b, 300);
-    // Built, the player stands by the factory, which is researching automation 2 from 0.
+    // Built, the player stands by the factory, which researches research speed.
     const { players, research, entities } = a.state;
     expect(Math.floor(players.x[0]! / 256)).toBe(DEMO_SPAWN.x);
     expect(Math.floor(players.y[0]! / 256)).toBe(DEMO_SPAWN.y);
-    expect(research.currentOf(DEFAULT_FORCE)).toBe(DEMO_RESEARCH);
+    expect(research.currentOf(DEFAULT_FORCE)).toBe(DEMO_FINAL_RESEARCH);
     expect(entities.count).toBe(demoLayout().length);
   });
 
-  it('puts every drill on its ore', () => {
-    const sim = buildDemo();
-    const ore: Record<string, number> = {
-      'iron-drill': ResourceId.IronOre,
-      'copper-drill': ResourceId.CopperOre,
-      'coal-drill': ResourceId.Coal,
-      'plant-coal-drill': ResourceId.Coal,
-      'stone-drill': ResourceId.Stone,
-    };
-    for (const [tag, ids] of demoTagged(sim)) {
-      if (!(tag in ore)) continue;
-      for (const id of ids) {
-        const f = sim.state.entities.footprint(id);
-        let tiles = 0;
-        for (let y = f.y - 1; y <= f.y + 3; y++) {
-          for (let x = f.x - 1; x <= f.x + 3; x++) {
-            const r = sim.state.world.resourceAt(x, y);
-            expect([ResourceId.None, ore[tag]]).toContain(r);
-            if (r === ore[tag]) tiles++;
-          }
+  it('sets the ore under its drills, and nothing else, before the first tick', () => {
+    // A fresh world of the demo's seed, as a new game gets it (D77).
+    const generated = new World(DEMO_SEED);
+    expect(new Sim({ seed: DEMO_SEED }).state.world.hashInto()).toBe(generated.hashInto());
+    const world = new World(DEMO_SEED);
+    enrichDemoOre(world, demoLayout());
+    const mined = new Set(
+      layoutDrills()
+        .flatMap(drillArea)
+        .map(({ x, y }) => at(x, y)),
+    );
+    let set = 0;
+    let bare = 0;
+    for (let y = DEMO_BOUNDS.y0 - 3; y <= DEMO_BOUNDS.y1 + 3; y++) {
+      for (let x = DEMO_BOUNDS.x0 - 3; x <= DEMO_BOUNDS.x1 + 3; x++) {
+        const r = generated.resourceAt(x, y);
+        // No tile gains or loses a resource.
+        expect(world.resourceAt(x, y), `resource at ${at(x, y)}`).toBe(r);
+        expect(generated.amountAt(x, y)).toBeLessThan(DEMO_ORE_PER_TILE);
+        if (mined.has(at(x, y)) && r !== ResourceId.None) {
+          expect(world.amountAt(x, y), `ore at ${at(x, y)}`).toBe(DEMO_ORE_PER_TILE);
+          set++;
+        } else {
+          expect(world.amountAt(x, y), `ore at ${at(x, y)}`).toBe(generated.amountAt(x, y));
+          if (r !== ResourceId.None) bare++;
         }
-        expect(tiles, `${tag} ${String(id)}: ore tiles under it`).toBeGreaterThanOrEqual(10);
       }
     }
+    // Every drill's area, the drills at both ends of a row included (23 drills).
+    expect(set).toBeGreaterThan(300);
+    expect(bare, 'ore outside the drills keeps its amount').toBeGreaterThan(0);
   });
 
-  it('researches automation 2 from ore within two minutes, on enough power', () => {
-    const { first, completedAt } = run();
-    expect(TECHNOLOGIES[DEMO_RESEARCH].units).toBe(40);
-    expect(completedAt.get(DEMO_RESEARCH)).toBeLessThanOrEqual(FIRST);
-    expect(first.units).toBeGreaterThanOrEqual(UNITS);
-    expect(first.minSatisfaction).toBe(1 << 16);
-    const { mined, made, consumed } = first.counts;
-    for (const ore of ['iron-ore', 'copper-ore', 'coal', 'stone']) {
-      expect(mined[ore], ore).toBeGreaterThan(0);
+  it('puts every drill on its ore, every tile it mines holding a week of ore flat out', () => {
+    const sim = demo();
+    const { world } = sim.state;
+    const generated = new World(DEMO_SEED);
+    // Units a second the drills reaching a tile take from it at most: a drill
+    // mines its ore tiles in turn, so each gets its share of the drill's pace.
+    const draw = new Map<string, number>();
+    let drills = 0;
+    for (const e of layoutDrills()) {
+      const tiles = drillArea(e);
+      drills++;
+      const ore = DRILL_ORE[e.tag!];
+      const oreTiles = tiles.filter(({ x, y }) => {
+        const r = world.resourceAt(x, y);
+        expect([ResourceId.None, ore!.resource], `ore at ${at(x, y)}`).toContain(r);
+        // Nothing mined a tile dry, and no tile gained ore.
+        expect(r, `resource at ${at(x, y)}`).toBe(generated.resourceAt(x, y));
+        return r === ore!.resource;
+      });
+      expect(oreTiles.length, `ore tiles under ${at(e.x, e.y)}`).toBeGreaterThanOrEqual(10);
+      const pace = 60 / entityForItem(e.item)!.miningTicks!;
+      for (const { x, y } of oreTiles) {
+        draw.set(at(x, y), (draw.get(at(x, y)) ?? 0) + pace / oreTiles.length);
+      }
     }
-    for (const item of [
-      'iron-plate',
-      'copper-plate',
-      'iron-gear-wheel',
-      'copper-cable',
-      'electronic-circuit',
-      'electric-inserter',
-      'transport-belt',
-      'automation-science-pack',
-      'logistic-science-pack',
-    ]) {
-      expect(made[item], item).toBeGreaterThan(0);
+    expect(drills).toBe(23);
+    let shortest = Infinity;
+    for (const [tile, perSecond] of draw) {
+      const [x, y] = tile.slice(1, -1).split(', ').map(Number) as [number, number];
+      shortest = Math.min(shortest, world.amountAt(x, y) / perSecond);
     }
-    // Every unit of automation 2 took one red and one green pack; the
-    // technologies after it may take red packs only.
-    expect(consumed['automation-science-pack']).toBeGreaterThanOrEqual(UNITS);
-    expect(consumed['logistic-science-pack']).toBeGreaterThanOrEqual(
-      TECHNOLOGIES[DEMO_RESEARCH].units,
-    );
-    // The furnaces run on the mined coal: plates keep up with the ore they get.
-    expect(made['iron-plate']).toBeGreaterThan(0.8 * mined['iron-ore']!);
+    expect(
+      shortest / DAY,
+      'days until the first tile runs dry, every drill flat out',
+    ).toBeGreaterThan(7);
   });
 
-  it('goes on researching after automation 2, through the tech tree and on to research speed', () => {
-    const { sim, completedAt, levelsAt, lastNoResearch } = run();
-    const done = completedAt.get(DEMO_RESEARCH)!;
-    // Each technology of the chain starts as the one before completes...
-    const order = DEMO_RESEARCH_CHAIN.map((tech) => completedAt.get(tech) ?? Infinity);
-    expect(order).toEqual([...order].sort((a, b) => a - b));
-    // ...so the labs are still at it several minutes after automation 2,
-    expect(completedAt.get(TechId.Logistics)).toBeLessThan(done + 5 * MINUTE);
-    expect(completedAt.get(TechId.FastInserter)).toBeLessThan(done + 10 * MINUTE);
-    // and through the last technology of the tree,
-    expect(DEMO_RESEARCH_CHAIN.at(-1)).toBe(TechId.ResearchSpeed);
-    expect(completedAt.get(TechId.Logistics3)).toBeLessThan(70 * MINUTE);
-    // then on research speed (D74), which has no last level: the labs never
-    // wait for research again (only for the tick the chain picks it on), level
-    // after level, each taking longer than the one before.
-    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.ResearchSpeed);
-    expect(lastNoResearch).toBeLessThanOrEqual(completedAt.get(TechId.Logistics3)! + 1);
-    expect(levelsAt.length).toBeGreaterThanOrEqual(2);
-    expect(levelsAt[0]).toBeGreaterThan(completedAt.get(TechId.Logistics3)!);
-    expect(levelsAt[1]! - levelsAt[0]!).toBeGreaterThan(
-      levelsAt[0]! - completedAt.get(TechId.Logistics3)!,
-    );
-    expect(sim.state.research.levelsDone(DEFAULT_FORCE, TechId.ResearchSpeed)).toBe(
-      levelsAt.length,
-    );
+  it('throws if the factory does not research its military branch in time', () => {
+    // A minute is far too short (it takes about 11): the build stops there
+    // instead of handing over a factory whose military line never starts.
+    expect(() => buildDemo(0, MINUTE)).toThrow(/never researched its military branch/);
   });
 
-  it('leaves the research to the player once they pick one of their own', () => {
-    // The player switches from automation 2 to logistics: the pick stays until
-    // it completes, and the chain doesn't take over again after it.
-    const sim = buildDemo();
-    const player = new DemoResearch(sim);
-    playTicks(sim, player, 60);
-    expect(player.stoppedByPlayer).toBe(false);
-    pick(sim, TechId.Logistics);
-    let ticks = 0;
-    while (!sim.state.research.isResearched(DEFAULT_FORCE, TechId.Logistics)) {
-      expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(
-        ticks > 0 ? TechId.Logistics : DEMO_RESEARCH,
+  it('researches the military branch while it is built, and sets the military recipes', () => {
+    const sim = demo();
+    const { research, entities } = sim.state;
+    for (const tech of DEMO_RESEARCH_CHAIN) {
+      if (tech === DEMO_FINAL_RESEARCH) continue;
+      expect(
+        research.isResearched(DEFAULT_FORCE, tech),
+        TECHNOLOGIES[tech as keyof typeof TECHNOLOGIES].name,
+      ).toBe(true);
+    }
+    expect(DEMO_RESEARCH_CHAIN.at(-1)).toBe(DEMO_FINAL_RESEARCH);
+    expect(research.currentOf(DEFAULT_FORCE)).toBe(TechId.ResearchSpeed);
+    // Research speed costs all three packs (D77).
+    expect(TECHNOLOGIES[TechId.ResearchSpeed].packs).toEqual([
+      ItemId.AutomationSciencePack,
+      ItemId.LogisticSciencePack,
+      ItemId.MilitarySciencePack,
+    ]);
+    for (const e of demoLayout()) {
+      if (e.recipe === undefined) continue;
+      expect(entities.selectedRecipe(entities.at(e.x, e.y)), `recipe of ${e.tag ?? ''}`).toBe(
+        e.recipe,
       );
-      playTicks(sim, player, 1);
-      expect(++ticks, 'logistics completes').toBeLessThan(10 * MINUTE);
     }
-    expect(player.stoppedByPlayer).toBe(true);
-    playTicks(sim, player, MINUTE);
-    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.None);
-    expect(sim.state.research.isResearched(DEFAULT_FORCE, DEMO_RESEARCH)).toBe(false);
+    expect(demoLayout().some((e) => e.recipe === RecipeId.MilitarySciencePack)).toBe(true);
   });
 
-  it('lets the player stop the research, and the chain stays stopped', () => {
-    // A click on the current research stops it (src/ui/techTree.ts).
-    const sim = buildDemo();
-    const player = new DemoResearch(sim);
-    playTicks(sim, player, 60);
-    pick(sim, TechId.None);
-    playTicks(sim, player, MINUTE);
-    expect(player.stoppedByPlayer).toBe(true);
-    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.None);
-    // Picking automation 2 again is the player's choice too: when it
-    // completes, nothing follows it.
-    pick(sim, DEMO_RESEARCH);
-    let ticks = 0;
-    while (!sim.state.research.isResearched(DEFAULT_FORCE, DEMO_RESEARCH)) {
-      playTicks(sim, player, 1);
-      expect(++ticks, 'automation 2 completes').toBeLessThan(10 * MINUTE);
-    }
-    playTicks(sim, player, MINUTE);
-    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.None);
-  });
-
-  it('keeps the labs, the science and what feeds it busy for an hour and a half, without backing up', () => {
+  it('keeps every machine at its share in every window, on enough power, never out of research', () => {
     const { sim, windows } = run();
     expect(windows).toHaveLength(WINDOWS);
     const tagged = demoTagged(sim);
+    const ruled = new Set(BUSY.map(([tag]) => tag));
+    for (const tag of tagged.keys()) {
+      if (tag.endsWith('splitter') || tag === 'lab') continue;
+      expect(ruled.has(tag), `a share rule for ${tag}`).toBe(true);
+    }
     windows.forEach((w, i) => {
-      const when = `minutes ${String(5 * i)}-${String(5 * i + 5)}`;
-      expect(w.minSatisfaction, `power, ${when}`).toBe(1 << 16);
-      expect(w.packs, `packs on the science belts, ${when}`).toBeLessThanOrEqual(
-        i < HOUR_WINDOWS ? MOST_PACKS_ON_BELTS : MOST_PACKS_ON_BELTS_LATER,
-      );
-      if (i === 0) return;
-      for (const [prefix, least, idle] of BUSY_LONG) {
-        const shares = [...tagged]
-          .filter(([tag]) => tag.startsWith(prefix))
-          .flatMap(([tag, ids]) =>
-            ids.map((id) => `${tag} (${String(id)}) ${pct((w.working.get(id) ?? 0) / WINDOW)}`),
-          );
-        expect(shares.length, prefix).toBeGreaterThan(0);
-        const below = [...tagged]
-          .filter(([tag]) => tag.startsWith(prefix))
-          .flatMap(([, ids]) => ids)
-          .filter((id) => (w.working.get(id) ?? 0) / WINDOW < least);
-        expect(
-          below.length,
-          `${prefix} below ${pct(least)}, ${when}: ${shares.join(', ')}`,
-        ).toBeLessThanOrEqual(idle);
+      const when = `minutes ${String(10 * i)}-${String(10 * i + 10)}`;
+      expect(w.minSatisfaction, `power, ${when}`).toBe(SAT_ONE);
+      expect(w.noResearch, `labs without research, ${when}`).toBe(0);
+      for (const [tag, floor, below90] of BUSY) {
+        const ids = tagged.get(tag)!;
+        expect(ids.length, tag).toBeGreaterThan(0);
+        const shares = ids.map((id) => (w.working.get(id) ?? 0) / WINDOW);
+        const text = `${tag} ${shares.map(pct).join(', ')}, ${when}`;
+        for (const share of shares) expect(share, text).toBeGreaterThanOrEqual(floor);
+        expect(shares.filter((s) => s < 0.9).length, text).toBeLessThanOrEqual(below90);
       }
+      // Labs: as busy as the packs let them be at this level, and evenly so.
+      const labs = tagged.get('lab')!.map((id) => (w.working.get(id) ?? 0) / WINDOW);
+      expect(labs).toHaveLength(LABS);
+      const text = `labs ${labs.map(pct).join(', ')} at level ${String(w.levels)}, ${when}`;
+      for (const share of labs)
+        expect(share, text).toBeGreaterThanOrEqual(0.9 * labShare(w.levels));
+      expect(Math.max(...labs) - Math.min(...labs), text).toBeLessThanOrEqual(LAB_SPREAD);
     });
-    // The science belts stopped filling up once research speed got going.
-    expect(windows.at(-1)!.packs - windows.at(-4)!.packs).toBeLessThanOrEqual(
-      MOST_PACKS_GAINED_LATE,
-    );
-    // Stone: the drill fills a chest that an inserter empties into another;
-    // after the hour and a half (and the warm-up) there is room left.
-    const stone = tagged
-      .get('stone-chest')!
-      .map((id) => sim.state.entities.contents(id).reduce((n, s) => n + s.count, 0));
-    expect(stone.reduce((a, b) => a + b, 0)).toBeLessThan(2 * 32 * 50);
+  });
+
+  it('uses every pack it makes: the three packs at the same rate, none piling up on the belts', () => {
+    const { windows, counts } = run();
+    const seconds = counts.ticks / 60;
+    for (const pack of [
+      'automation-science-pack',
+      'logistic-science-pack',
+      'military-science-pack',
+    ]) {
+      const made = counts.made[pack] ?? 0;
+      const used = counts.consumed[pack] ?? 0;
+      expect(made / seconds, `${pack} made per second`).toBeGreaterThanOrEqual(
+        0.97 * PACKS_PER_SECOND,
+      );
+      expect(
+        Math.abs(made - used),
+        `${pack} made ${String(made)}, used ${String(used)}`,
+      ).toBeLessThanOrEqual(PACKS_DRIFT);
+    }
+    const packs = windows.map((w) => w.packs);
+    expect(
+      Math.max(...packs) - Math.min(...packs),
+      `packs on the belts ${packs.join(', ')}`,
+    ).toBeLessThanOrEqual(PACKS_DRIFT);
+  });
+
+  it('keeps every belt moving: each inserter that takes from a belt swings in every window', () => {
+    const { beltInserterMoves } = run();
+    const idle = [...beltInserterMoves].filter(([, n]) => n < WINDOWS).map(([id]) => id);
+    expect(idle, 'inserters that stood still on their belt for a whole window').toEqual([]);
+  });
+
+  it('runs no drill dry, and makes every pack at its pace in every window', () => {
+    const { windows, depleted } = run();
+    expect([...depleted.keys()], 'drills out of ore').toEqual([]);
+    windows.forEach((w, i) => {
+      const when = `minutes ${String(10 * i)}-${String(10 * i + 10)}`;
+      PACK_NAMES.forEach((pack, k) => {
+        expect(w.made[k]! / (WINDOW / 60), `${pack} a second, ${when}`).toBeGreaterThanOrEqual(
+          0.97 * PACKS_PER_SECOND,
+        );
+      });
+    });
+  });
+
+  it('has ore under each ore line for a week at the pace it mines', () => {
+    const { sim, counts } = run();
+    const seconds = counts.ticks / 60;
+    // Each tile counted once, however many drills reach it.
+    const left = new Map<string, Map<string, number>>();
+    for (const e of layoutDrills()) {
+      const ore = DRILL_ORE[e.tag!]!;
+      const tiles = left.get(ore.item) ?? new Map<string, number>();
+      left.set(ore.item, tiles);
+      for (const { x, y } of drillArea(e)) {
+        if (sim.state.world.resourceAt(x, y) === ore.resource) {
+          tiles.set(at(x, y), sim.state.world.amountAt(x, y));
+        }
+      }
+    }
+    expect([...left.keys()].sort()).toEqual(['coal', 'copper-ore', 'iron-ore', 'stone']);
+    for (const [item, tiles] of left) {
+      const perSecond = (counts.mined[item] ?? 0) / seconds;
+      expect(perSecond, `${item} mined a second`).toBeGreaterThan(0);
+      let total = 0;
+      for (const amount of tiles.values()) total += amount;
+      expect(total / perSecond / DAY, `days of ${item} left`).toBeGreaterThan(7);
+    }
+  });
+
+  it('completes research speed level after level, each taking longer', () => {
+    const { levelsAt, sim } = run();
+    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.ResearchSpeed);
+    expect(levelsAt.length).toBeGreaterThanOrEqual(RUN_MINUTES >= 60 ? 2 : 1);
+    for (let i = 2; i < levelsAt.length; i++) {
+      expect(levelsAt[i]! - levelsAt[i - 1]!).toBeGreaterThan(levelsAt[i - 1]! - levelsAt[i - 2]!);
+    }
   });
 
   it('carries nothing but science packs to the labs', () => {
     const { sim } = run();
-    const packs: number[] = [ItemId.AutomationSciencePack, ItemId.LogisticSciencePack];
-    const science: number[] = [...SCIENCE_BELTS, ItemId.Splitter];
+    const packs: number[] = [
+      ItemId.AutomationSciencePack,
+      ItemId.LogisticSciencePack,
+      ItemId.MilitarySciencePack,
+    ];
     let carried = 0;
     for (const e of demoLayout()) {
-      if (!science.includes(e.item)) continue;
+      if (!SCIENCE_BELTS.includes(e.item) && e.tag !== 'science-splitter') continue;
       for (const { item, count } of sim.state.entities.contents(sim.state.entities.at(e.x, e.y))) {
         expect(packs, `item ${String(item)} on the science belt at ${at(e.x, e.y)}`).toContain(
           item,
@@ -540,31 +729,34 @@ describe('demo factory', { timeout: 120_000 }, () => {
     expect(carried).toBeGreaterThan(0);
   });
 
-  it('keeps every machine busy in the first two minutes', () => {
-    const { sim, first } = run();
-    for (const [tag, ids] of demoTagged(sim)) {
-      if (tag.endsWith('chest') || tag.endsWith('splitter')) continue;
-      const rule = BUSY.find(([prefix]) => tag.startsWith(prefix));
-      expect(rule, `a busy rule for ${tag}`).toBeDefined();
-      for (const id of ids) {
-        const share = (first.working.get(id) ?? 0) / FIRST;
-        expect(
-          share,
-          `${tag} (${String(id)}) works ${pct(share)} of the time`,
-        ).toBeGreaterThanOrEqual(rule![1]);
-      }
-    }
+  it('lets the player stop the research, and the chain stays stopped', () => {
+    // A click on the current research stops it (src/ui/techTree.ts).
+    const sim = demo();
+    const player = new DemoResearch(sim);
+    playTicks(sim, player, 60);
+    expect(player.stoppedByPlayer).toBe(false);
+    pick(sim, TechId.None);
+    playTicks(sim, player, MINUTE);
+    expect(player.stoppedByPlayer).toBe(true);
+    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.None);
+    // Picking research speed again is the player's choice too: it stays the
+    // player's, and the chain doesn't come back.
+    pick(sim, TechId.ResearchSpeed);
+    playTicks(sim, player, MINUTE);
+    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.ResearchSpeed);
+    expect(player.stoppedByPlayer).toBe(true);
   });
 
   it('saves and loads mid-run, then runs on identically', () => {
-    const sim = buildDemo();
-    for (let t = 0; t < 600; t++) sim.step();
+    const sim = demo();
+    const player = new DemoResearch(sim);
+    playTicks(sim, player, 600);
     const copy = reload(sim);
-    stepTogether(sim, copy, 600);
+    stepTogether(sim, copy, 1200);
   });
 
   it('gives the player the starting kit on top of what the factory took', () => {
-    const sim = buildDemo();
+    const sim = demo();
     const inventory = sim.state.players.inventory(0);
     expect(inventory.count(ItemId.TransportBelt)).toBeGreaterThanOrEqual(10);
     expect(inventory.count(ItemId.ElectricMiningDrill)).toBeGreaterThanOrEqual(2);

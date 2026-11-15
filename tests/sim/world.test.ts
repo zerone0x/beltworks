@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ResourceId } from '../../src/data/resources';
 import { FNV1A32_OFFSET_BASIS } from '../../src/sim/hash';
+import { SaveReader, SaveWriter } from '../../src/sim/save/codec';
 import { CHUNK_SIZE } from '../../src/sim/world/chunk';
 import { startingPatches } from '../../src/sim/world/generate';
 import { CHUNK_COORD_LIMIT, World, chunkKey } from '../../src/sim/world/world';
@@ -116,6 +117,55 @@ describe('World', () => {
       expect(world.resourceAt(x, y)).toBe(chunk.resource[i]);
       expect(world.amountAt(x, y)).toBe(chunk.amount[i]);
     }
+  });
+
+  describe('setAmount', () => {
+    it('sets the amount of an ore tile, as a modification the save and the hash carry', () => {
+      const world = new World(5);
+      const { x, y, ore } = oreTile(5);
+      const cx = x >> 5;
+      const cy = y >> 5;
+      const hash = world.hashInto();
+      expect(world.setAmount(x, y, 1_000_000)).toBe(true);
+      expect(world.amountAt(x, y)).toBe(1_000_000);
+      expect(world.resourceAt(x, y)).toBe(ore);
+      expect(world.chunkVersion(cx, cy)).toBe(1);
+      expect(world.hashInto()).not.toBe(hash);
+      expect(world.unloadChunk(cx, cy)).toBe(false);
+      expect(world.amountAt(x, y)).toBe(1_000_000);
+      const w = new SaveWriter();
+      world.save(w);
+      const loaded = new World(5);
+      loaded.load(new SaveReader(w.bytes(), 'world'));
+      expect(loaded.amountAt(x, y)).toBe(1_000_000);
+      expect(loaded.hashInto()).toBe(world.hashInto());
+      // The largest amount the column holds.
+      expect(world.setAmount(x, y, 0xffff_ffff)).toBe(true);
+      expect(world.amountAt(x, y)).toBe(0xffff_ffff);
+    });
+
+    it('gives no ore to a tile without any, and leaves its chunk unmodified', () => {
+      const world = new World(5);
+      expect(world.resourceAt(0, 0)).toBe(ResourceId.None);
+      const hash = world.hashInto();
+      expect(world.setAmount(0, 0, 500)).toBe(false);
+      expect(world.resourceAt(0, 0)).toBe(ResourceId.None);
+      expect(world.amountAt(0, 0)).toBe(0);
+      expect(world.chunkVersion(0, 0)).toBe(0);
+      expect(world.hashInto()).toBe(hash);
+    });
+
+    it('takes only a positive uint32', () => {
+      const world = new World(5);
+      const { x, y } = oreTile(5);
+      const before = world.amountAt(x, y);
+      for (const amount of [0, -1, 1.5, 2 ** 32, Number.NaN]) {
+        expect(() => world.setAmount(x, y, amount), String(amount)).toThrow(RangeError);
+      }
+      expect(world.amountAt(x, y)).toBe(before);
+      expect(world.setAmount(x, y, 1)).toBe(true);
+      expect(world.amountAt(x, y)).toBe(1);
+    });
   });
 
   describe('mine', () => {
