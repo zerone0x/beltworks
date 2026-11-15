@@ -47,6 +47,8 @@ explore/gather → hand-craft → place machines → connect logistics → resea
 | Power | Boiler, steam engine, small pole, medium pole (v1 skips real fluids: a boiler next to a steam engine counts as connected) |
 | Research | Lab |
 
+Inserters top machines up instead of filling them, like Factorio's automated insertion limits, so items on a belt flow on to the next machine (D75): 2 crafts' worth into a stone furnace's input (2 ore, 4 stone), 2 packs of each kind into a lab, 5 units into any fuel slot (stone furnaces, boilers, burner drills and inserters), and 2× each ingredient's amount into an assembling machine (D32). Hands and drills fill a furnace, lab or fuel slot up to a stack. Unlike Factorio, the caps are fixed numbers, not worked out from the recipe's time and the machine's speed (for a stone furnace both give 2 crafts).
+
 ### Items and recipes
 - About 30 items and 25 recipes in v1, defined as data tables (TS) so balancing is easy.
 - Science packs: red (automation) and green (logistics). Blue comes in v1.x.
@@ -65,7 +67,7 @@ explore/gather → hand-craft → place machines → connect logistics → resea
 | Logistics 2 | Logistics, logistic science pack | red + green | 200 × 30 s | Fast transport belt, fast underground belt, fast splitter |
 | Logistics 3 | Logistics 2, automation 2 | red + green | 300 × 15 s | Express transport belt, express underground belt, express splitter |
 
-Science packs: automation (red) = 1 copper plate + 1 iron gear wheel, 5 s; logistic (green) = 1 electric inserter + 1 transport belt, 6 s. A lab (3×3, 60 kW) holds a stack of each and researches one unit at a time; several labs add up.
+Science packs: automation (red) = 1 copper plate + 1 iron gear wheel, 5 s; logistic (green) = 1 electric inserter + 1 transport belt, 6 s. A lab (3×3, 60 kW) holds up to a stack of each (2 from inserters, D75) and researches one unit at a time; several labs add up.
 
 ### Win condition
 - v1: researching every green-science technology finishes the demo.
