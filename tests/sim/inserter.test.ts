@@ -815,4 +815,56 @@ describe('insertion limits (D75)', () => {
       expect(fuel!.count).toBeLessThanOrEqual(5);
     }
   });
+
+  // Review of #155: both inserters pick up while the slot has room for one,
+  // so only the drop-side check (insert(..., byInserter)) keeps the second
+  // drop out; it waits holding its item until the slot has room again.
+  it('keeps two inserters feeding one furnace input slot at 2 ores', () => {
+    // Chest (2, 0) → inserter (3, 0) east → furnace (4..5, 0..1) ← inserter (6, 0) west ← chest (7, 0).
+    const s = setup();
+    const left = s.place(ItemId.WoodenChest, 2, 0);
+    const a = s.place(ItemId.BurnerInserter, 3, 0, East);
+    const furnace = s.place(ItemId.StoneFurnace, 4, 0);
+    const b = s.place(ItemId.BurnerInserter, 6, 0, West);
+    const right = s.place(ItemId.WoodenChest, 7, 0);
+    for (const id of [a, b]) s.entities.insert(id, COAL, 5);
+    s.entities.insert(left, ORE, 100);
+    s.entities.insert(right, ORE, 100);
+    s.entities.insert(furnace, COAL, INSERTER_FUEL_LIMIT);
+    let most = 0;
+    let waitedHolding = 0;
+    for (let t = 0; t < 20 * PLATE_TICKS; t++) {
+      s.step();
+      most = Math.max(most, s.entities.slots(furnace)[FurnaceSlot.Input]?.count ?? 0);
+      for (const id of [a, b]) {
+        if (s.entities.status(id) === InserterState.WaitingForTarget && s.hand(id).held === ORE)
+          waitedHolding++;
+      }
+    }
+    expect(most).toBe(2);
+    expect(waitedHolding).toBeGreaterThan(0);
+    expect(s.count(furnace, PLATE)).toBeGreaterThanOrEqual(15);
+  });
+
+  it('keeps two inserters feeding one furnace fuel slot at 5 coal', () => {
+    // As above, but the chests hold coal and the furnace 50 ore by hand: each
+    // coal burnt makes room for one, and both inserters go for it.
+    const s = setup();
+    const left = s.place(ItemId.WoodenChest, 2, 0);
+    const a = s.place(ItemId.BurnerInserter, 3, 0, East);
+    const furnace = s.place(ItemId.StoneFurnace, 4, 0);
+    const b = s.place(ItemId.BurnerInserter, 6, 0, West);
+    const right = s.place(ItemId.WoodenChest, 7, 0);
+    for (const id of [a, b]) s.entities.insert(id, COAL, 5);
+    s.entities.insert(left, COAL, 20);
+    s.entities.insert(right, COAL, 20);
+    s.entities.insert(furnace, ORE, 50);
+    let most = 0;
+    for (let t = 0; t < 45 * PLATE_TICKS; t++) {
+      s.step();
+      most = Math.max(most, s.entities.slots(furnace)[FurnaceSlot.Fuel]?.count ?? 0);
+    }
+    expect(most).toBe(INSERTER_FUEL_LIMIT);
+    expect(s.count(furnace, PLATE)).toBeGreaterThanOrEqual(40);
+  });
 });
