@@ -448,6 +448,68 @@ describe('inserters asleep on a furnace’s source when steel processing complet
     }
   }
 
+  it('wakes every furnace, not only the first: three furnaces fed from chests and a stalled belt make steel', () => {
+    const s = sim([
+      { item: ItemId.BurnerInserter, count: 3 },
+      { item: ItemId.WoodenChest, count: 2 },
+      { item: ItemId.TransportBelt, count: 10 },
+      { item: ItemId.StoneFurnace, count: 3 },
+    ]);
+    const { state } = s;
+    const { entities } = state;
+    state.players.y[0] = tileCenter(3);
+    const furnaces: number[] = [];
+    const inserters: number[] = [];
+    const sourcesOf: number[] = [];
+    // Lines at y = 0 and 3 start from a chest, the line at y = 6 from a belt.
+    for (const y of [0, 3, 6]) {
+      if (y === 6) {
+        for (let x = -3; x <= 2; x++) {
+          expect(placeEntity(state, 0, ItemId.TransportBelt, x, y, Direction.East)).toBe(
+            BuildResult.Ok,
+          );
+        }
+      } else {
+        expect(placeEntity(state, 0, ItemId.WoodenChest, 2, y, Direction.North)).toBe(
+          BuildResult.Ok,
+        );
+        entities.insert(entities.at(2, y), ItemId.IronPlate, 50);
+      }
+      expect(placeEntity(state, 0, ItemId.BurnerInserter, 3, y, Direction.East)).toBe(
+        BuildResult.Ok,
+      );
+      expect(placeEntity(state, 0, ItemId.StoneFurnace, 4, y, Direction.North)).toBe(
+        BuildResult.Ok,
+      );
+      const ins = entities.at(3, y);
+      const furnace = entities.at(4, y);
+      entities.insert(ins, ItemId.Coal, 5);
+      entities.insert(furnace, ItemId.Coal, 5);
+      inserters.push(ins);
+      furnaces.push(furnace);
+      sourcesOf.push(entities.at(2, y));
+    }
+    const belts = beltTable(entities)!;
+    const first = entities.at(-3, 6);
+    const pos = belts.beltOffset(first) + BELT_LENGTH / 2;
+    for (let t = 0; t < 600; t++) {
+      belts.insertAt(belts.beltLine(first), BeltLane.Left, pos, ItemId.IronPlate);
+      belts.insertAt(belts.beltLine(first), BeltLane.Right, pos, ItemId.IronPlate);
+      s.step();
+    }
+    steps(s, 300);
+    // All three furnaces and their inserters are asleep before the research.
+    for (let i = 0; i < 3; i++) {
+      expectAsleepOn(s, inserters[i]!, sourcesOf[i]!, furnaces[i]!);
+    }
+    state.research.markResearched(0, TechId.SteelProcessing);
+    steps(s, 3000);
+    for (const furnace of furnaces) {
+      expect(entities.slots(furnace)[FurnaceSlot.Output]!.item).toBe(ItemId.SteelPlate);
+      expect(entities.slots(furnace)[FurnaceSlot.Output]!.count).toBeGreaterThan(0);
+    }
+  });
+
   it('wakes nothing for a technology that unlocks no smelting recipe', () => {
     const { s, src, ins, furnace } = line(chestOfPlates);
     steps(s, 300);
