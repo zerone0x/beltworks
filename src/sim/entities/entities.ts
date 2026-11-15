@@ -197,9 +197,12 @@ export class Entities {
     return this.tableOf(id)?.slots?.(id) ?? [];
   }
 
-  /** How many units of `item` entity `id` would accept right now (see `EntityTypeTable.insertable`). */
-  insertable(id: number, item: number): number {
-    return this.tableOf(id)?.insertable?.(id, item) ?? 0;
+  /**
+   * How many units of `item` entity `id` would accept right now; with
+   * `byInserter`, from an inserter (see `EntityTypeTable.insertable`).
+   */
+  insertable(id: number, item: number, byInserter = false): number {
+    return this.tableOf(id)?.insertable?.(id, item, byInserter) ?? 0;
   }
 
   /** Whether entity `id` takes `item` at all, however full it is (see `EntityTypeTable.accepts`). */
@@ -212,10 +215,13 @@ export class Entities {
     return this.tableOf(id)?.hasRoom?.(id) ?? true;
   }
 
-  /** Inserts up to `count` units of `item` into entity `id`; returns how many went in. */
-  insert(id: number, item: number, count: number): number {
+  /**
+   * Inserts up to `count` units of `item` into entity `id`; returns how many
+   * went in. With `byInserter`, only up to the inserter limits (D75).
+   */
+  insert(id: number, item: number, count: number, byInserter = false): number {
     const table = this.tableOf(id);
-    return count > 0 ? (table?.insert?.(id, item, count, this) ?? 0) : 0;
+    return count > 0 ? (table?.insert?.(id, item, count, this, byInserter) ?? 0) : 0;
   }
 
   /** Takes up to `count` units out of slot `slot` of entity `id`; returns how many came out. */

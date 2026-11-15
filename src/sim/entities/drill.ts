@@ -500,12 +500,12 @@ export class DrillTable extends MiningDrillTable {
     return fuelValue(item) > 0;
   }
 
-  insertable(id: number, item: number): number {
-    return this.burner.insertable(this.row(id), item);
+  insertable(id: number, item: number, byInserter = false): number {
+    return this.burner.insertable(this.row(id), item, byInserter);
   }
 
-  insert(id: number, item: number, count: number, entities: Entities): number {
-    const n = this.burner.insert(this.row(id), item, count);
+  insert(id: number, item: number, count: number, entities: Entities, byInserter = false): number {
+    const n = this.burner.insert(this.row(id), item, count, byInserter);
     if (n > 0) this.changed(id, entities);
     return n;
   }

@@ -160,8 +160,10 @@ export interface EntityTypeTable {
    * fuel slot). 0 for items the entity doesn't take, unknown ids included.
    * When it grows, the table must `notify` (a machine consuming ingredients
    * or fuel), since inserters waiting for room subscribe to the entity.
+   * With `byInserter`, what an inserter may put in: furnaces, labs and fuel
+   * slots take less from inserters than from hands and drills (D75).
    */
-  insertable?(id: number, item: number): number;
+  insertable?(id: number, item: number, byInserter?: boolean): number;
 
   /**
    * Whether the entity takes `item` at all, however full it is right now (a
@@ -173,15 +175,24 @@ export interface EntityTypeTable {
   accepts?(id: number, item: number): boolean;
 
   /**
-   * Whether `insertable` is above 0 for some item the entity accepts; true
-   * when absent. An inserter whose target has no room for anything waits on
+   * Whether `insertable` (`byInserter`) is above 0 for some item the entity
+   * accepts; true when absent. Only inserters ask. An inserter whose target has no room for anything waits on
    * the target alone (nothing its source offers could help until the target
    * makes room), instead of also being woken by every change at its source.
    */
   hasRoom?(id: number): boolean;
 
-  /** Inserts up to `count` units of `item`; returns how many went in. */
-  insert?(id: number, item: number, count: number, entities: Entities): number;
+  /**
+   * Inserts up to `count` units of `item`; returns how many went in. With
+   * `byInserter`, only up to the inserter limits of `insertable` (D75).
+   */
+  insert?(
+    id: number,
+    item: number,
+    count: number,
+    entities: Entities,
+    byInserter?: boolean,
+  ): number;
 
   /** Takes up to `count` units out of slot `slot`; returns how many came out (item: `slots`). */
   take?(id: number, slot: number, count: number, entities: Entities): number;
