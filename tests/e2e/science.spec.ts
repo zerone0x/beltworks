@@ -214,7 +214,7 @@ test('automated red and green science research automation 2 without further inpu
   await expect.poll(() => machine(RIG.green)).toBe(MachineState.Working);
   const before = await research(page);
   expect(before.current).toBe('automation-2');
-  expect(before.techs['automation-2']).toEqual({ unitsDone: 0, researched: false });
+  expect(before.techs['automation-2']).toEqual({ unitsDone: 0, researched: false, levels: 0 });
 
   // The player stands still from here on; the simulation runs 16× faster.
   const shot = testInfo.outputPath('m3-science.png');
@@ -230,7 +230,7 @@ test('automated red and green science research automation 2 without further inpu
         timeout: 60_000,
         intervals: [500],
       })
-      .toEqual({ unitsDone: 40, researched: true });
+      .toEqual({ unitsDone: 40, researched: true, levels: 0 });
   });
   await testInfo.attach('automated red and green science halfway through automation 2', {
     path: shot,
