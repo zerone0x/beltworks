@@ -168,6 +168,34 @@ describe('save migrations', () => {
     expect(() => loadSim(bytes, { migrations: [] })).toThrow('No migration from save format 1');
   });
 
+  it('loads format 2 saves with an empty military pack slot in every lab (D76)', async () => {
+    const bytes = await readFixture('v2-determinism.bwsave');
+    const doc = decodeSave(bytes);
+    // Format 2's lab table: ids, active ids, unit technology, progress, state, packs (2 per lab).
+    const r = new SaveReader(doc.sections.get('table:lab')!, 'table:lab');
+    const ids = r.column(new Uint32Array(0));
+    r.column(new Uint32Array(0));
+    r.column(new Uint16Array(0), ids.length);
+    r.column(new Uint32Array(0), ids.length);
+    r.column(new Uint8Array(0), ids.length);
+    const packs = r.column(new Uint16Array(0), ids.length * 2);
+    expect(r.done).toBe(true);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(packs.some((n) => n > 0)).toBe(true);
+    const sim = loadSim(bytes);
+    for (const [row, id] of Array.from(ids).entries()) {
+      expect(sim.state.entities.slots(id).map((s) => s.count)).toEqual([
+        packs[row * 2],
+        packs[row * 2 + 1],
+        0,
+      ]);
+    }
+    // Without the migration, format 2 can't be read any more.
+    expect(() => loadSim(bytes, { migrations: MIGRATIONS.slice(0, 1) })).toThrow(
+      'No migration from save format 2',
+    );
+  });
+
   it('refuses an older format it has no migration for', async () => {
     const bytes = await readFixture(`v${String(SAVE_VERSION)}-determinism.bwsave`);
     expect(() =>

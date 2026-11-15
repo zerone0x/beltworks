@@ -35,6 +35,12 @@ export const TechId = {
   Logistics2: 7,
   Logistics3: 8,
   ResearchSpeed: 9,
+  // Military science (D76).
+  Military: 10,
+  StoneWall: 11,
+  SteelProcessing: 12,
+  Military2: 13,
+  MilitarySciencePack: 14,
 } as const;
 
 export type TechId = (typeof TechId)[keyof typeof TechId];
@@ -74,6 +80,7 @@ export interface Technology {
 export const SCIENCE_PACKS: readonly RealItemId[] = [
   ItemId.AutomationSciencePack,
   ItemId.LogisticSciencePack,
+  ItemId.MilitarySciencePack,
 ];
 
 const RED = [ItemId.AutomationSciencePack] as const;
@@ -169,7 +176,9 @@ export const TECHNOLOGIES: Readonly<Record<RealTechId, Technology>> = {
     ],
   },
   // Repeatable (D74): level n takes 100 × n units of red + green packs, and
-  // each level done makes every lab research 10% faster.
+  // each level done makes every lab research 10% faster. It stays red +
+  // green while the demo has no military line (D76): the demo's research
+  // never ends on it, so a military pack here would stop the labs.
   [TechId.ResearchSpeed]: {
     id: TechId.ResearchSpeed,
     name: 'research-speed',
@@ -181,6 +190,60 @@ export const TECHNOLOGIES: Readonly<Record<RealTechId, Technology>> = {
     unlocks: [],
     repeatable: true,
     labSpeedPerLevel: 10,
+  },
+  // Military science (D76): Factorio 1.1's tree, costs and times, as far as
+  // it gates steel, walls, ammunition and the military pack. Military
+  // unlocks only weapons in Factorio (none here): a milestone, like
+  // electronics. Firearm magazines need no research.
+  [TechId.Military]: {
+    id: TechId.Military,
+    name: 'military',
+    label: 'Military',
+    prerequisites: [],
+    packs: RED,
+    units: 10,
+    ticksPerUnit: 15 * S,
+    unlocks: [],
+  },
+  [TechId.StoneWall]: {
+    id: TechId.StoneWall,
+    name: 'stone-wall',
+    label: 'Stone wall',
+    prerequisites: [],
+    packs: RED,
+    units: 10,
+    ticksPerUnit: 10 * S,
+    unlocks: [RecipeId.StoneWall],
+  },
+  [TechId.SteelProcessing]: {
+    id: TechId.SteelProcessing,
+    name: 'steel-processing',
+    label: 'Steel processing',
+    prerequisites: [],
+    packs: RED,
+    units: 50,
+    ticksPerUnit: 5 * S,
+    unlocks: [RecipeId.SteelPlate],
+  },
+  [TechId.Military2]: {
+    id: TechId.Military2,
+    name: 'military-2',
+    label: 'Military 2',
+    prerequisites: [TechId.Military, TechId.SteelProcessing, TechId.LogisticSciencePack],
+    packs: RED_GREEN,
+    units: 20,
+    ticksPerUnit: 15 * S,
+    unlocks: [RecipeId.PiercingRoundsMagazine, RecipeId.Grenade],
+  },
+  [TechId.MilitarySciencePack]: {
+    id: TechId.MilitarySciencePack,
+    name: 'military-science-pack',
+    label: 'Military science pack',
+    prerequisites: [TechId.Military2, TechId.StoneWall],
+    packs: RED_GREEN,
+    units: 30,
+    ticksPerUnit: 15 * S,
+    unlocks: [RecipeId.MilitarySciencePack],
   },
 };
 
@@ -195,6 +258,11 @@ export const TECH_IDS: readonly RealTechId[] = [
   TechId.Logistics2,
   TechId.Logistics3,
   TechId.ResearchSpeed,
+  TechId.Military,
+  TechId.StoneWall,
+  TechId.SteelProcessing,
+  TechId.Military2,
+  TechId.MilitarySciencePack,
 ];
 
 /**

@@ -45,8 +45,11 @@
  * `NoPower` leaves the active list. Changes to its slots put it back, and so
  * does every change to the research (a new current research, a technology
  * completed, a unit freed by a removed lab): `wakeAll` puts every lab back,
- * which is rare enough to cost nothing. It needs no subscriptions. Starting
- * a unit notifies its subscribers (inserters waiting to drop packs).
+ * which is rare enough to cost nothing. It needs no subscriptions; a new
+ * current research also notifies the inserters waiting on labs
+ * (`researchSwitched`), since `hasRoom` counts only the packs the current
+ * research uses (D76). Starting a unit notifies its subscribers (inserters
+ * waiting to drop packs).
  */
 
 import {
@@ -242,10 +245,18 @@ export class LabTable implements EntityTypeTable {
     return labSlotOf(item) >= 0;
   }
 
-  /** Whether some pack slot is below an inserter's limit (D75). */
+  /**
+   * Whether the slot of some pack the current research uses is below an
+   * inserter's limit (D75). Slots of packs it doesn't use are left out (D76):
+   * an always-empty military slot would otherwise keep an inserter whose
+   * lab is full of red and green packs waking on every move of its belt.
+   * With no current research, none counts; `researchSwitched` wakes the
+   * inserters waiting on a lab when the research changes.
+   */
   hasRoom(id: number): boolean {
     const row = this.row(id);
-    return SCIENCE_PACKS.some((_, i) => this.room(row, i, true) > 0);
+    const t = technologyPrototype(this.research?.currentOf(DEFAULT_FORCE) ?? 0);
+    return t !== undefined && t.packs.some((item) => this.room(row, labSlotOf(item), true) > 0);
   }
 
   /** Packs go into their slot, up to a stack (from an inserter, up to `LAB_INSERTER_LIMIT`). */
@@ -284,6 +295,16 @@ export class LabTable implements EntityTypeTable {
   /** Asleep, a lab asks for nothing. */
   powerAwake(): SparseSet {
     return this.active;
+  }
+
+  /**
+   * The current research changed to another technology: the packs it uses
+   * (`hasRoom`) may be others now, so wake the inserters waiting on a lab
+   * (D76), and put every lab back on the active list (`wakeAll`).
+   */
+  researchSwitched(entities: Entities): void {
+    this.wakeAll();
+    for (let row = 0; row < this.set.size; row++) entities.notify(this.set.idAt(row));
   }
 
   /**

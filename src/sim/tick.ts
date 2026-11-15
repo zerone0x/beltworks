@@ -136,7 +136,7 @@ export function applyCommand(state: SimState, cmd: Command): void {
  */
 export function setResearch(state: SimState, playerId: number, tech: number): boolean {
   if (!state.research.setCurrent(forceOf(state, playerId), tech)) return false;
-  labTable(state.entities)?.wakeAll();
+  labTable(state.entities)?.researchSwitched(state.entities);
   return true;
 }
 

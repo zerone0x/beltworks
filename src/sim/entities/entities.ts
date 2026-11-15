@@ -169,6 +169,15 @@ export class Entities {
     const table = this.tableOf(id);
     if (!table?.setRecipe) return;
     table.setRecipe(id, recipe, this);
+    this.reconfigured(id);
+  }
+
+  /**
+   * Tells every table (`entityReconfigured`) that what entity `id` accepts
+   * may have changed: its recipe, or a technology that unlocks recipes it
+   * runs (D76).
+   */
+  reconfigured(id: number): void {
     for (const t of this.tableList) {
       t.entityReconfigured?.(id, this);
     }

@@ -52,6 +52,13 @@ export const ItemId = {
   Splitter: 35,
   FastSplitter: 36,
   ExpressSplitter: 37,
+  // Military science (D76): steel, walls, ammunition and the third pack.
+  SteelPlate: 38,
+  StoneWall: 39,
+  FirearmMagazine: 40,
+  PiercingRoundsMagazine: 41,
+  Grenade: 42,
+  MilitarySciencePack: 43,
 } as const;
 
 export type ItemId = (typeof ItemId)[keyof typeof ItemId];
@@ -357,6 +364,49 @@ export const ITEMS: Readonly<Record<RealItemId, ItemPrototype>> = {
     stackSize: 50,
     color: 0x3a8fd9,
   },
+  // Military science (D76). Stone walls are an ingredient only: no wall entity yet.
+  [ItemId.SteelPlate]: {
+    id: ItemId.SteelPlate,
+    name: 'steel-plate',
+    label: 'Steel plate',
+    stackSize: 100,
+    color: 0x7f8c99,
+  },
+  [ItemId.StoneWall]: {
+    id: ItemId.StoneWall,
+    name: 'stone-wall',
+    label: 'Stone wall',
+    stackSize: 100,
+    color: 0xc8bea6,
+  },
+  [ItemId.FirearmMagazine]: {
+    id: ItemId.FirearmMagazine,
+    name: 'firearm-magazine',
+    label: 'Firearm magazine',
+    stackSize: 200,
+    color: 0xd8a830,
+  },
+  [ItemId.PiercingRoundsMagazine]: {
+    id: ItemId.PiercingRoundsMagazine,
+    name: 'piercing-rounds-magazine',
+    label: 'Piercing rounds magazine',
+    stackSize: 200,
+    color: 0xb83a30,
+  },
+  [ItemId.Grenade]: {
+    id: ItemId.Grenade,
+    name: 'grenade',
+    label: 'Grenade',
+    stackSize: 100,
+    color: 0x55663a,
+  },
+  [ItemId.MilitarySciencePack]: {
+    id: ItemId.MilitarySciencePack,
+    name: 'military-science-pack',
+    label: 'Military science pack',
+    stackSize: 200,
+    color: 0x4a4d5a,
+  },
 };
 
 /** Every real item id, in id order. */
@@ -398,6 +448,12 @@ export const ITEM_IDS: readonly RealItemId[] = [
   ItemId.Splitter,
   ItemId.FastSplitter,
   ItemId.ExpressSplitter,
+  ItemId.SteelPlate,
+  ItemId.StoneWall,
+  ItemId.FirearmMagazine,
+  ItemId.PiercingRoundsMagazine,
+  ItemId.Grenade,
+  ItemId.MilitarySciencePack,
 ];
 
 /** The prototype of item `id`, or `undefined` for 0 and unknown ids. */

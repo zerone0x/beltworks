@@ -16,6 +16,13 @@
  * So with ingredients and fuel at hand a furnace makes one result every
  * `ticks` ticks exactly, and every joule of fuel is used.
  *
+ * Locked smelting recipes (D76): a furnace only takes the input of a
+ * smelting recipe its force has unlocked, like Factorio's furnaces, so iron
+ * plates go into one only once steel processing is researched (`attach`
+ * connects the table to the research; without it, nothing is unlocked).
+ * Researching such a recipe wakes the inserters around every furnace
+ * (`researchCompleted`).
+ *
  * Machine sleep: only furnaces on the active list are stepped. One that ends
  * a tick in any state but `Working` leaves the list, and goes back on it when
  * its slots change (`insert`/`take`), which is the only thing that can make
@@ -30,7 +37,10 @@ import {
 } from '../../data/entities';
 import { fuelValue, itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
 import { recipePrototype, smeltingRecipeFor, type Recipe } from '../../data/recipes';
+import { recipeUnlockedBy, technologyPrototype } from '../../data/technologies';
 import { fnv1a32 } from '../hash';
+import type { ResearchState } from '../research/research';
+import { DEFAULT_FORCE } from '../research/unlocks';
 import type { SaveReader, SaveWriter } from '../save/codec';
 import { BurnerColumns } from './burner';
 import type { Entities } from './entities';
@@ -63,6 +73,25 @@ export class FurnaceTable implements EntityTypeTable {
   private progress = new Uint16Array(0);
   private state = new Uint8Array(0);
   private readonly burner = new BurnerColumns();
+  /** The research that unlocks smelting recipes (set by `createSimState`; none: only those unlocked from the start). */
+  private research: ResearchState | null = null;
+
+  /** Connects the furnaces to the research state of their simulation. */
+  attach(research: ResearchState): void {
+    this.research = research;
+  }
+
+  /**
+   * Technology `tech` was researched: if it unlocks a smelting recipe,
+   * every furnace now takes another input, so wake the inserters around each
+   * one (`Entities.reconfigured`). An inserter asleep on an unchanging
+   * source (a chest of iron plates, a stalled belt) would never look again
+   * otherwise (D76). There is one force (`DEFAULT_FORCE`).
+   */
+  researchCompleted(tech: number, entities: Entities): void {
+    if (!unlocksSmelting(tech)) return;
+    for (let row = 0; row < this.set.size; row++) entities.reconfigured(this.set.idAt(row));
+  }
 
   /** Number of furnaces. */
   get count(): number {
@@ -155,9 +184,9 @@ export class FurnaceTable implements EntityTypeTable {
     return this.inputRoom(row, item, byInserter) + this.burner.insertable(row, item, byInserter);
   }
 
-  /** Ores (anything with a smelting recipe) and fuel. */
+  /** Ores (anything with an unlocked smelting recipe) and fuel. */
   accepts(_id: number, item: number): boolean {
-    return smeltingRecipeFor(item) !== undefined || fuelValue(item) > 0;
+    return this.smeltable(item) !== undefined || fuelValue(item) > 0;
   }
 
   /** Whether an inserter can put anything in: the input slot is empty or below its limit, or the fuel slot is (D75). */
@@ -322,17 +351,29 @@ export class FurnaceTable implements EntityTypeTable {
 
   /**
    * How many units of `item` the input slot can take (0 if `item` isn't
-   * smeltable): up to a stack, or from an inserter up to
+   * unlocked for the force, D76): up to a stack, or from an inserter up to
    * `FURNACE_INPUT_MULTIPLIER` crafts' worth (D75).
    */
   private inputRoom(row: number, item: number, byInserter: boolean): number {
-    const r = smeltingRecipeFor(item);
+    const r = this.smeltable(item);
     if (!r) return 0;
     const slotItem = this.inputItem[row]!;
     if (slotItem !== 0 && slotItem !== item) return 0;
     const stack = itemPrototype(item)!.stackSize;
     const limit = byInserter ? Math.min(FURNACE_INPUT_MULTIPLIER * r.inputs[0]![1], stack) : stack;
     return Math.max(0, limit - this.inputCount[row]!);
+  }
+
+  /** The smelting recipe for input `item`, if the force has unlocked it (D76). */
+  private smeltable(item: number): Recipe | undefined {
+    const r = smeltingRecipeFor(item);
+    const research = this.research;
+    if (!r) return undefined;
+    const unlocked = recipeUnlockedBy(
+      (tech) => research?.isResearched(DEFAULT_FORCE, tech) ?? false,
+      r.id,
+    );
+    return unlocked ? r : undefined;
   }
 
   /** Whether the output slot has room for one result of `r`. */
@@ -365,6 +406,12 @@ export class FurnaceTable implements EntityTypeTable {
     }
     return row;
   }
+}
+
+/** Whether technology `tech` unlocks a smelting recipe. */
+function unlocksSmelting(tech: number): boolean {
+  const t = technologyPrototype(tech);
+  return t !== undefined && t.unlocks.some((r) => recipePrototype(r)?.category === 'smelting');
 }
 
 /** The furnace table of `entities`, if one is registered. */

@@ -16,6 +16,7 @@ import { createEntityTables } from './entities/registry';
 import type { EntityTypeTable } from './entities/table';
 import { FNV1A32_OFFSET_BASIS, fnv1a32 } from './hash';
 import { PlayerTable } from './player';
+import { furnaceTable } from './entities/furnace';
 import { labTable } from './research/lab';
 import { ResearchState } from './research/research';
 import { DEFAULT_FORCE } from './research/unlocks';
@@ -61,7 +62,7 @@ export interface SimOptions {
  * Bump when the hashed layout changes, so stale expected hashes fail loudly
  * instead of matching by accident.
  */
-export const STATE_HASH_VERSION = 19;
+export const STATE_HASH_VERSION = 20;
 
 export function createSimState(options: SimOptions): SimState {
   const seed = options.seed >>> 0;
@@ -77,6 +78,10 @@ export function createSimState(options: SimOptions): SimState {
   for (const tech of options.researched ?? []) research.markResearched(DEFAULT_FORCE, tech);
   const entities = new Entities(options.entityTables ?? createEntityTables());
   labTable(entities)?.attach(research);
+  furnaceTable(entities)?.attach(research);
+  // After the `researched` above: those have no entities to wake.
+  research.onResearched = (_force, tech) =>
+    furnaceTable(entities)?.researchCompleted(tech, entities);
   return {
     tick: 0,
     seed,
