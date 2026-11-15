@@ -109,12 +109,13 @@ const BUSY_LONG: readonly (readonly [prefix: string, share: number, idle: number
  * Science packs on the science belts at any window's end of the first hour,
  * at most: the science machines make a little more than the three labs use,
  * and the labs take only 2 of each from inserters (D75), so the extra waits
- * on the belts: they fill up within the first five minutes (about 340 packs)
- * and stay full.
+ * on the belts: they fill up within the first five minutes (about 340 of the
+ * 388 they hold, the red lane first) and stay full.
  */
 const MOST_PACKS_ON_BELTS = 360;
 /**
- * And after the hour, on research speed (D74). PROVISIONAL, measured below.
+ * And after the hour, on research speed (D74): they stay as full as in the
+ * hour (338–340 from minute 60 to 90).
  */
 const MOST_PACKS_ON_BELTS_LATER = 360;
 /** Packs the science belts may gain over the last three windows (they don't fill up). */
