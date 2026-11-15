@@ -52,7 +52,7 @@ explore/gather → hand-craft → place machines → connect logistics → resea
 - Science packs: red (automation) and green (logistics). Blue comes in v1.x.
 
 ### Tech tree
-- Technologies are researched in labs from science packs (`src/data/technologies.ts`); each one unlocks recipes. Everything from M1 and M2, the lab and the automation science pack are available from the start. About 15 nodes in v1; the M3 tree has 8, and more come with the mechanics they unlock (bonuses such as inserter capacity or research speed need their effects first).
+- Technologies are researched in labs from science packs (`src/data/technologies.ts`); each one unlocks recipes. Everything from M1 and M2, the lab and the automation science pack are available from the start. About 15 nodes in v1; the M3 tree has 8, and more come with the mechanics they unlock (bonuses such as inserter capacity need their effects first). After the last of them comes **research speed**, a repeatable technology like Factorio's infinite ones (D74): it has levels and no last level, level n costs 100 × n units, and each level done makes labs 10 % faster, so labs always have something to research.
 
 | Technology | Requires | Cost per unit | Units × time | Unlocks |
 |---|---|---|---|---|
@@ -64,6 +64,7 @@ explore/gather → hand-craft → place machines → connect logistics → resea
 | Automation 2 | Electronics, logistic science pack | red + green | 40 × 5 s | Assembling machine 2 |
 | Logistics 2 | Logistics, logistic science pack | red + green | 200 × 30 s | Fast transport belt, fast underground belt, fast splitter |
 | Logistics 3 | Logistics 2, automation 2 | red + green | 300 × 15 s | Express transport belt, express underground belt, express splitter |
+| Research speed (repeatable, D74) | Fast inserter, logistics 3 | red + green | level n: 100 × n × 15 s | Each level: labs research 10 % faster |
 
 Science packs: automation (red) = 1 copper plate + 1 iron gear wheel, 5 s; logistic (green) = 1 electric inserter + 1 transport belt, 6 s. A lab (3×3, 60 kW) holds a stack of each and researches one unit at a time; several labs add up.
 

@@ -174,7 +174,7 @@ test('labs fed by hand research automation, which unlocks the assembling machine
   await setTimeScale(page, 8);
   await expect
     .poll(async () => (await research(page)).techs.automation, { timeout: 30_000 })
-    .toEqual({ unitsDone: 10, researched: true });
+    .toEqual({ unitsDone: 10, researched: true, levels: 0 });
   await setTimeScale(page, 1);
   await expect(automation).toHaveAttribute('data-state', 'researched');
   await expect(tree.locator('.tech[data-tech="electronics"]')).toHaveAttribute(
@@ -195,5 +195,37 @@ test('labs fed by hand research automation, which unlocks the assembling machine
   await expect(
     page.locator('#crafting-panel .recipe[data-recipe="fast-inserter"]'),
   ).toHaveAttribute('data-locked', 'true');
+  expect(errors).toEqual([]);
+});
+
+test('research speed, the repeatable technology, shows its level once the tree is done (D74)', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('./?research=all');
+  await page.waitForFunction(() => window.__beltworks?.player() != null);
+  await page.keyboard.press('t');
+  const tree = page.locator('#tech-tree');
+  await expect(tree).toBeVisible();
+  const speed = tree.locator('.tech[data-tech="research-speed"]');
+  // Never researched, whatever else is: it can be picked, at level 1.
+  await expect(speed).toHaveAttribute('data-state', 'available');
+  await expect(speed).toHaveAttribute('data-level', '1');
+  await expect(speed).toContainText('Research speed 1');
+  await expect(speed).toContainText('× 100');
+  await expect(speed).toContainText('Each level: labs research 10% faster');
+  await expect(speed.locator('.state')).toHaveText('Click to research · 0/100');
+  await speed.click();
+  await expect.poll(async () => (await research(page)).current).toBe('research-speed');
+  await expect(speed).toHaveAttribute('data-state', 'current');
+  const status = page.locator('#research-status');
+  await expect(status).toHaveAttribute('data-tech', 'research-speed');
+  await expect(status).toHaveAttribute('data-level', '1');
+  await expect(status).toHaveText('Researching Research speed 1: 0%');
+  expect((await research(page)).techs['research-speed']).toEqual({
+    unitsDone: 0,
+    researched: false,
+    levels: 0,
+  });
   expect(errors).toEqual([]);
 });

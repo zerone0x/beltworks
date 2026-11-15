@@ -8,6 +8,12 @@
  * for the force (`isRecipeUnlocked` in src/sim/research/unlocks.ts). A
  * recipe no technology unlocks is available from the start.
  *
+ * A **repeatable** technology (`repeatable: true`, D74) has levels and no
+ * last level, like Factorio's infinite technologies: level `n` (1, 2, ...)
+ * takes `units × n` units ({@link technologyUnits}), and when a level
+ * completes the next one starts at once, so it stays the current research.
+ * It is never "researched"; the force keeps the number of levels done.
+ *
  * Technology ids are stored in simulation state (the current research as a
  * uint16, progress per technology), where 0 means "no technology". They must
  * stay stable: changing an id breaks saves and state hashes. Every amount
@@ -28,6 +34,7 @@ export const TechId = {
   Automation2: 6,
   Logistics2: 7,
   Logistics3: 8,
+  ResearchSpeed: 9,
 } as const;
 
 export type TechId = (typeof TechId)[keyof typeof TechId];
@@ -45,12 +52,19 @@ export interface Technology {
   readonly prerequisites: readonly RealTechId[];
   /** Science packs one unit takes: one of each, in {@link SCIENCE_PACKS} order. */
   readonly packs: readonly RealItemId[];
-  /** Units to research. */
+  /**
+   * Units to research; for a repeatable technology, the units of its first
+   * level (level `n` takes `n` times as many, {@link technologyUnits}).
+   */
   readonly units: number;
   /** Ticks of a lab's work at full power per unit. */
   readonly ticksPerUnit: number;
   /** Recipes researching it unlocks. */
   readonly unlocks: readonly RealRecipeId[];
+  /** Whether it has levels and no last level (D74). */
+  readonly repeatable?: boolean;
+  /** Percent each level done adds to the labs' research speed (repeatable technologies; D74). */
+  readonly labSpeedPerLevel?: number;
 }
 
 /**
@@ -154,6 +168,20 @@ export const TECHNOLOGIES: Readonly<Record<RealTechId, Technology>> = {
       RecipeId.ExpressSplitter,
     ],
   },
+  // Repeatable (D74): level n takes 100 × n units of red + green packs, and
+  // each level done makes every lab research 10% faster.
+  [TechId.ResearchSpeed]: {
+    id: TechId.ResearchSpeed,
+    name: 'research-speed',
+    label: 'Research speed',
+    prerequisites: [TechId.FastInserter, TechId.Logistics3],
+    packs: RED_GREEN,
+    units: 100,
+    ticksPerUnit: 15 * S,
+    unlocks: [],
+    repeatable: true,
+    labSpeedPerLevel: 10,
+  },
 };
 
 /** Every real technology id, in id order (prerequisites always come first). */
@@ -166,7 +194,17 @@ export const TECH_IDS: readonly RealTechId[] = [
   TechId.Automation2,
   TechId.Logistics2,
   TechId.Logistics3,
+  TechId.ResearchSpeed,
 ];
+
+/**
+ * Units level `level + 1` of technology `t` takes, for a force that has
+ * done `level` levels of it: `units × (level + 1)` for a repeatable
+ * technology (100, 200, 300, ... for research speed), `units` for any other.
+ */
+export function technologyUnits(t: Technology, level: number): number {
+  return t.repeatable ? t.units * (level + 1) : t.units;
+}
 
 /** One more than the highest technology id: the length of per-technology arrays. */
 export const TECH_SLOTS = Math.max(...TECH_IDS) + 1;

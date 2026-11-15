@@ -1,12 +1,13 @@
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ENTITIES, EntityTypeId } from '../../src/data/entities';
+import { TECHNOLOGIES, TechId } from '../../src/data/technologies';
 import { gunzip, gzip } from '../../src/save/compress';
 import { ChestTable } from '../../src/sim/entities/chest';
 import { createEntityTables } from '../../src/sim/entities/registry';
 import { SaveReader, SaveWriter } from '../../src/sim/save/codec';
 import { MIGRATIONS, type Migration } from '../../src/sim/save/migrations';
-import { SAVE_VERSION, loadSim, readSaveMeta, saveSim } from '../../src/sim/save/save';
+import { SAVE_VERSION, decodeSave, loadSim, readSaveMeta, saveSim } from '../../src/sim/save/save';
 import { buildDeterminismScript, createDeterminismSim } from '../../src/sim/scenarios/determinism';
 import { STATE_HASH_VERSION } from '../../src/sim/state';
 import { expectRoundTrip } from './saveRoundTrip';
@@ -143,6 +144,28 @@ describe('save migrations', () => {
       reference.step();
     }
     expect(sim.hash()).toBe(reference.hash());
+  });
+
+  it('loads format 1 saves with every repeatable technology at level 0 (D74)', async () => {
+    const bytes = await readFixture('v1-determinism.bwsave');
+    const doc = decodeSave(bytes);
+    // Format 1's research section: forces, technology slots, current, units.
+    const r = new SaveReader(doc.sections.get('research')!, 'research');
+    const forces = r.u32();
+    const slots = r.u32();
+    r.column(new Uint16Array(0), forces);
+    const units = r.column(new Uint32Array(0), forces * slots);
+    expect(r.done).toBe(true);
+    const sim = loadSim(bytes);
+    const { research } = sim.state;
+    expect(Array.from(research.levels)).toEqual(new Array<number>(research.levels.length).fill(0));
+    expect(Array.from(research.units.subarray(0, slots))).toEqual(Array.from(units));
+    expect(research.levelsDone(0, TechId.ResearchSpeed)).toBe(0);
+    expect(research.unitsNeeded(0, TechId.ResearchSpeed)).toBe(
+      TECHNOLOGIES[TechId.ResearchSpeed].units,
+    );
+    // Without the migration, format 1 can't be read any more.
+    expect(() => loadSim(bytes, { migrations: [] })).toThrow('No migration from save format 1');
   });
 
   it('refuses an older format it has no migration for', async () => {

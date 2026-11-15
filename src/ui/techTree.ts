@@ -14,6 +14,10 @@
  * Both redraw from the snapshot's research (`ResearchData`) and only send
  * commands; the simulation decides what happens. Progress counts the units
  * labs have finished plus the work done on the units under way.
+ *
+ * A repeatable technology (D74) shows the level being researched after its
+ * name ("Research speed 3"), and the cost and progress of that level; it is
+ * never shown researched.
  */
 
 import { itemPrototype } from '../data/items';
@@ -22,10 +26,11 @@ import {
   TECH_IDS,
   technologyDepth,
   technologyPrototype,
+  technologyUnits,
   type Technology,
 } from '../data/technologies';
 import type { CommandInput } from '../sim/commands';
-import { NO_RESEARCH, isResearchedIn, type ResearchData } from '../sim/snapshot';
+import { NO_RESEARCH, isResearchedIn, levelsIn, type ResearchData } from '../sim/snapshot';
 import { makeSlotIcon, setSlotIcon } from './inventory';
 import { actionFor } from './keybindings';
 
@@ -42,27 +47,45 @@ export function techState(research: ResearchData, tech: number): TechState {
 
 /**
  * Progress on technology `tech` (0..1): its finished units plus the work
- * done on the units labs are researching, out of all its units.
+ * done on the units labs are researching, out of all its units (of the level
+ * being researched, for a repeatable technology).
  */
 export function techProgress(research: ResearchData, tech: number): number {
   const t = technologyPrototype(tech);
   const r = research.techs.get(tech);
   if (!t || !r) return 0;
   const units = r.unitsDone + r.ticksInProgress / t.ticksPerUnit;
-  return Math.min(1, units / t.units);
+  return Math.min(1, units / technologyUnits(t, r.levels));
+}
+
+/**
+ * The name technology `tech` shows: its label, followed for a repeatable
+ * technology by the level being researched (`Research speed 3` once 2
+ * levels are done).
+ */
+export function techName(research: ResearchData, tech: number): string {
+  const t = technologyPrototype(tech);
+  if (!t) return '';
+  return t.repeatable ? `${t.label} ${String(levelsIn(research, tech) + 1)}` : t.label;
 }
 
 /** `ticks` (60 per second) as seconds: `10 s`, `2.5 s`. */
 const seconds = (ticks: number): string => `${String(Math.round((ticks / 60) * 10) / 10)} s`;
 
-/** A technology's cost as text: `10 × (1 Automation science pack) · 10 s each`. */
-export function costText(t: Technology): string {
+/**
+ * A technology's cost as text: `10 × (Automation science pack), 10 s each`
+ * (for a repeatable one, of the level after `levels` done levels).
+ */
+export function costText(t: Technology, levels = 0): string {
   const packs = t.packs.map((p) => itemPrototype(p)?.label ?? '?').join(' + ');
-  return `${String(t.units)} × (${packs}), ${seconds(t.ticksPerUnit)} each`;
+  return `${String(technologyUnits(t, levels))} × (${packs}), ${seconds(t.ticksPerUnit)} each`;
 }
 
-/** What a technology unlocks, as text: the labels of its recipes' products. */
+/** What a technology unlocks, as text: the labels of its recipes' products, or its effect. */
 export function unlocksText(t: Technology): string {
+  if (t.labSpeedPerLevel) {
+    return `Each level: labs research ${String(t.labSpeedPerLevel)}% faster`;
+  }
   if (t.unlocks.length === 0) return 'Leads on to further research';
   const names = t.unlocks.map((r) => {
     const out = recipePrototype(r)?.outputs[0];
@@ -141,6 +164,8 @@ function smallIcon(item: number, px: number): HTMLElement {
 
 interface Card {
   root: HTMLButtonElement;
+  name: HTMLElement;
+  units: HTMLElement;
   status: HTMLElement;
   bar: { element: HTMLElement; fill: HTMLElement };
 }
@@ -312,7 +337,8 @@ export class TechTreePanel {
     const states = TECH_IDS.map((id) => techState(research, id));
     // Progress in tenths of a percent, so the panel only changes when a bar does.
     const progress = TECH_IDS.map((id) => Math.floor(techProgress(research, id) * 1000));
-    const key = `${String(research.current)}|${states.join(',')}|${progress.join(',')}`;
+    const levels = TECH_IDS.map((id) => levelsIn(research, id));
+    const key = `${String(research.current)}|${states.join(',')}|${progress.join(',')}|${levels.join(',')}`;
     if (key === this.shown) return;
     this.shown = key;
     TECH_IDS.forEach((id, i) => {
@@ -320,7 +346,14 @@ export class TechTreePanel {
       const state = states[i]!;
       const t = technologyPrototype(id)!;
       const done = research.techs.get(id)?.unitsDone ?? 0;
+      const units = technologyUnits(t, levels[i]!);
       card.root.dataset.state = state;
+      if (t.repeatable) {
+        card.root.dataset.level = String(levels[i]! + 1);
+        card.name.textContent = techName(research, id);
+        card.units.textContent = ` × ${String(units)} · ${seconds(t.ticksPerUnit)}`;
+        card.root.title = `${techName(research, id)}: ${costText(t, levels[i])}. ${unlocksText(t)}.`;
+      }
       card.root.dataset.progress = String(progress[i]! / 10);
       card.root.disabled = state === 'researched' || state === 'locked';
       const colors = STATE_COLORS[state];
@@ -338,7 +371,7 @@ export class TechTreePanel {
           ? `Requires ${missing.join(', ')}`
           : state === 'researched'
             ? STATE_TEXT.researched
-            : `${state === 'current' ? STATE_TEXT.current : STATE_TEXT.available} · ${String(done)}/${String(t.units)}`;
+            : `${state === 'current' ? STATE_TEXT.current : STATE_TEXT.available} · ${String(done)}/${String(units)}`;
       card.bar.element.style.visibility = state === 'locked' ? 'hidden' : 'visible';
       card.bar.fill.style.width = `${String(progress[i]! / 10)}%`;
       card.bar.fill.style.background = state === 'researched' ? '#6fbf73' : '#f2d36b';
@@ -348,11 +381,15 @@ export class TechTreePanel {
     if (current) {
       const p = techProgress(research, current.id);
       this.status.dataset.tech = current.name;
+      if (current.repeatable)
+        this.status.dataset.level = String(levelsIn(research, current.id) + 1);
+      else delete this.status.dataset.level;
       this.status.dataset.progress = String(Math.floor(p * 1000) / 10);
-      this.statusText.textContent = `Researching ${current.label}: ${String(Math.floor(p * 100))}%`;
+      this.statusText.textContent = `Researching ${techName(research, current.id)}: ${String(Math.floor(p * 100))}%`;
       this.statusBar.fill.style.width = `${String(Math.floor(p * 1000) / 10)}%`;
     } else {
       delete this.status.dataset.tech;
+      delete this.status.dataset.level;
     }
   }
 
@@ -434,7 +471,7 @@ export class TechTreePanel {
       if (state === 'available') this.send(t.id);
       else if (state === 'current') this.send(0);
     });
-    return { root, status, bar };
+    return { root, name, units, status, bar };
   }
 
   /** SVG lines from each technology's prerequisites to it. */
