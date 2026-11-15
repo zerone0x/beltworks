@@ -20,6 +20,16 @@
  *    `n` labs research `n` units at once: a technology of `u` units takes
  *    `ceil(u / n) × ticksPerUnit` ticks.
  *
+ * Research speed (D74): the levels done of repeatable technologies with
+ * `labSpeedPerLevel` make every lab faster, `bonus` percent in all
+ * (`ResearchState.labSpeedBonus`): each working tick advances by
+ * `floor(s × (100 + bonus) / 100)` instead of `s`, so a unit takes about
+ * `ticksPerUnit × 100 / (100 + bonus)` ticks at full power.
+ *
+ * A repeatable technology has no last unit: labs start units of it however
+ * many are in progress, and a unit that finishes after its level completed
+ * counts for the next level (its packs are the same at every level).
+ *
  * A unit in progress always finishes for the technology it was started for,
  * even if the player switches research meanwhile (its packs are spent), so
  * switching loses nothing. Removing a lab refunds its packs and those of its
@@ -121,6 +131,8 @@ export class LabTable implements EntityTypeTable {
   }
 
   private stepped = 0;
+  /** The research speed bonus in percent for the current `update` (derived from the research). */
+  private speedBonus = 0;
 
   /** Units of technology `tech` labs are researching right now. */
   unitsInProgress(tech: number): number {
@@ -289,6 +301,7 @@ export class LabTable implements EntityTypeTable {
   /** The lab system: steps every active lab by one tick. */
   update(entities: Entities): void {
     this.stepped = this.active.size;
+    this.speedBonus = this.research?.labSpeedBonus(DEFAULT_FORCE) ?? 0;
     // Backwards, so a lab leaving the list only moves one already stepped.
     for (let i = this.active.size - 1; i >= 0; i--) {
       const id = this.active.idAt(i);
@@ -359,6 +372,7 @@ export class LabTable implements EntityTypeTable {
       if (advance === 0) return MachineState.NoPower;
     }
     if (advance === NOT_GRANTED) return MachineState.Working;
+    if (this.speedBonus > 0) advance = Math.floor((advance * (100 + this.speedBonus)) / 100);
     const tech = this.tech[row]!;
     const t = technologyPrototype(tech)!;
     const progress = this.progress[row]! + advance;
@@ -379,7 +393,8 @@ export class LabTable implements EntityTypeTable {
 
   /**
    * The technology a lab without a unit in progress would start one of: the
-   * current research, if it has units left that no lab is researching yet.
+   * current research, if it has units left that no lab is researching yet
+   * (a repeatable one always has).
    */
   private startable(): Technology | undefined {
     const research = this.research;
@@ -387,6 +402,7 @@ export class LabTable implements EntityTypeTable {
     const tech = research.currentOf(DEFAULT_FORCE);
     const t = technologyPrototype(tech);
     if (!t) return undefined;
+    if (t.repeatable) return t;
     return research.unitsDone(DEFAULT_FORCE, tech) + this.inProgress[tech]! < t.units
       ? t
       : undefined;

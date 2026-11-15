@@ -276,7 +276,7 @@ describe('1k scene', () => {
   it('ends a default bench run in the recorded state', () => {
     const result = measureScene(factory1k, { runs: 1, warmupRuns: 0 });
     expect(result.warmupTicks + result.measuredTicks).toBe(600 + 3600);
-    expect(result.hash).toBe('0x4328a8c6');
+    expect(result.hash).toBe('0x180afb76');
   }, 30_000);
 });
 

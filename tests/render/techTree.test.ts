@@ -3,15 +3,23 @@ import { EntityTypeId } from '../../src/data/entities';
 import { TECH_IDS, TECHNOLOGIES, TechId } from '../../src/data/technologies';
 import { MachineState } from '../../src/sim/entities/machine';
 import type { EntityDetailData, ResearchData } from '../../src/sim/snapshot';
-import { NO_RESEARCH } from '../../src/sim/snapshot';
+import { NO_RESEARCH, isResearchedIn } from '../../src/sim/snapshot';
 import { hasEntityGui, machineBars, statusView } from '../../src/ui/entityPanel';
 import { controls } from '../../src/ui/help';
-import { costText, techProgress, techState, treeLayout, unlocksText } from '../../src/ui/techTree';
+import {
+  costText,
+  techName,
+  techProgress,
+  techState,
+  treeLayout,
+  unlocksText,
+} from '../../src/ui/techTree';
 
 const research = (
   current: number,
   done: Record<number, number>,
   inProgress: Record<number, [units: number, ticks: number]> = {},
+  levels: Record<number, number> = {},
 ): ResearchData => ({
   current,
   techs: new Map(
@@ -21,6 +29,7 @@ const research = (
         unitsDone: done[id] ?? 0,
         unitsInProgress: inProgress[id]?.[0] ?? 0,
         ticksInProgress: inProgress[id]?.[1] ?? 0,
+        levels: levels[id] ?? 0,
       },
     ]),
   ),
@@ -77,6 +86,53 @@ describe('tech tree', () => {
       'Unlocks: Assembling machine 1, Long-handed inserter',
     );
     expect(unlocksText(TECHNOLOGIES[TechId.Electronics])).toBe('Leads on to further research');
+  });
+
+  it('shows research speed with the level under way, its cost and progress (D74)', () => {
+    const speed = TechId.ResearchSpeed;
+    const t = TECHNOLOGIES[speed];
+    const finite = Object.fromEntries(
+      TECH_IDS.filter((id) => id !== speed).map((id) => [id, TECHNOLOGIES[id].units]),
+    );
+    expect(techState(research(0, {}), speed)).toBe('locked');
+    expect(techState(research(0, finite), speed)).toBe('available');
+    expect(techName(research(0, finite), speed)).toBe('Research speed 1');
+    // Two levels done, 75 of level 3's 300 units, and two labs halfway through one each.
+    const r = research(
+      speed,
+      { ...finite, [speed]: 75 },
+      { [speed]: [2, t.ticksPerUnit] },
+      { [speed]: 2 },
+    );
+    expect(techState(r, speed)).toBe('current');
+    expect(techName(r, speed)).toBe('Research speed 3');
+    expect(techProgress(r, speed)).toBe(76 / 300);
+    expect(costText(t, 2)).toBe(
+      '300 × (Automation science pack + Logistic science pack), 15 s each',
+    );
+    expect(costText(t)).toMatch(/^100 × /);
+    expect(unlocksText(t)).toBe('Each level: labs research 10% faster');
+    // A level done never makes it "researched".
+    expect(techState(research(0, { ...finite, [speed]: 0 }, {}, { [speed]: 9 }), speed)).toBe(
+      'available',
+    );
+    expect(techName(r, TechId.Automation)).toBe('Automation');
+  });
+
+  it('never shows research speed as researched partway through a level past its base units (D74)', () => {
+    const speed = TechId.ResearchSpeed;
+    const finite = Object.fromEntries(
+      TECH_IDS.filter((id) => id !== speed).map((id) => [id, TECHNOLOGIES[id].units]),
+    );
+    // Level 1 done, 150 of level 2's 200 units: unitsDone is past the base 100 units.
+    expect(150).toBeGreaterThanOrEqual(TECHNOLOGIES[speed].units);
+    const idle = research(0, { ...finite, [speed]: 150 }, {}, { [speed]: 1 });
+    expect(isResearchedIn(idle, speed)).toBe(false);
+    expect(techState(idle, speed)).toBe('available');
+    const busy = research(speed, { ...finite, [speed]: 150 }, {}, { [speed]: 1 });
+    expect(isResearchedIn(busy, speed)).toBe(false);
+    expect(techState(busy, speed)).toBe('current');
+    expect(techName(busy, speed)).toBe('Research speed 2');
   });
 
   it('has a key in the controls help', () => {

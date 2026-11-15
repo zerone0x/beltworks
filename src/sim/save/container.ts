@@ -13,7 +13,7 @@ import type { Migration } from './migrations';
  * The save format this build writes and the newest it reads. Bump it (and
  * add a migration) whenever a section's layout changes.
  */
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 const MAGIC = Uint8Array.of(0x42, 0x57, 0x53, 0x56); // "BWSV"
 

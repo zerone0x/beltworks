@@ -19,6 +19,7 @@ import {
   technologyDepth,
   recipeUnlockedBy,
   technologyPrototype,
+  technologyUnits,
   unlockingTechnology,
 } from '../../src/data/technologies';
 import { beltTable } from '../../src/sim/belts/belts';
@@ -42,9 +43,11 @@ import {
   isResearchedIn,
   researchUnlocks,
 } from '../../src/sim/snapshot';
+import { buildDemo } from '../../src/sim/scenarios/demo';
 import { hashState } from '../../src/sim/state';
 import { Sim } from '../../src/sim/tick';
 import { CHUNK_MASK, CHUNK_SHIFT, tileIndex } from '../../src/sim/world/chunk';
+import { expectRoundTrip, reload, stepTogether } from './saveRoundTrip';
 
 const { North, East } = Direction;
 const RED = ItemId.AutomationSciencePack;
@@ -279,6 +282,7 @@ describe('technology data', () => {
       'automation-2',
       'logistics-2',
       'logistics-3',
+      'research-speed',
     ]);
     // Green packs need their technology: a new game makes red ones only.
     researched.clear();
@@ -613,7 +617,162 @@ describe('labs', () => {
       unitsDone: 2,
       unitsInProgress: 2,
       ticksInProgress: 2 * 30,
+      levels: 0,
     });
     expect(data.techs.size).toBe(TECH_IDS.length);
   });
+});
+
+const SPEED = TECHNOLOGIES[TechId.ResearchSpeed];
+/** Every technology but the repeatable ones: what research speed needs first. */
+const FINITE = TECH_IDS.filter((id) => !TECHNOLOGIES[id].repeatable);
+
+describe('repeatable research (D74)', () => {
+  it('is research speed: red + green, behind every other technology, 100 × n units for level n', () => {
+    expect(SPEED.repeatable).toBe(true);
+    expect(SPEED.name).toBe('research-speed');
+    expect(SPEED.packs).toEqual([RED, GREEN]);
+    expect(SPEED.labSpeedPerLevel).toBe(10);
+    expect(TECH_IDS.filter((id) => TECHNOLOGIES[id].repeatable)).toEqual([TechId.ResearchSpeed]);
+    // Its prerequisites lead back to every finite technology.
+    const before = new Set<number>();
+    const visit = (id: number): void => {
+      for (const p of TECHNOLOGIES[id as keyof typeof TECHNOLOGIES].prerequisites) {
+        before.add(p);
+        visit(p);
+      }
+    };
+    visit(TechId.ResearchSpeed);
+    expect([...before].sort((a, b) => a - b)).toEqual(FINITE);
+    expect([0, 1, 2, 9].map((level) => technologyUnits(SPEED, level))).toEqual([
+      100, 200, 300, 1000,
+    ]);
+    expect(technologyUnits(AUTOMATION, 5)).toBe(AUTOMATION.units);
+  });
+
+  it('can be picked once every other technology is researched, and goes on level after level', () => {
+    const r = new ResearchState();
+    const tech = TechId.ResearchSpeed;
+    for (const id of FINITE.filter((id) => id !== TechId.Logistics3)) r.markResearched(0, id);
+    expect(r.isAvailable(0, tech)).toBe(false);
+    expect(r.setCurrent(0, tech)).toBe(false);
+    r.markResearched(0, TechId.Logistics3);
+    expect(r.isAvailable(0, tech)).toBe(true);
+    expect(r.setCurrent(0, tech)).toBe(true);
+    const completedAt: number[] = [];
+    let units = 0;
+    for (let level = 1; level <= 4; level++) {
+      expect(r.unitsNeeded(0, tech)).toBe(100 * level);
+      for (let u = 1; u <= 100 * level; u++) {
+        units++;
+        if (r.completeUnit(0, tech)) completedAt.push(units);
+      }
+      // A level is done: the next starts from 0 units, and it is still the current research.
+      expect(r.levelsDone(0, tech)).toBe(level);
+      expect(r.unitsDone(0, tech)).toBe(0);
+      expect(r.currentOf(0)).toBe(tech);
+      expect(r.isResearched(0, tech)).toBe(false);
+      expect(r.isAvailable(0, tech)).toBe(true);
+      expect(r.labSpeedBonus(0)).toBe(10 * level);
+    }
+    // Cumulative units: 100, 100 + 200, ...
+    expect(completedAt).toEqual([100, 300, 600, 1000]);
+    // Switching away and back keeps the level and the units towards the next one.
+    r.completeUnit(0, tech);
+    expect(r.setCurrent(0, 0)).toBe(true);
+    expect(r.setCurrent(0, tech)).toBe(true);
+    expect(r.levelsDone(0, tech)).toBe(4);
+    expect(r.unitsDone(0, tech)).toBe(1);
+    // markResearched leaves it alone; setLevels sets it.
+    r.markResearched(0, tech);
+    expect(r.levelsDone(0, tech)).toBe(4);
+    r.setLevels(0, tech, 7);
+    expect(r.levelsDone(0, tech)).toBe(7);
+    expect(r.unitsDone(0, tech)).toBe(0);
+    expect(r.levelsDone(0, TechId.Automation)).toBe(0);
+    expect(() => {
+      r.setLevels(0, tech, -1);
+    }).toThrow(RangeError);
+  });
+
+  it('hashes the levels, and only them, apart', () => {
+    const a = new ResearchState();
+    const b = new ResearchState();
+    expect(a.hashInto(1)).toBe(b.hashInto(1));
+    a.setLevels(0, TechId.ResearchSpeed, 1);
+    expect(a.hashInto(1)).not.toBe(b.hashInto(1));
+    b.setLevels(0, TechId.ResearchSpeed, 1);
+    expect(a.hashInto(1)).toBe(b.hashInto(1));
+    // Same units, different levels: different hashes.
+    a.setLevels(0, TechId.ResearchSpeed, 2);
+    expect(a.unitsDone(0, TechId.ResearchSpeed)).toBe(b.unitsDone(0, TechId.ResearchSpeed));
+    expect(a.hashInto(1)).not.toBe(b.hashInto(1));
+  });
+
+  it('keeps labs working across a level: units in progress count for the next one', () => {
+    const r = rig({ labs: 3, researched: FINITE });
+    for (const lab of r.labs) {
+      r.feed(lab, RED, 10);
+      r.feed(lab, GREEN, 10);
+    }
+    const tech = TechId.ResearchSpeed;
+    // Two units short of level 1, with three labs: one unit spills over.
+    r.state.research.units[tech] = SPEED.units - 2;
+    r.research(tech);
+    r.step(SPEED.ticksPerUnit);
+    expect(r.state.research.levelsDone(0, tech)).toBe(1);
+    expect(r.state.research.unitsDone(0, tech)).toBe(1);
+    expect(r.state.research.currentOf(0)).toBe(tech);
+    // No lab ever waited for something to research.
+    for (let t = 0; t < 2 * SPEED.ticksPerUnit; t++) {
+      r.step();
+      for (const lab of r.labs) expect(r.entities.status(lab)).toBe(MachineState.Working);
+    }
+    // Two more units per lab (at 110% now), and a third one under way.
+    expect(r.state.research.unitsDone(0, tech)).toBe(1 + 2 * 3);
+    const data = decodeResearch(encodeResearch(r.state, 0).buffer);
+    expect(data.techs.get(tech)).toMatchObject({ levels: 1, unitsDone: 7, unitsInProgress: 3 });
+    expect(isResearchedIn(data, tech)).toBe(false);
+  });
+
+  it('makes labs 10% faster per level', () => {
+    const unitTicks = (levels: number): number => {
+      const r = rig({ researched: FINITE });
+      const [lab] = r.labs as [number];
+      r.feed(lab, RED, 10);
+      r.feed(lab, GREEN, 10);
+      r.state.research.setLevels(0, TechId.ResearchSpeed, levels);
+      r.research(TechId.ResearchSpeed);
+      return ticksUntil(r, () => r.units(TechId.ResearchSpeed) > 0);
+    };
+    expect(unitTicks(0)).toBe(SPEED.ticksPerUnit);
+    // 150%: a unit of 900 working ticks takes 600 ticks.
+    expect(unitTicks(5)).toBe((SPEED.ticksPerUnit * 100) / 150);
+    expect(unitTicks(1)).toBe(Math.ceil((SPEED.ticksPerUnit * 100) / 110));
+  });
+
+  it('saves and loads mid-level, labs and all, and runs on identically across the next level', () => {
+    const sim = buildDemo();
+    const { research } = sim.state;
+    for (const id of FINITE) research.markResearched(0, id);
+    research.setLevels(0, TechId.ResearchSpeed, 2);
+    sim.enqueue({ type: 'SetResearch', playerId: 0, tech: TechId.ResearchSpeed, tick: sim.tick });
+    for (let i = 0; i < 2 * SPEED.ticksPerUnit; i++) sim.step();
+    expect(research.levelsDone(0, TechId.ResearchSpeed)).toBe(2);
+    const units = research.unitsDone(0, TechId.ResearchSpeed);
+    expect(units).toBeGreaterThan(0);
+    expect(labTable(sim.state.entities)!.unitsInProgress(TechId.ResearchSpeed)).toBeGreaterThan(0);
+    const copy = reload(sim);
+    expect(copy.state.research.levelsDone(0, TechId.ResearchSpeed)).toBe(2);
+    expect(copy.state.research.unitsDone(0, TechId.ResearchSpeed)).toBe(units);
+    expect(Array.from(copy.state.research.levels)).toEqual(Array.from(research.levels));
+    // Close to the end of level 3, so the run crosses into level 4 on both.
+    const k = TechId.ResearchSpeed;
+    research.units[k] = technologyUnits(SPEED, 2) - 2;
+    copy.state.research.units[k] = technologyUnits(SPEED, 2) - 2;
+    stepTogether(sim, copy, SPEED.ticksPerUnit);
+    expect(research.levelsDone(0, k)).toBe(3);
+    expect(sim.state.research.currentOf(0)).toBe(k);
+    expectRoundTrip(sim, 600);
+  }, 60_000);
 });

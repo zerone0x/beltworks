@@ -70,8 +70,9 @@ export const DEMO_RESEARCH = TechId.Automation2;
 
 /**
  * What the labs research, in order (D72): each one starts as the last one
- * completes ({@link DemoResearch}), so the labs keep working for
- * about an hour of game time, as long as the tech tree lasts.
+ * completes ({@link DemoResearch}). The tech tree lasts about an hour of
+ * game time; the chain then ends on research speed, a repeatable technology
+ * (D74) that goes on level after level, so the labs never run out of work.
  */
 export const DEMO_RESEARCH_CHAIN: readonly number[] = [
   DEMO_RESEARCH,
@@ -79,6 +80,7 @@ export const DEMO_RESEARCH_CHAIN: readonly number[] = [
   TechId.FastInserter,
   TechId.Logistics2,
   TechId.Logistics3,
+  TechId.ResearchSpeed,
 ];
 
 /**

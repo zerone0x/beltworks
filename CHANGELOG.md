@@ -6,6 +6,7 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 
 ### Added
 
+- **Repeatable research** (#148, D74): **research speed**, after every other technology, has levels and no last level, like Factorio's infinite technologies. Level n takes 100 × n units of red and green packs (15 s each), each level makes labs research 10 % faster, and the next level starts by itself, so labs never run out of research. The tech tree and the research bar show the level under way ("Research speed 3"). The demo factory's research chain ends on it, so its labs, and the factory behind them, keep working after the hour instead of stopping. Saves keep the levels; older saves load with level 0 (save format 2).
 - **Demo factory** (#142, D72): a "Demo factory" button on the title screen and a `?demo` link start a game in a complete factory, from ore to research (drills, furnaces, a plate bus, assembling machines, red and green science, labs researching one technology after another for about an hour, steam power on mined coal), built through commands by a scripted player; the camera frames it and the objectives stay off. `npm run capture:promo` records frame-stepped footage of it (shots per stage, a highlight reel, stills, production counts) for promo videos and the README, whose "See the pipeline work" section shows a 720p highlight reel, a still per stage and the counts measured over the same ticks.
 
 ### Changed

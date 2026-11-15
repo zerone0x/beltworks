@@ -72,7 +72,7 @@ describe('crafting panel helpers', () => {
     const research = {
       current: 0,
       techs: new Map([
-        [TechId.Automation, { unitsDone: 10, unitsInProgress: 0, ticksInProgress: 0 }],
+        [TechId.Automation, { unitsDone: 10, unitsInProgress: 0, ticksInProgress: 0, levels: 0 }],
       ]),
     };
     expect(at(craftableCounts(slots, 0, research), RecipeId.LongHandedInserter)).toBe(3);

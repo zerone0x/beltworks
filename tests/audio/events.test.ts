@@ -141,13 +141,30 @@ describe('SoundEventDiffer', () => {
     const d = new SoundEventDiffer();
     const research = (unitsDone: number) => ({
       current: TechId.Automation,
-      techs: new Map([[TechId.Automation, { unitsDone, unitsInProgress: 0, ticksInProgress: 0 }]]),
+      techs: new Map([
+        [TechId.Automation, { unitsDone, unitsInProgress: 0, ticksInProgress: 0, levels: 0 }],
+      ]),
     });
     d.next(frame({ research: research(9) }));
     expect(kinds(d.next(frame({ tick: 1, research: research(10) })))).toEqual([
       'research-complete',
     ]);
     expect(d.next(frame({ tick: 2, research: research(10) }))).toEqual([]);
+  });
+
+  it('plays research-complete once when a level of a repeatable technology is done', () => {
+    const d = new SoundEventDiffer();
+    const research = (unitsDone: number, levels: number) => ({
+      current: TechId.ResearchSpeed,
+      techs: new Map([
+        [TechId.ResearchSpeed, { unitsDone, unitsInProgress: 0, ticksInProgress: 0, levels }],
+      ]),
+    });
+    d.next(frame({ research: research(99, 0) }));
+    expect(kinds(d.next(frame({ tick: 1, research: research(0, 1) })))).toEqual([
+      'research-complete',
+    ]);
+    expect(d.next(frame({ tick: 2, research: research(1, 1) }))).toEqual([]);
   });
 
   it('warns about low power when it starts and again while it lasts', () => {

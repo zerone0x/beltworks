@@ -34,6 +34,7 @@ import { SUBTILES_PER_TILE } from './sim/fixed';
 import { runDeterminismScenario, type DeterminismResult } from './sim/scenarios/determinism';
 import {
   decodeCraftQueue,
+  isResearchedIn,
   PlayerField,
   PLAYER_STRIDE,
   type CraftQueueData,
@@ -285,11 +286,12 @@ export interface BeltworksTestHook {
   /**
    * The local player's force's research from the latest snapshot: the
    * current technology's name (`''` for none) and, per technology name, the
-   * units researched and whether it is done.
+   * units researched (of the level under way, for a repeatable technology),
+   * whether it is done (never, for a repeatable one) and the levels done.
    */
   research(): {
     current: string;
-    techs: Record<string, { unitsDone: number; researched: boolean }>;
+    techs: Record<string, { unitsDone: number; researched: boolean; levels: number }>;
   };
   /** Whether the tech tree panel is open. */
   techTreeOpen(): boolean;
@@ -840,11 +842,15 @@ export function installTestHook(context: TestHookContext): void {
     }),
     research: () => {
       const r = research();
-      const techs: Record<string, { unitsDone: number; researched: boolean }> = {};
+      const techs: Record<string, { unitsDone: number; researched: boolean; levels: number }> = {};
       for (const id of TECH_IDS) {
         const t = TECHNOLOGIES[id];
         const unitsDone = r.techs.get(id)?.unitsDone ?? 0;
-        techs[t.name] = { unitsDone, researched: unitsDone >= t.units };
+        techs[t.name] = {
+          unitsDone,
+          researched: isResearchedIn(r, id),
+          levels: r.techs.get(id)?.levels ?? 0,
+        };
       }
       return { current: technologyPrototype(r.current)?.name ?? '', techs };
     },
