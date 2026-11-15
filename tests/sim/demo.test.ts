@@ -42,12 +42,14 @@ const WINDOWS = 12;
  * (`Working`), by tag prefix: the drills feeding the furnaces, every
  * furnace, the science machines and the labs run flat out (the promo
  * footage is taken then, and an idle furnace shows dark on camera); the
- * machines making intermediates wait between crafts.
+ * machines making intermediates wait between crafts. Inserters top a
+ * furnace up to 2 ores and 5 coal (D75), so the coal drills and the last
+ * copper drill wait for room on their belts once the furnaces are topped up.
  */
 const BUSY: readonly (readonly [prefix: string, share: number])[] = [
   ['iron-drill', 0.9],
-  ['copper-drill', 0.9],
-  ['coal-drill', 0.5],
+  ['copper-drill', 0.45],
+  ['coal-drill', 0.15],
   ['plant-coal-drill', 0.5],
   ['stone-drill', 0.9],
   ['iron-furnace', 0.9],
@@ -74,31 +76,36 @@ const BUSY: readonly (readonly [prefix: string, share: number])[] = [
  * machines use, so the last furnaces in line (one iron, two copper: the
  * copper plates of the east side join the bus after the west side's) and
  * the last drill on the iron and copper belts wait for room, while the rest
- * keep going.
+ * keep going. The science machines make more packs than the labs use, and
+ * since a lab takes only 2 of each from inserters (D75) the extra fills the
+ * science belts instead of the labs' slots: after about 40 minutes one red
+ * and one green machine wait for room, and the machines feeding them (and
+ * the furnaces and drills behind those) slow down with them. The labs never
+ * stop.
  */
 const BUSY_LONG: readonly (readonly [prefix: string, share: number, idle: number])[] = [
   ['lab-', 0.85, 0],
-  ['red-', 0.9, 0],
-  ['green-', 0.9, 0],
-  ['gears', 0.5, 0],
-  ['cable', 0.3, 0],
-  ['circuits', 0.2, 0],
-  ['inserters', 0.2, 0],
-  ['belts', 0.1, 0],
-  ['iron-furnace', 0.2, 1],
+  ['red-', 0.9, 1],
+  ['green-', 0.9, 1],
+  ['gears', 0.4, 0],
+  ['cable', 0.2, 0],
+  ['circuits', 0.15, 0],
+  ['inserters', 0.15, 0],
+  ['belts', 0.05, 0],
+  ['iron-furnace', 0.2, 3],
   ['copper-furnace', 0.2, 2],
-  ['iron-drill', 0.2, 1],
-  ['copper-drill', 0.2, 1],
+  ['iron-drill', 0.2, 2],
+  ['copper-drill', 0.2, 2],
   ['boiler', 0.9, 0],
 ];
 
 /**
  * Science packs on the science belts at any window's end, at most: the
- * science machines make a little more than the three labs use, so packs
- * gather slowly (about 160 after the hour, when the tech tree ends) but stay
- * far from what the belts hold (about 500).
+ * science machines make a little more than the three labs use, and the labs
+ * take only 2 of each from inserters (D75), so the extra waits on the belts:
+ * they fill up within the first five minutes (about 340 packs) and stay full.
  */
-const MOST_PACKS_ON_BELTS = 200;
+const MOST_PACKS_ON_BELTS = 360;
 
 interface Window {
   /** Working ticks by entity id. */
