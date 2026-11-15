@@ -188,7 +188,7 @@ export const DEMO_ORE_PER_TILE = 1_000_000;
  * Where a drill of the layout mines: the tiles of its mining area, or nothing
  * for anything that isn't a drill.
  */
-export function miningTiles(e: DemoEntity): { x: number; y: number }[] {
+function miningTiles(e: DemoEntity): { x: number; y: number }[] {
   const proto = entityForItem(e.item);
   if (proto?.miningTicks === undefined) return [];
   const size = proto.miningArea ?? proto.width;

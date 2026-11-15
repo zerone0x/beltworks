@@ -24,7 +24,6 @@ import {
   demoLayout,
   demoTagged,
   enrichDemoOre,
-  miningTiles,
   type DemoEntity,
 } from '../../src/sim/scenarios/demo';
 import { ProductionCounter } from '../../src/sim/scenarios/production';
@@ -154,6 +153,26 @@ const DRILL_ORE: Readonly<Record<string, { resource: number; item: string }>> = 
   'fuel-drill': { resource: ResourceId.Coal, item: 'coal' },
   'stone-drill': { resource: ResourceId.Stone, item: 'stone' },
 };
+
+/**
+ * The tiles drill `e` of the layout mines, worked out here rather than taken
+ * from the scenario: an electric mining drill (3×3) mines the 5×5 tiles
+ * centred on it.
+ */
+function drillArea(e: DemoEntity): { x: number; y: number }[] {
+  expect(e.item, `drill at ${at(e.x, e.y)}`).toBe(ItemId.ElectricMiningDrill);
+  const tiles: { x: number; y: number }[] = [];
+  for (let y = e.y - 1; y <= e.y + 3; y++)
+    for (let x = e.x - 1; x <= e.x + 3; x++) tiles.push({ x, y });
+  return tiles;
+}
+
+/** The layout's drills: every entity that mines, each tagged with its ore. */
+function layoutDrills(): DemoEntity[] {
+  const drills = demoLayout().filter((e) => entityForItem(e.item)?.miningTicks !== undefined);
+  for (const e of drills) expect(DRILL_ORE[e.tag ?? ''], `ore of ${at(e.x, e.y)}`).toBeDefined();
+  return drills;
+}
 
 const PACK_NAMES = ['automation-science-pack', 'logistic-science-pack', 'military-science-pack'];
 
@@ -485,8 +504,8 @@ describe('demo factory', { timeout: 600_000 }, () => {
     const world = new World(DEMO_SEED);
     enrichDemoOre(world, demoLayout());
     const mined = new Set(
-      demoLayout()
-        .flatMap(miningTiles)
+      layoutDrills()
+        .flatMap(drillArea)
         .map(({ x, y }) => at(x, y)),
     );
     let set = 0;
@@ -519,12 +538,10 @@ describe('demo factory', { timeout: 600_000 }, () => {
     // mines its ore tiles in turn, so each gets its share of the drill's pace.
     const draw = new Map<string, number>();
     let drills = 0;
-    for (const e of demoLayout()) {
-      const tiles = miningTiles(e);
-      if (tiles.length === 0) continue;
+    for (const e of layoutDrills()) {
+      const tiles = drillArea(e);
       drills++;
-      const ore = DRILL_ORE[e.tag ?? ''];
-      expect(ore, `the ore of drill ${at(e.x, e.y)}`).toBeDefined();
+      const ore = DRILL_ORE[e.tag!];
       const oreTiles = tiles.filter(({ x, y }) => {
         const r = world.resourceAt(x, y);
         expect([ResourceId.None, ore!.resource], `ore at ${at(x, y)}`).toContain(r);
@@ -544,9 +561,10 @@ describe('demo factory', { timeout: 600_000 }, () => {
       const [x, y] = tile.slice(1, -1).split(', ').map(Number) as [number, number];
       shortest = Math.min(shortest, world.amountAt(x, y) / perSecond);
     }
-    expect(shortest / DAY, 'days until the first tile runs dry, every drill flat out').toBeGreaterThan(
-      7,
-    );
+    expect(
+      shortest / DAY,
+      'days until the first tile runs dry, every drill flat out',
+    ).toBeGreaterThan(7);
   });
 
   it('throws if the factory does not research its military branch in time', () => {
@@ -662,12 +680,11 @@ describe('demo factory', { timeout: 600_000 }, () => {
     const seconds = counts.ticks / 60;
     // Each tile counted once, however many drills reach it.
     const left = new Map<string, Map<string, number>>();
-    for (const e of demoLayout()) {
-      const ore = DRILL_ORE[e.tag ?? ''];
-      if (!ore) continue;
+    for (const e of layoutDrills()) {
+      const ore = DRILL_ORE[e.tag!]!;
       const tiles = left.get(ore.item) ?? new Map<string, number>();
       left.set(ore.item, tiles);
-      for (const { x, y } of miningTiles(e)) {
+      for (const { x, y } of drillArea(e)) {
         if (sim.state.world.resourceAt(x, y) === ore.resource) {
           tiles.set(at(x, y), sim.state.world.amountAt(x, y));
         }
