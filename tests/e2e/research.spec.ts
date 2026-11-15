@@ -229,3 +229,55 @@ test('research speed, the repeatable technology, shows its level once the tree i
   });
   expect(errors).toEqual([]);
 });
+
+test('the military branch leads to the military science pack, hand-craftable once researched (D76)', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('./');
+  await page.waitForFunction(() => window.__beltworks?.player() != null);
+  await page.keyboard.press('t');
+  const tree = page.locator('#tech-tree');
+  await expect(tree).toBeVisible();
+  for (const tech of ['military', 'stone-wall', 'steel-processing']) {
+    await expect(tree.locator(`.tech[data-tech="${tech}"]`)).toHaveAttribute(
+      'data-state',
+      'available',
+    );
+  }
+  for (const tech of ['military-2', 'military-science-pack']) {
+    await expect(tree.locator(`.tech[data-tech="${tech}"]`)).toHaveAttribute(
+      'data-state',
+      'locked',
+    );
+  }
+  await page.keyboard.press('t');
+  await page.keyboard.press('e');
+  const panel = page.locator('#crafting-panel');
+  // Firearm magazines need no research; the pack and its other parts do.
+  await expect(panel.locator('.recipe[data-recipe="firearm-magazine"]')).toHaveAttribute(
+    'data-locked',
+    'false',
+  );
+  for (const recipe of [
+    'stone-wall',
+    'piercing-rounds-magazine',
+    'grenade',
+    'military-science-pack',
+  ]) {
+    await expect(panel.locator(`.recipe[data-recipe="${recipe}"]`)).toHaveAttribute(
+      'data-locked',
+      'true',
+    );
+  }
+
+  await page.goto('./?research=all');
+  await page.waitForFunction(() => window.__beltworks?.player() != null);
+  await page.keyboard.press('e');
+  await expect(
+    page.locator('#crafting-panel .recipe[data-recipe="military-science-pack"]'),
+  ).toHaveAttribute('data-locked', 'false');
+  // Steel is smelted, never hand-crafted.
+  await expect(page.locator('#crafting-panel .recipe[data-recipe="steel-plate"]')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
