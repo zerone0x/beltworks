@@ -953,14 +953,16 @@ export function decodeNetworkDetail(buffer: ArrayBuffer): NetworkDetailData {
 }
 
 /** Int32 fields per technology in {@link encodeResearch}, after the 2-field header. */
-export const RESEARCH_TECH_STRIDE = 4;
+export const RESEARCH_TECH_STRIDE = 5;
 
 /**
  * Encodes the research of player `playerId`'s force as int32s: `[current,
  * techCount]`, then per technology in `TECH_IDS` order `[id, unitsDone,
- * unitsInProgress, ticksInProgress]` (units researched, units labs are
- * researching now, and the whole working ticks done on those, summed over
- * the labs). Sent in every snapshot: a few dozen bytes.
+ * unitsInProgress, ticksInProgress, levels]` (units researched, units labs
+ * are researching now, the whole working ticks done on those, summed over
+ * the labs, and the levels done of a repeatable technology, D74; its units
+ * are those of the level being researched). Sent in every snapshot: a few
+ * dozen bytes.
  */
 export function encodeResearch(
   state: SimState,
@@ -979,6 +981,7 @@ export function encodeResearch(
     w.push(state.research.unitsDone(force, tech));
     w.push(labs?.unitsInProgress(tech) ?? 0);
     w.push(labs?.ticksInProgress(tech) ?? 0);
+    w.push(state.research.levelsDone(force, tech));
   }
   return finish(w, writer);
 }
@@ -987,8 +990,15 @@ export function encodeResearch(
 export interface ResearchData {
   /** The current research (0: none). */
   current: number;
-  /** Per technology id: units researched, units in progress and their working ticks so far. */
-  techs: Map<number, { unitsDone: number; unitsInProgress: number; ticksInProgress: number }>;
+  /**
+   * Per technology id: units researched (of the level being researched, for
+   * a repeatable technology), units in progress and their working ticks so
+   * far, and the levels done (0 but for repeatable technologies).
+   */
+  techs: Map<
+    number,
+    { unitsDone: number; unitsInProgress: number; ticksInProgress: number; levels: number }
+  >;
 }
 
 /** Unpacks a buffer made by {@link encodeResearch}. */
@@ -1002,6 +1012,7 @@ export function decodeResearch(buffer: ArrayBuffer): ResearchData {
       unitsDone: v[o + 1]!,
       unitsInProgress: v[o + 2]!,
       ticksInProgress: v[o + 3]!,
+      levels: v[o + 4]!,
     });
   }
   return { current: v[0] ?? 0, techs };
@@ -1018,10 +1029,15 @@ export function researchUnlocks(research: ResearchData, recipe: number): boolean
   return recipeUnlockedBy((tech) => isResearchedIn(research, tech), recipe);
 }
 
-/** Whether `research` has technology `tech` researched. */
+/** Whether `research` has technology `tech` researched (never a repeatable one). */
 export function isResearchedIn(research: ResearchData, tech: number): boolean {
   const t = technologyPrototype(tech);
-  return t !== undefined && (research.techs.get(tech)?.unitsDone ?? 0) >= t.units;
+  return t !== undefined && !t.repeatable && (research.techs.get(tech)?.unitsDone ?? 0) >= t.units;
+}
+
+/** Levels `research` has done of technology `tech` (0 but for repeatable technologies). */
+export function levelsIn(research: ResearchData, tech: number): number {
+  return research.techs.get(tech)?.levels ?? 0;
 }
 
 /** Field offsets of the header of {@link encodeEntityDetail}; `[item, count]` slot pairs follow it. */

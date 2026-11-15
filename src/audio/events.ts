@@ -11,7 +11,8 @@
  * - `craft-done`: the front hand craft finishing (its count goes down after
  *   its progress reached the recipe's time; cancelling makes no sound).
  * - `inserter`: an arm starting a swing towards its drop end.
- * - `research-complete`: a technology becoming researched.
+ * - `research-complete`: a technology becoming researched, or a level of a
+ *   repeatable one done.
  * - `low-power`: a network in view drawing below full satisfaction, when it
  *   starts and again every {@link LOW_POWER_REPEAT_TICKS} while it lasts.
  *
@@ -32,6 +33,7 @@ import {
   beltItemMoved,
   beltLayout,
   isResearchedIn,
+  levelsIn,
   type CraftQueueData,
   type InserterData,
   type NetworkData,
@@ -150,7 +152,11 @@ export class SoundEventDiffer {
         events.push({ kind: 'craft-done' });
       }
       for (const [tech] of frame.research.techs) {
-        if (!isResearchedIn(prev.research, tech) && isResearchedIn(frame.research, tech)) {
+        // A technology researched, or a level of a repeatable one done (D74).
+        if (
+          (!isResearchedIn(prev.research, tech) && isResearchedIn(frame.research, tech)) ||
+          levelsIn(frame.research, tech) > levelsIn(prev.research, tech)
+        ) {
           events.push({ kind: 'research-complete' });
           break;
         }

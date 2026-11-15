@@ -12,6 +12,7 @@ const research = (
   current: number,
   done: Record<number, number>,
   inProgress: Record<number, [units: number, ticks: number]> = {},
+  levels: Record<number, number> = {},
 ): ResearchData => ({
   current,
   techs: new Map(
@@ -21,6 +22,7 @@ const research = (
         unitsDone: done[id] ?? 0,
         unitsInProgress: inProgress[id]?.[0] ?? 0,
         ticksInProgress: inProgress[id]?.[1] ?? 0,
+        levels: levels[id] ?? 0,
       },
     ]),
   ),

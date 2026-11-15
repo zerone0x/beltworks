@@ -35,6 +35,7 @@
  * ```
  */
 
+import { SaveReader, SaveWriter } from './codec';
 import type { SaveDocument } from './container';
 
 export interface Migration {
@@ -45,5 +46,27 @@ export interface Migration {
   migrate(doc: SaveDocument): void;
 }
 
+/**
+ * 1 → 2 (D74): the research section gets the levels done of each repeatable
+ * technology, a `u32` column laid out like the units (forces × technology
+ * slots). Older saves had no repeatable technology: every level is 0.
+ */
+const RESEARCH_LEVELS: Migration = {
+  from: 1,
+  describe: 'research keeps the levels done of repeatable technologies',
+  migrate(doc) {
+    const name = 'research';
+    const old = doc.sections.get(name);
+    if (!old) return; // loading reports the missing section
+    const r = new SaveReader(old, name);
+    const forces = r.u32();
+    const slots = r.u32();
+    const w = new SaveWriter();
+    w.raw(old);
+    w.column(new Uint32Array(forces * slots));
+    doc.sections.set(name, w.bytes());
+  },
+};
+
 /** Every migration, oldest first. Format 1 is the first release of saves (#86). */
-export const MIGRATIONS: readonly Migration[] = [];
+export const MIGRATIONS: readonly Migration[] = [RESEARCH_LEVELS];

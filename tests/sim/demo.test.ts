@@ -35,7 +35,7 @@ const FIRST = 2 * MINUTE;
 const UNITS = 30;
 /** The long run: an hour of play after the demo starts, in five-minute windows. */
 const WINDOW = 5 * MINUTE;
-const WINDOWS = 12;
+const WINDOWS = 18;
 
 /**
  * Least share of the first two minutes each tagged machine spends working
