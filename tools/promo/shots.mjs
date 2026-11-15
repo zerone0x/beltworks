@@ -14,9 +14,9 @@
  * @property {CameraKey} from The camera on the first frame.
  * @property {CameraKey} to The camera on the last frame (eased in and out between).
  * @property {number} [ticksPerFrame] Simulation ticks per frame: 1 is real time.
- * @property {number} [untilUnits] Before the shot, run the game on (unrecorded) until
+ * @property {number} [untilUnitsLeft] Before the shot, run the game on (unrecorded) until
  *   the research has at least this many units done.
- * @property {boolean} [untilResearched] Record until the research completes (then
+ * @property {boolean} [untilLevel] Record until research speed completes a level (then
  *   `holdSeconds` more), up to `seconds`.
  * @property {number} [holdSeconds]
  * @property {boolean} [hudVariant] Also record the minimal-HUD variant (the research bar).
@@ -32,8 +32,8 @@ export const SHOTS = [
     media: 'wide',
     title: 'The whole factory, slowly zooming out',
     seconds: 8,
-    from: { x: 5, y: 0, zoom: 1.0 },
-    to: { x: 5, y: 0, zoom: 0.78 },
+    from: { x: 10.5, y: 2.5, zoom: 0.5 },
+    to: { x: 10.5, y: 2.5, zoom: 0.37 },
     hudVariant: true,
     still: 1,
   },
@@ -42,8 +42,8 @@ export const SHOTS = [
     media: 'mining',
     title: 'Electric drills on the iron patch, ore flowing onto the belt',
     seconds: 7,
-    from: { x: -15, y: -15.5, zoom: 2.1 },
-    to: { x: -8, y: -15.5, zoom: 2.1 },
+    from: { x: -16, y: -15.5, zoom: 2.1 },
+    to: { x: -9, y: -15.5, zoom: 2.1 },
     still: 0.5,
   },
   {
@@ -65,43 +65,42 @@ export const SHOTS = [
     still: 0.4,
   },
   {
-    name: 'e-science-belts',
-    media: 'logistics',
-    title: 'Red packs under the bus, onto the green packs belt, through the splitters',
+    name: 'e-military',
+    media: 'military',
+    title: 'Grenades and steel above the bus, piercing rounds below, military packs from them',
     seconds: 8,
-    from: { x: 10, y: 1, zoom: 1.8 },
-    to: { x: 22, y: 12, zoom: 1.8 },
-    still: 0.7,
+    from: { x: 30, y: -2, zoom: 1.6 },
+    to: { x: 33, y: 8, zoom: 1.6 },
+    still: 0.6,
   },
   // The README clip's two views: the camera stands still, so a GIF of them stays small.
   {
     name: 'r-factory',
     title: 'README clip: the whole factory (still camera)',
     seconds: 7,
-    from: { x: 5, y: -0.5, zoom: 0.8 },
-    to: { x: 5, y: -0.5, zoom: 0.8 },
+    from: { x: 10.5, y: 2.5, zoom: 0.4 },
+    to: { x: 10.5, y: 2.5, zoom: 0.4 },
     hudVariant: true,
   },
   {
     name: 'r-science',
-    title: 'README clip: the assembly block, science and labs (still camera)',
+    title: 'README clip: the military block, science and labs (still camera)',
     seconds: 6,
-    from: { x: 19.5, y: 5, zoom: 1.35 },
-    to: { x: 19.5, y: 5, zoom: 1.35 },
+    from: { x: 18, y: 14, zoom: 0.9 },
+    to: { x: 18, y: 14, zoom: 0.9 },
     hudVariant: true,
   },
   {
     name: 'f-labs',
     media: 'labs',
-    title: 'Labs using both packs: automation 2 completes, and logistics goes on',
+    title: 'Labs using all three packs: research speed completes a level, and the next goes on',
     seconds: 26,
-    from: { x: 23, y: 11.5, zoom: 2.0 },
-    to: { x: 23.5, y: 12, zoom: 2.2 },
-    untilUnits: 34,
-    untilResearched: true,
+    from: { x: 2.5, y: 23, zoom: 1.6 },
+    to: { x: 3, y: 23.5, zoom: 1.8 },
+    untilUnitsLeft: 4,
+    untilLevel: true,
     holdSeconds: 17,
     hudVariant: true,
-    // On logistics, all three labs working (during automation 2's last units, two wait).
     still: 0.6,
   },
   {
@@ -109,9 +108,9 @@ export const SHOTS = [
     media: 'power',
     title: 'The steam power plant, with its network panel',
     seconds: 7,
-    from: { x: 27, y: -1, zoom: 1.4 },
-    to: { x: 28, y: 0, zoom: 1.6 },
-    openPole: { x: 28, y: 0 },
+    from: { x: 29, y: -18, zoom: 1.4 },
+    to: { x: 30, y: -17, zoom: 1.6 },
+    openPole: { x: 28, y: -18 },
     still: 0.8,
   },
 ];
@@ -126,7 +125,7 @@ export const REEL = [
   ['b-drills', 1, 5],
   ['c-furnaces', 1, 5],
   ['d-assemblers', 1, 6],
-  ['e-science-belts', 1, 6],
+  ['e-military', 1, 6],
   ['f-labs', 3, 11],
   ['g-power', 1, 5],
 ];

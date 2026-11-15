@@ -74,7 +74,7 @@ const args = parseArgs({
 });
 const FPS = 60;
 const TILE_PX = 32;
-const RESEARCH = 'automation-2';
+const RESEARCH = 'research-speed';
 const out = resolve(ROOT, args.out);
 for (const dir of ['shots', 'stills']) mkdirSync(join(out, dir), { recursive: true });
 const { ffmpeg } = findFfmpeg();
@@ -221,14 +221,19 @@ async function record() {
         ([x, y, z]) => window.__beltworks.setCamera(x, y, z),
         [c.x * TILE_PX, c.y * TILE_PX, c.zoom],
       ),
-    /** Automation 2's progress, and what the labs research now (the next technology after it). */
+    /**
+     * Research speed's progress (the demo's research for good, D77): the
+     * level under way, its units done and needed, and what the labs research.
+     */
     research: () =>
       page.evaluate((name) => {
         const r = window.__beltworks.research();
+        const t = r.techs[name] ?? { unitsDone: 0, researched: false, levels: 0 };
         return {
           current: r.current,
           currentUnits: r.techs[r.current]?.unitsDone ?? 0,
-          ...r.techs[name],
+          ...t,
+          needed: 100 * (t.levels + 1),
         };
       }, RESEARCH),
   };
@@ -243,8 +248,12 @@ async function record() {
     const ticks = shot.ticksPerFrame ?? 1;
     console.log(`${shot.name}: ${shot.title}`);
     // Unrecorded: run on to where the shot starts.
-    if (shot.untilUnits !== undefined) {
-      while ((await capture.research()).unitsDone < shot.untilUnits) await capture.step(300);
+    if (shot.untilUnitsLeft !== undefined) {
+      for (;;) {
+        const r = await capture.research();
+        if (r.needed - r.unitsDone <= shot.untilUnitsLeft) break;
+        await capture.step(300);
+      }
     }
     // Let the terrain under the whole camera path bake before recording.
     for (const key of [shot.to, shot.from]) {
@@ -297,8 +306,8 @@ async function record() {
         await capture.enter('none');
       }
       recorded++;
-      if (shot.untilResearched) {
-        const done = (await capture.research()).researched;
+      if (shot.untilLevel) {
+        const done = (await capture.research()).levels > before.levels;
         if (done && holdLeft-- <= 0) {
           // Ended before its still frame: the last one instead.
           if (f < stillAt) await still(frame);
@@ -311,7 +320,7 @@ async function record() {
     await hud?.end();
     const counts = await capture.production(true);
     const after = await capture.research();
-    const units = 40;
+    const units = before.needed;
     results.push({
       shot: shot.name,
       title: shot.title,
@@ -322,6 +331,8 @@ async function record() {
       tickTo: tickFrom + counts.ticks,
       research: {
         technology: RESEARCH,
+        levelBefore: before.levels + 1,
+        levelAfter: after.levels + 1,
         unitsBefore: before.unitsDone,
         unitsAfter: after.unitsDone,
         percentBefore: Math.round((100 * before.unitsDone) / units),
@@ -477,15 +488,17 @@ function countsTable(rows) {
     ['transport belts', (r) => r.made['transport-belt']],
     ['red packs made', (r) => r.made['automation-science-pack']],
     ['green packs made', (r) => r.made['logistic-science-pack']],
+    ['military packs made', (r) => r.made['military-science-pack']],
     ['red packs used', (r) => r.consumed['automation-science-pack']],
     ['green packs used', (r) => r.consumed['logistic-science-pack']],
+    ['military packs used', (r) => r.consumed['military-science-pack']],
     [
       'research',
       (r) =>
-        `automation 2 ${r.research.percentBefore}% → ${r.research.percentAfter}%` +
-        (r.research.currentAfter && r.research.currentAfter !== RESEARCH
-          ? `, then ${r.research.currentAfter} (${r.research.currentUnitsAfter} units)`
-          : ''),
+        `research speed ${r.research.levelBefore} ${r.research.percentBefore}%` +
+        (r.research.levelAfter !== r.research.levelBefore
+          ? ` → level ${r.research.levelAfter - 1} done, ${r.research.unitsAfter} units into ${r.research.levelAfter}`
+          : ` → ${Math.round((100 * r.research.unitsAfter) / (100 * r.research.levelAfter))}%`),
     ],
   ];
   const head = `| | ${rows.map((r) => r.shot).join(' | ')} |\n|---|${rows.map(() => '---:').join('|')}|\n`;
