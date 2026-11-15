@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "createdAt": "2026-11-09T03:47:01.341Z",
-  "commit": "e29b92048805c2683a85322d7ab48681585a044c",
+  "createdAt": "2026-11-15T18:53:44.455Z",
+  "commit": "97242f01cf8a1819e08f83e6d832e252aad2576b",
   "environment": {
     "node": "v22.23.4",
     "platform": "linux",
@@ -26,9 +26,6 @@
         "fast-transport-belt": 2346,
         "fast-underground-belt": 60,
         "fast-splitter": 15,
-        "express-transport-belt": 2556,
-        "express-underground-belt": 72,
-        "express-splitter": 18,
         "long-handed-inserter": 128,
         "assembling-machine-1": 52,
         "burner-inserter": 204,
@@ -36,42 +33,45 @@
         "iron-chest": 52,
         "assembling-machine-2": 52,
         "electric-mining-drill": 12,
+        "express-transport-belt": 2556,
         "stone-furnace": 24,
         "burner-mining-drill": 24,
+        "express-underground-belt": 72,
+        "express-splitter": 18,
         "lab": 24
       },
       "beltItems": 52504,
-      "setupTicks": 1393,
+      "setupTicks": 1405,
       "warmupTicks": 1200,
       "measuredTicks": 3600,
       "warmupRuns": 0,
       "targetMeanMs": 8,
-      "meanMs": 0.40157022361111394,
-      "p50Ms": 0.388365999999678,
-      "p99Ms": 0.6657040000000052,
-      "maxMs": 1.2492839999999887,
-      "ticksPerSecond": 2490.2244768237933,
+      "meanMs": 0.3991044288888919,
+      "p50Ms": 0.38564499999984037,
+      "p99Ms": 0.6396649999999227,
+      "maxMs": 0.976669000000129,
+      "ticksPerSecond": 2505.6098795596013,
       "runs": [
         {
-          "meanMs": 0.40157022361111394,
-          "p50Ms": 0.388365999999678,
-          "p99Ms": 0.6657040000000052,
-          "maxMs": 1.2492839999999887,
-          "ticksPerSecond": 2490.2244768237933
+          "meanMs": 0.3991044288888919,
+          "p50Ms": 0.38564499999984037,
+          "p99Ms": 0.6396649999999227,
+          "maxMs": 0.976669000000129,
+          "ticksPerSecond": 2505.6098795596013
         },
         {
-          "meanMs": 0.39622255583333804,
-          "p50Ms": 0.3860130000002755,
-          "p99Ms": 0.5649920000000748,
-          "maxMs": 0.9916749999993044,
-          "ticksPerSecond": 2523.834106053839
+          "meanMs": 0.40007357583334197,
+          "p50Ms": 0.3884699999998702,
+          "p99Ms": 0.555449000000408,
+          "maxMs": 1.052853000000141,
+          "ticksPerSecond": 2499.540235610483
         },
         {
-          "meanMs": 0.40317837111111554,
-          "p50Ms": 0.39099999999962165,
-          "p99Ms": 0.6363600000004226,
-          "maxMs": 0.8281789999991815,
-          "ticksPerSecond": 2480.291780643166
+          "meanMs": 0.3976556486111316,
+          "p50Ms": 0.3819000000003143,
+          "p99Ms": 0.5906620000005205,
+          "maxMs": 0.9144960000003266,
+          "ticksPerSecond": 2514.738577190192
         }
       ],
       "activity": {
@@ -98,9 +98,8 @@
             "WaitingForTarget": 208
           },
           "fast-inserter": {
-            "WaitingForTarget": 305,
-            "WaitingForSource": 28,
-            "Working": 3
+            "WaitingForTarget": 306,
+            "WaitingForSource": 30
           },
           "fast-transport-belt": {
             "Idle": 2346
@@ -122,17 +121,17 @@
           },
           "long-handed-inserter": {
             "WaitingForTarget": 63,
-            "WaitingForSource": 54,
-            "Working": 11
+            "WaitingForSource": 50,
+            "Working": 15
           },
           "assembling-machine-1": {
             "Working": 52
           },
           "burner-inserter": {
-            "WaitingForSource": 117,
+            "WaitingForSource": 118,
             "WaitingForTarget": 39,
             "NoFuel": 9,
-            "Working": 39
+            "Working": 38
           },
           "wooden-chest": {
             "Idle": 152
@@ -157,13 +156,13 @@
             "Working": 24
           }
         },
-        "activeBeltLanes": 774,
+        "activeBeltLanes": 770,
         "powerSatisfaction": [100, 100, 100],
         "systems": {
           "power": {
             "entities": 897,
-            "awake": 239.1,
-            "stepped": 239.1
+            "awake": 238.8,
+            "stepped": 238.8
           },
           "drills": {
             "entities": 36,
@@ -172,13 +171,13 @@
           },
           "belts": {
             "entities": 1008,
-            "awake": 776.4,
-            "stepped": 776.4
+            "awake": 776.7,
+            "stepped": 776.8
           },
           "inserters": {
             "entities": 876,
-            "awake": 43.7,
-            "stepped": 465.6
+            "awake": 43.5,
+            "stepped": 466.2
           },
           "furnaces": {
             "entities": 24,
@@ -197,94 +196,94 @@
           }
         }
       },
-      "hash": "0x46b61be8",
+      "hash": "0xa8757b4c",
       "work": {
         "before": {
-          "beltItems": 50579,
+          "beltItems": 50574,
           "madeItems": 259,
           "researchUnits": 0
         },
         "after": {
-          "beltItems": 50262,
-          "madeItems": 1091,
+          "beltItems": 50259,
+          "madeItems": 1097,
           "researchUnits": 48
         }
       },
       "profile": {
         "ticks": 3600,
-        "meanMs": 0.40618805805557107,
+        "meanMs": 0.4049645533333367,
         "stages": [
           {
             "name": "commands",
             "system": "commands",
-            "meanMs": 0.0002884125000269301,
-            "share": 0.0007100467241887058
+            "meanMs": 0.00030309194444776545,
+            "share": 0.0007484406769752086
           },
           {
             "name": "power",
             "system": "power",
-            "meanMs": 0.018386593888877138,
-            "share": 0.0452662098853769
+            "meanMs": 0.019095760277793184,
+            "share": 0.04715415243287967
           },
           {
             "name": "drills (burner)",
             "system": "drills",
-            "meanMs": 0.0009394466666607413,
-            "share": 0.00231283674650084
+            "meanMs": 0.0010179883333143558,
+            "share": 0.0025137714521804664
           },
           {
             "name": "drills (electric)",
             "system": "drills",
-            "meanMs": 0.0009267047222344142,
-            "share": 0.00228146717722467
+            "meanMs": 0.0009345963889053463,
+            "share": 0.0023078473935867075
           },
           {
             "name": "belts",
             "system": "belts",
-            "meanMs": 0.18419279027778884,
-            "share": 0.4534667788105903
+            "meanMs": 0.1903747294444247,
+            "share": 0.4701022049397059
           },
           {
             "name": "inserters",
             "system": "inserters",
-            "meanMs": 0.19143576777775909,
-            "share": 0.4712983653290184
+            "meanMs": 0.18021853694447246,
+            "share": 0.44502299142248625
           },
           {
             "name": "furnaces",
             "system": "machines",
-            "meanMs": 0.0010263136111047465,
-            "share": 0.002526695678887574
+            "meanMs": 0.0008664433333145401,
+            "share": 0.0021395535144562356
           },
           {
             "name": "assemblers",
             "system": "machines",
-            "meanMs": 0.006005843333351146,
-            "share": 0.014785868797081865
+            "meanMs": 0.006335114722216733,
+            "share": 0.015643627744876074
           },
           {
             "name": "labs",
             "system": "machines",
-            "meanMs": 0.0016000063888855544,
-            "share": 0.003939077865914649
+            "meanMs": 0.0018061344444605411,
+            "share": 0.004459981570223668
           },
           {
             "name": "players",
             "system": "players",
-            "meanMs": 0.000794163333317657,
-            "share": 0.001955161698055157
+            "meanMs": 0.0033872788888771135,
+            "share": 0.008364383650361016
           },
           {
             "name": "crafting",
             "system": "players",
-            "meanMs": 0.0004345022222231718,
-            "share": 0.0010697070325088854
+            "meanMs": 0.0004809786111127323,
+            "share": 0.001187705460030292
           },
           {
             "name": "events",
             "system": "events",
-            "meanMs": 0.00015751333334163874,
-            "share": 0.0003877842546520389
+            "meanMs": 0.00014389999999720102,
+            "share": 0.00035533974223850957
           }
         ]
       }
@@ -305,9 +304,6 @@
         "fast-transport-belt": 12500,
         "fast-underground-belt": 344,
         "fast-splitter": 86,
-        "express-transport-belt": 12792,
-        "express-underground-belt": 360,
-        "express-splitter": 90,
         "long-handed-inserter": 568,
         "assembling-machine-1": 268,
         "burner-inserter": 876,
@@ -315,42 +311,45 @@
         "iron-chest": 268,
         "assembling-machine-2": 268,
         "electric-mining-drill": 18,
+        "express-transport-belt": 12792,
         "stone-furnace": 36,
         "burner-mining-drill": 36,
+        "express-underground-belt": 360,
+        "express-splitter": 90,
         "lab": 32
       },
       "beltItems": 267916,
-      "setupTicks": 2627,
+      "setupTicks": 2631,
       "warmupTicks": 1200,
       "measuredTicks": 3600,
       "warmupRuns": 0,
       "targetMeanMs": 16,
-      "meanMs": 2.5450945486111496,
-      "p50Ms": 2.498127000006207,
-      "p99Ms": 3.1641319999980624,
-      "maxMs": 6.895598000002792,
-      "ticksPerSecond": 392.91271145337095,
+      "meanMs": 3.214653370833243,
+      "p50Ms": 2.987833999999566,
+      "p99Ms": 5.854490999998234,
+      "maxMs": 11.789669999998296,
+      "ticksPerSecond": 311.07552965836516,
       "runs": [
         {
-          "meanMs": 2.5972472444444468,
-          "p50Ms": 2.545549000002211,
-          "p99Ms": 3.255259000001388,
-          "maxMs": 4.760039000000688,
-          "ticksPerSecond": 385.0230285695811
+          "meanMs": 2.794018496944444,
+          "p50Ms": 2.6647789999988163,
+          "p99Ms": 4.178971000001184,
+          "maxMs": 8.443669000000227,
+          "ticksPerSecond": 357.9074372963551
         },
         {
-          "meanMs": 2.523442951944463,
-          "p50Ms": 2.4745620000030613,
-          "p99Ms": 3.150282000002335,
-          "maxMs": 6.160440999999992,
-          "ticksPerSecond": 396.2839735407692
+          "meanMs": 3.214653370833243,
+          "p50Ms": 2.987833999999566,
+          "p99Ms": 5.854490999998234,
+          "maxMs": 11.789669999998296,
+          "ticksPerSecond": 311.07552965836516
         },
         {
-          "meanMs": 2.5450945486111496,
-          "p50Ms": 2.498127000006207,
-          "p99Ms": 3.1641319999980624,
-          "maxMs": 6.895598000002792,
-          "ticksPerSecond": 392.91271145337095
+          "meanMs": 3.5691765641666056,
+          "p50Ms": 3.052882000003592,
+          "p99Ms": 8.568911000009393,
+          "maxMs": 11.6468290000048,
+          "ticksPerSecond": 280.17666876995696
         }
       ],
       "activity": {
@@ -377,9 +376,8 @@
             "WaitingForTarget": 1076
           },
           "fast-inserter": {
-            "WaitingForTarget": 1549,
-            "WaitingForSource": 59,
-            "Working": 36
+            "WaitingForTarget": 1567,
+            "WaitingForSource": 77
           },
           "fast-transport-belt": {
             "Idle": 12500
@@ -400,18 +398,18 @@
             "Idle": 90
           },
           "long-handed-inserter": {
-            "WaitingForTarget": 352,
-            "WaitingForSource": 172,
-            "Working": 44
+            "WaitingForTarget": 339,
+            "Working": 47,
+            "WaitingForSource": 182
           },
           "assembling-machine-1": {
             "Working": 268
           },
           "burner-inserter": {
-            "WaitingForSource": 508,
+            "WaitingForSource": 512,
             "WaitingForTarget": 201,
             "NoFuel": 12,
-            "Working": 155
+            "Working": 151
           },
           "wooden-chest": {
             "Idle": 608
@@ -437,13 +435,13 @@
             "Working": 32
           }
         },
-        "activeBeltLanes": 3995,
+        "activeBeltLanes": 4006,
         "powerSatisfaction": [100, 100],
         "systems": {
           "power": {
             "entities": 4287,
-            "awake": 1074.1,
-            "stepped": 1074.1
+            "awake": 1072.7,
+            "stepped": 1072.7
           },
           "drills": {
             "entities": 54,
@@ -452,17 +450,17 @@
           },
           "belts": {
             "entities": 5138,
-            "awake": 4011.1,
-            "stepped": 4011.1
+            "awake": 4011.9,
+            "stepped": 4011.9
           },
           "inserters": {
             "entities": 4164,
-            "awake": 191.3,
-            "stepped": 2366.4
+            "awake": 189.9,
+            "stepped": 2367.2
           },
           "furnaces": {
             "entities": 36,
-            "awake": 12.2,
+            "awake": 12.3,
             "stepped": 12.3
           },
           "assemblers": {
@@ -477,94 +475,94 @@
           }
         }
       },
-      "hash": "0xe4fb7f79",
+      "hash": "0x9ef16985",
       "work": {
         "before": {
-          "beltItems": 262212,
+          "beltItems": 262192,
           "madeItems": 660,
           "researchUnits": 0
         },
         "after": {
-          "beltItems": 260467,
-          "madeItems": 2863,
+          "beltItems": 260476,
+          "madeItems": 2872,
           "researchUnits": 64
         }
       },
       "profile": {
         "ticks": 3600,
-        "meanMs": 2.5481792755554284,
+        "meanMs": 3.055975995833271,
         "stages": [
           {
             "name": "commands",
             "system": "commands",
-            "meanMs": 0.0002181949998905313,
-            "share": 0.00008562780569784328
+            "meanMs": 0.00030778027770591307,
+            "share": 0.00010071423274448555
           },
           {
             "name": "power",
             "system": "power",
-            "meanMs": 0.08940603388897822,
-            "share": 0.035086241673278784
+            "meanMs": 0.11915471722219485,
+            "share": 0.03899072420223806
           },
           {
             "name": "drills (burner)",
             "system": "drills",
-            "meanMs": 0.0012792455554154003,
-            "share": 0.0005020233731932233
+            "meanMs": 0.0021965291668150006,
+            "share": 0.0007187651898476626
           },
           {
             "name": "drills (electric)",
             "system": "drills",
-            "meanMs": 0.0012518891666493598,
-            "share": 0.0004912877122338594
+            "meanMs": 0.0016183258334260446,
+            "share": 0.0005295610422439777
           },
           {
             "name": "belts",
             "system": "belts",
-            "meanMs": 1.1723526727779203,
-            "share": 0.46007464389348424
+            "meanMs": 1.4801063716663703,
+            "share": 0.4843318055130177
           },
           {
             "name": "inserters",
             "system": "inserters",
-            "meanMs": 1.2461539238889277,
-            "share": 0.4890369903888738
+            "meanMs": 1.3775104747224558,
+            "share": 0.4507595860048144
           },
           {
             "name": "furnaces",
             "system": "machines",
-            "meanMs": 0.00115432805546637,
-            "share": 0.0004530011159496461
+            "meanMs": 0.0017724324999168553,
+            "share": 0.0005799890124573991
           },
           {
             "name": "assemblers",
             "system": "machines",
-            "meanMs": 0.02914431999999781,
-            "share": 0.01143731144805155
+            "meanMs": 0.03859275944438398,
+            "share": 0.012628619955459079
           },
           {
             "name": "labs",
             "system": "machines",
-            "meanMs": 0.0020490663889965316,
-            "share": 0.0008041296029102563
+            "meanMs": 0.0030256933333940752,
+            "share": 0.000990090673984192
           },
           {
             "name": "players",
             "system": "players",
-            "meanMs": 0.003452715833199262,
-            "share": 0.0013549736732894003
+            "meanMs": 0.029416720000121535,
+            "share": 0.009625965662109364
           },
           {
             "name": "crafting",
             "system": "players",
-            "meanMs": 0.0014613341666740276,
-            "share": 0.0005734816936518327
+            "meanMs": 0.0019215477776419398,
+            "share": 0.0006287836619992798
           },
           {
             "name": "events",
             "system": "events",
-            "meanMs": 0.00025555083331305973,
-            "share": 0.00010028761938555407
+            "meanMs": 0.00035264388884469455,
+            "share": 0.00011539484908438863
           }
         ]
       }
