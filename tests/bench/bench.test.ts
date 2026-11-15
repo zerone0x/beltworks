@@ -256,7 +256,11 @@ describe('1k scene', () => {
     expect(result.runs).toHaveLength(3);
     expect(result.runs.map((r) => r.meanMs).sort((a, b) => a - b)[1]).toBe(result.meanMs);
     const { machineStates, activeBeltLanes } = result.activity;
-    expect(machineStates['burner-mining-drill']?.Working).toBeGreaterThanOrEqual(40);
+    // 45 of 48 drills on main; since D75 an inserter tops a fuel slot up to 5
+    // coal only, so the 10 cells on the coal patch (whose furnaces get coal
+    // and no ore, so never burn it) fill the fuel slot, then their drills
+    // wait for room. The 35 on the ore patches keep mining.
+    expect(machineStates['burner-mining-drill']?.Working).toBeGreaterThanOrEqual(35);
     expect(machineStates['stone-furnace']?.Working).toBeGreaterThan(0);
     expect(machineStates['burner-inserter']?.Working).toBeGreaterThanOrEqual(100);
     // Every loop keeps at least one lane moving.
@@ -272,7 +276,7 @@ describe('1k scene', () => {
   it('ends a default bench run in the recorded state', () => {
     const result = measureScene(factory1k, { runs: 1, warmupRuns: 0 });
     expect(result.warmupTicks + result.measuredTicks).toBe(600 + 3600);
-    expect(result.hash).toBe('0xeeb66d84');
+    expect(result.hash).toBe('0x4328a8c6');
   }, 30_000);
 });
 
