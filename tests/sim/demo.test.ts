@@ -28,6 +28,8 @@ import { reload, stepTogether } from './saveRoundTrip';
 const hex = (h: number): string => `0x${h.toString(16).padStart(8, '0')}`;
 const pct = (share: number): string => `${(100 * share).toFixed(0)}%`;
 
+const at = (x: number, y: number): string => `(${String(x)}, ${String(y)})`;
+
 const MINUTE = 60 * 60;
 /** The first window the production checks cover: two minutes of play after the demo starts. */
 const FIRST = 2 * MINUTE;
@@ -50,46 +52,64 @@ const BUSY: readonly (readonly [prefix: string, share: number])[] = [
   ['coal-drill', 0.5],
   ['plant-coal-drill', 0.5],
   ['stone-drill', 0.9],
+  ['brick-furnace', 0.75],
   ['iron-furnace', 0.9],
   ['copper-furnace', 0.9],
   ['boiler', 0.9],
   ['gears', 0.6],
   ['red-', 0.9],
   ['green-', 0.9],
-  ['cable', 0.4],
+  ['cable', 0.35],
   ['circuits', 0.2],
   ['inserters', 0.2],
   ['belts', 0.2],
   ['lab-', 0.9],
+  // The mall gets the plates the science leaves: none yet in the first
+  // minutes, while the machines before it fill their slots.
+  ['mall-', 0],
 ];
 
 /**
- * Least share of every five-minute window of the long run the tagged
- * machines of each group spend working, by tag prefix (after the first
- * window, which `BUSY` covers), and how many of the group may work less: the
- * labs and the science machines never stop, and neither does anything
- * between the ore and them. The smelting is sized for the first minutes,
- * while the machines making intermediates fill their output slots (the
- * warm-up covers most of that); once those are full it makes more than the
- * machines use, so the last furnaces in line (one iron, two copper: the
- * copper plates of the east side join the bus after the west side's) and
- * the last drill on the iron and copper belts wait for room, while the rest
- * keep going.
+ * Least share of every five-minute window of the long run each tagged
+ * machine spends working, by tag prefix (after the first window, which
+ * `BUSY` covers): the labs and the science machines never stop, and neither
+ * does anything between the ore and them, nor the brick furnace (D73). The
+ * mall at the end of the bus takes the plates the science leaves, so no
+ * furnace or ore drill waits for room. Three copper drills mine 1.5 ore/s
+ * for four furnaces that smelt 1.25/s, so they share a quarter of the time
+ * idle (the last one in line takes it: about 50 %); with two, the furnaces
+ * got too little copper while the factory filled its slots and the first
+ * research took five minutes instead of one.
  */
-const BUSY_LONG: readonly (readonly [prefix: string, share: number, idle: number])[] = [
-  ['lab-', 0.85, 0],
-  ['red-', 0.9, 0],
-  ['green-', 0.9, 0],
-  ['gears', 0.5, 0],
-  ['cable', 0.3, 0],
-  ['circuits', 0.2, 0],
-  ['inserters', 0.2, 0],
-  ['belts', 0.1, 0],
-  ['iron-furnace', 0.2, 1],
-  ['copper-furnace', 0.2, 2],
-  ['iron-drill', 0.2, 1],
-  ['copper-drill', 0.2, 1],
-  ['boiler', 0.9, 0],
+const BUSY_LONG: readonly (readonly [prefix: string, share: number])[] = [
+  ['lab-', 0.85],
+  ['red-', 0.9],
+  ['green-', 0.9],
+  ['gears', 0.5],
+  ['cable', 0.3],
+  ['circuits', 0.2],
+  ['inserters', 0.2],
+  ['belts', 0.1],
+  ['iron-furnace', 0.85],
+  ['copper-furnace', 0.9],
+  ['iron-drill', 0.9],
+  ['copper-drill', 0.4],
+  ['stone-drill', 0.9],
+  ['brick-furnace', 0.75],
+  ['boiler', 0.9],
+];
+
+/**
+ * Least share of the hour (after the first window) the mall's machines
+ * spend working: they run as fast as the plates the science leaves allow,
+ * about a tenth of the time (an assembling machine 1 gets the few gears and
+ * circuits the inserters before it leave, and works about 1 %).
+ */
+const BUSY_MALL: readonly (readonly [tag: string, share: number])[] = [
+  ['mall-gears', 0.08],
+  ['mall-cable', 0.08],
+  ['mall-circuits', 0.05],
+  ['mall-inserters', 0.03],
 ];
 
 /**
@@ -106,6 +126,8 @@ interface Window {
   minSatisfaction: number;
   /** Science packs on the science belts at the window's end. */
   packs: number;
+  /** The bus's tiles that hold a full 8 items (both lanes packed) at the window's end. */
+  packedBus: string[];
 }
 
 interface Run {
@@ -131,6 +153,17 @@ function packsOnBelts(sim: Sim): number {
   return packs;
 }
 
+function packedBus(sim: Sim): string[] {
+  const packed: string[] = [];
+  for (const e of demoLayout()) {
+    if (e.item !== ItemId.FastTransportBelt || e.y !== 0) continue;
+    const id = sim.state.entities.at(e.x, e.y);
+    const items = sim.state.entities.contents(id).reduce((n, s) => n + s.count, 0);
+    if (items >= 8) packed.push(at(e.x, e.y));
+  }
+  return packed;
+}
+
 const unitsDone = (sim: Sim): number =>
   DEMO_RESEARCH_CHAIN.reduce((n, tech) => n + sim.state.research.unitsDone(DEFAULT_FORCE, tech), 0);
 
@@ -150,8 +183,14 @@ function run(): Run {
   const start = sim.tick;
   const player = new DemoResearch(sim);
   let first: Run['first'] | null = null;
-  let window: Window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
-  const firstWindow: Window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
+  const empty = (): Window => ({
+    working: new Map(),
+    minSatisfaction: Infinity,
+    packs: 0,
+    packedBus: [],
+  });
+  let window = empty();
+  const firstWindow = empty();
   for (let t = 1; t <= WINDOWS * WINDOW; t++) {
     sim.step();
     player.afterTick();
@@ -178,8 +217,9 @@ function run(): Run {
     }
     if (t % WINDOW === 0) {
       window.packs = packsOnBelts(sim);
+      window.packedBus = packedBus(sim);
       windows.push(window);
-      window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
+      window = empty();
     }
   }
   cached = { sim, first: first!, windows, completedAt };
@@ -198,8 +238,6 @@ function playTicks(sim: Sim, player: DemoResearch, ticks: number): void {
 function pick(sim: Sim, tech: number): void {
   sim.enqueue({ type: 'SetResearch', playerId: 0, tech, tick: sim.tick });
 }
-
-const at = (x: number, y: number): string => `(${String(x)}, ${String(y)})`;
 
 /** The tiles entity `e` of the layout covers. */
 function footprint(e: DemoEntity): { x: number; y: number; w: number; h: number } {
@@ -246,23 +284,26 @@ describe('demo factory', { timeout: 60_000 }, () => {
     // north-south or east-west, never over a machine, and never double up
     // along another wire. A wire hangs about a tile above the ground (the
     // pole's height), so it shows over the row above its tiles: no machine
-    // stands there along an east-west wire, nor right above a pole, whose top
-    // would cover it. No exceptions.
+    // stands there along an east-west wire. A pole's top covers the tile
+    // north of it, so nothing at all stands there: no machine, inserter or
+    // belt (#149). No exceptions.
     const layout = demoLayout();
     const pole = entityForItem(ItemId.SmallElectricPole)!;
     const machines = new Map<string, string>();
+    const anything = new Map<string, string>();
     for (const e of layout) {
       const f = footprint(e);
-      if (f.w < 2 || f.h < 2) continue;
+      const name = e.tag ?? entityForItem(e.item)!.name;
       for (let y = f.y; y < f.y + f.h; y++) {
-        for (let x = f.x; x < f.x + f.w; x++) machines.set(at(x, y), e.tag ?? String(e.item));
+        for (let x = f.x; x < f.x + f.w; x++) {
+          anything.set(at(x, y), name);
+          if (f.w >= 2 && f.h >= 2) machines.set(at(x, y), name);
+        }
       }
     }
     let wires = 0;
     for (const [ax, ay] of DEMO_POLES) {
-      expect(machines.get(at(ax, ay - 1)), `a machine behind the pole at ${at(ax, ay)}`).toBe(
-        undefined,
-      );
+      expect(anything.get(at(ax, ay - 1)), `behind the pole at ${at(ax, ay)}`).toBe(undefined);
       const directions = new Set<string>();
       for (const [bx, by] of DEMO_POLES) {
         if ((ax === bx && ay === by) || !polesConnect(pole, ax, ay, pole, bx, by)) continue;
@@ -445,39 +486,51 @@ describe('demo factory', { timeout: 60_000 }, () => {
       expect(w.packs, `packs on the science belts, ${when}`).toBeLessThanOrEqual(
         MOST_PACKS_ON_BELTS,
       );
+      // The bus keeps moving: nothing backs up into it from its end.
+      expect(w.packedBus, `packed bus tiles, ${when}`).toEqual([]);
       if (i === 0) return;
-      for (const [prefix, least, idle] of BUSY_LONG) {
-        const shares = [...tagged]
-          .filter(([tag]) => tag.startsWith(prefix))
-          .flatMap(([tag, ids]) =>
-            ids.map((id) => `${tag} (${String(id)}) ${pct((w.working.get(id) ?? 0) / WINDOW)}`),
-          );
-        expect(shares.length, prefix).toBeGreaterThan(0);
-        const below = [...tagged]
-          .filter(([tag]) => tag.startsWith(prefix))
-          .flatMap(([, ids]) => ids)
-          .filter((id) => (w.working.get(id) ?? 0) / WINDOW < least);
-        expect(
-          below.length,
-          `${prefix} below ${pct(least)}, ${when}: ${shares.join(', ')}`,
-        ).toBeLessThanOrEqual(idle);
+      for (const [prefix, least] of BUSY_LONG) {
+        const ids = [...tagged].filter(([tag]) => tag.startsWith(prefix));
+        expect(ids.length, prefix).toBeGreaterThan(0);
+        for (const [tag, list] of ids) {
+          for (const id of list) {
+            const share = (w.working.get(id) ?? 0) / WINDOW;
+            expect(share, `${tag} (${String(id)}), ${when}`).toBeGreaterThanOrEqual(least);
+          }
+        }
       }
     });
-    // Stone: the drill fills a chest that an inserter empties into another;
-    // after the hour (and the warm-up) there is room left.
-    const stone = tagged
-      .get('stone-chest')!
-      .map((id) => sim.state.entities.contents(id).reduce((n, s) => n + s.count, 0));
-    expect(stone.reduce((a, b) => a + b, 0)).toBeLessThan(2 * 32 * 50);
+    // The mall works on what the science leaves, over the hour.
+    for (const [tag, least] of BUSY_MALL) {
+      const id = tagged.get(tag)![0]!;
+      const ticks = windows.slice(1).reduce((n, w) => n + (w.working.get(id) ?? 0), 0);
+      expect(ticks / ((WINDOWS - 1) * WINDOW), tag).toBeGreaterThanOrEqual(least);
+    }
+    const held = (tag: string, item?: number): number[] =>
+      tagged
+        .get(tag)!
+        .map((id) =>
+          sim.state.entities
+            .contents(id)
+            .filter((s) => item === undefined || s.item === item)
+            .reduce((n, s) => n + s.count, 0),
+        );
+    // Its buildings, and the bricks, gather in their chests...
+    expect(held('mall-inserters-chest', ItemId.ElectricInserter)[0]).toBeGreaterThan(100);
+    expect(held('mall-assemblers-chest', ItemId.AssemblingMachine1)[0]).toBeGreaterThan(0);
+    expect(held('brick-chest', ItemId.StoneBrick)[0]).toBeGreaterThan(500);
+    // ...with room left after the hour (and the warm-up), as in the chest at
+    // the end of the bus, which takes the plates the mall doesn't use.
+    expect(held('brick-chest')[0]).toBeLessThan(32 * 100 * 0.6);
+    expect(held('bus-end-chest')[0]).toBeLessThan(32 * 100 * 0.75);
   });
 
   it('carries nothing but science packs to the labs', () => {
     const { sim } = run();
     const packs: number[] = [ItemId.AutomationSciencePack, ItemId.LogisticSciencePack];
-    const science: number[] = [...SCIENCE_BELTS, ItemId.Splitter];
     let carried = 0;
     for (const e of demoLayout()) {
-      if (!science.includes(e.item)) continue;
+      if (!SCIENCE_BELTS.includes(e.item) && e.tag !== 'science-splitter') continue;
       for (const { item, count } of sim.state.entities.contents(sim.state.entities.at(e.x, e.y))) {
         expect(packs, `item ${String(item)} on the science belt at ${at(e.x, e.y)}`).toContain(
           item,
