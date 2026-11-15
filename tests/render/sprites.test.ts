@@ -252,7 +252,7 @@ const ICON_SIGNATURES: Record<string, number[]> = {
   'fast-transport-belt': [137, 81, 77, 204, 204, 198, 198],
   'fast-underground-belt': [146, 75, 70, 143, 143, 137, 137],
   'firearm-magazine': [135, 110, 46, 74, 125, 129, 121],
-  'grenade': [80, 92, 72, 162, 152, 165, 165],
+  grenade: [80, 92, 72, 162, 152, 165, 165],
   'iron-chest': [96, 105, 114, 176, 176, 167, 167],
   'iron-gear-wheel': [125, 136, 145, 145, 145, 145, 145],
   'iron-ore': [101, 117, 131, 92, 106, 139, 124],

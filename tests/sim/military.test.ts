@@ -239,8 +239,17 @@ describe('hand-crafting military science (D76)', () => {
   ];
 
   it('is refused before the technology', () => {
-    const s = sim(kit, MILITARY_TECHS.filter((t) => t !== TechId.MilitarySciencePack));
-    s.enqueue({ tick: s.tick, playerId: 0, type: 'Craft', recipe: RecipeId.MilitarySciencePack, count: 1 });
+    const s = sim(
+      kit,
+      MILITARY_TECHS.filter((t) => t !== TechId.MilitarySciencePack),
+    );
+    s.enqueue({
+      tick: s.tick,
+      playerId: 0,
+      type: 'Craft',
+      recipe: RecipeId.MilitarySciencePack,
+      count: 1,
+    });
     steps(s, 2000);
     expect(s.state.players.inventory(0).count(MILITARY)).toBe(0);
     expect(s.state.players.inventory(0).count(ItemId.IronPlate)).toBe(9);
@@ -248,7 +257,13 @@ describe('hand-crafting military science (D76)', () => {
 
   it('makes two packs from plates, coal, bricks and steel, with every intermediate', () => {
     const s = sim(kit, MILITARY_TECHS);
-    s.enqueue({ tick: s.tick, playerId: 0, type: 'Craft', recipe: RecipeId.MilitarySciencePack, count: 1 });
+    s.enqueue({
+      tick: s.tick,
+      playerId: 0,
+      type: 'Craft',
+      recipe: RecipeId.MilitarySciencePack,
+      count: 1,
+    });
     // Magazine 60, piercing 180, grenade 480, two walls 2 × 30, the pack 600.
     const total = 60 + 180 + 480 + 2 * 30 + 600;
     steps(s, total - 1);
