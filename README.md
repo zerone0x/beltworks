@@ -53,7 +53,7 @@ A factory-automation game for the browser: start by mining ore by hand, then bui
 | **1–0** | Select a hotbar item; **left click** builds it, **R** rotates, **Q** puts it away |
 | **Left click** on a machine | Open its window (fuel, inputs, recipe) |
 | **T** | Tech tree |
-| **Mouse wheel**, pinch, **=** / **-** / middle drag | Zoom / pan; **F** follows the player again |
+| **Mouse wheel**, pinch, **=** / **-** / middle drag | Zoom / pan; **F** (or walking) follows the player again |
 | **M** | Minimap |
 | **C** + drag, **V**, **B** | Copy a blueprint, paste it again, blueprint library |
 | **H** | All controls |
@@ -129,7 +129,7 @@ Press **H** in the game (or click the hint in the bottom-left corner) for a list
 - A **lab** (3×3, electric, 60 kW) researches the current technology from the science packs in its slots (one stack of each kind; fill it by hand or with inserters): each unit takes one of each of the technology's packs and its time per unit at full power. Several labs research several units at once. A unit a lab has started always counts for the technology it was started for, and switching research keeps every technology's progress. Its window shows its packs, the unit it researches and its progress, and whether it is working or has no research, no packs or no power.
 - **Left click** on an electric pole with nothing selected opens its **network panel**: satisfaction, production and consumption, a graph of the last minute (demand, production and capacity), and the producers and consumers by type with their totals. **Esc** closes it.
 - **Right click** on an entity removes it and puts it back into the inventory, together with what it holds (refused if there is no room); elsewhere the right button mines as above.
-- **Middle-drag** or **arrow keys**: pan the camera freely; **F**: follow the player again.
+- **Middle-drag** or **arrow keys**: pan the camera freely; **F** or walking: follow the player again.
 - **Mouse wheel** or a trackpad **pinch** over the map: zoom (towards the cursor with a free camera, around the player while following). **=** (or **+**) and **-**, and the numpad's **+** and **-**, zoom in and out from the keyboard (hold to keep zooming). Zoomed out past 0.25×, the view fades into the **map view**: flat colours for the terrain, ore, trees, buildings and belts, down to 0.125×.
 - **M**: show or hide the **minimap** in the bottom-right corner: what you have seen around the camera, the part on screen (white rectangle) and you (orange dot). **Click** or **drag** on it to move the camera there; **F** follows the player again.
 - **Blueprints**: **C** and a **drag** with the left mouse button copies everything the box touches (type, position, direction, an assembling machine's recipe, whether an underground belt is an entrance or an exit; not what they hold) and puts the copy on the cursor; **V** takes the last copy again. While you hold one, its ghosts follow the cursor (red where an entity can't go or you don't have its item), **R** turns the whole blueprint, and a **left click** pastes it: whatever you have the items for and can place is built, the rest is skipped with a message saying what was missing. **Q**, a **right click** or **Esc** puts it away. **B** opens the **blueprint library**: save the copy under a name, paste, export (a `BW1.` string to share, copied to the clipboard) or delete a blueprint, and import a string someone shared by pasting it into the text field. The library is kept in the browser.

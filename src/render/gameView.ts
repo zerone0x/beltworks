@@ -3,7 +3,7 @@
  * the worker's viewport in sync with what the camera shows.
  *
  * By default the camera follows the local player. Panning by hand frees it;
- * `follow()` (the `F` key) locks it onto the player again.
+ * `follow()` (the `F` key, or starting to walk) locks it onto the player again.
  *
  * Zoomed out past `MAP_ZOOM` the view fades into map mode (mapLayer.ts):
  * flat colours per tile from the map store, which the minimap shares, and

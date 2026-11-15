@@ -85,7 +85,7 @@ export function controls(b: Bindings = bindings()): ControlHelp[] {
     { keys: k('blueprints'), action: 'Blueprint library: save, paste, export and import strings' },
     {
       keys: `Middle drag / ${panLabel}`,
-      action: `Pan the camera; ${k('follow')} follows the player again`,
+      action: `Pan the camera; ${k('follow')} or walking follows the player again`,
     },
     { keys: k('help'), action: 'This list' },
     { keys: k('debugInfo'), action: 'Debug info: ticks, UPS and the tile under the cursor' },

@@ -2,7 +2,8 @@
  * Player controls: WASD moves, the right mouse button removes the entity
  * under the cursor or, where there is none, hand-mines the resource or tree
  * tile (held), `E` toggles the inventory and `F` makes the camera follow the
- * player again (the keys are the default bindings, src/ui/keybindings.ts). Build controls (placing, rotating) are in buildInput.ts.
+ * player again, as does starting to walk (the keys are the default bindings,
+ * src/ui/keybindings.ts). Build controls (placing, rotating) are in buildInput.ts.
  *
  * Input becomes commands (see src/sim/commands.ts) that are only sent when
  * they change something: one `Move` when the held keys change direction, one
@@ -200,6 +201,10 @@ export class PlayerInput {
     if (moveFor(e.code)) {
       e.preventDefault();
       this.held.add(e.code);
+      // Walking brings a panned-away camera back, so the player never walks off screen.
+      if (!e.repeat) {
+        this.options.onFollow?.();
+      }
     } else if (action === 'inventory' && !e.repeat) {
       e.preventDefault();
       this.options.onToggleInventory?.();
