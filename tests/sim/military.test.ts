@@ -457,6 +457,23 @@ describe('inserters asleep on a furnace’s source when steel processing complet
     steps(s, 10);
     expectAsleepOn(s, ins, src, furnace);
   });
+
+  it('wakes nothing when steel processing is marked researched again', () => {
+    // An empty chest: asleep on its source with steel processing done.
+    const { s, src, ins } = line((t) => {
+      t.state.research.markResearched(0, TechId.SteelProcessing);
+      expect(placeEntity(t.state, 0, ItemId.WoodenChest, 2, 0, Direction.North)).toBe(
+        BuildResult.Ok,
+      );
+      return t.state.entities.at(2, 0);
+    });
+    steps(s, 10);
+    expect(inserterTable(s.state.entities)!.status(ins)).toBe(InserterState.WaitingForSource);
+    expect(s.state.entities.wake.watchersOf(src)).toEqual([ins]);
+    expect(inserterTable(s.state.entities)!.activeCount).toBe(0);
+    s.state.research.markResearched(0, TechId.SteelProcessing);
+    expect(inserterTable(s.state.entities)!.activeCount).toBe(0);
+  });
 });
 
 describe('labs and the military science pack (D76)', () => {
