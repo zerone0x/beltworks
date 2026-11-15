@@ -177,7 +177,7 @@ export const DEMO_UNLOCK_TICKS_MAX = 40 * 60 * 60;
  * before the game starts: long enough for the military line to fill its
  * machines and belts and for every line to run at its steady pace.
  */
-export const DEMO_WARMUP_TICKS = 10 * 60 * 60;
+export const DEMO_WARMUP_TICKS = 15 * 60 * 60;
 
 /** Coal each boiler gets to start the power plant (the coal drills take over from there). */
 const BOILER_COAL = 5;
@@ -442,8 +442,11 @@ export function demoLayout(): DemoEntity[] {
   add(express, 8, 29, North);
 
   // --- Stone: five drills, bricks in four furnaces, then walls. ---
-  for (const x of [10, 13, 16, 19, 22])
+  for (const x of [10, 13, 16, 19]) {
     add(ItemId.ElectricMiningDrill, x, 15, South, { tag: 'stone-drill' });
+  }
+  add(ItemId.ElectricMiningDrill, 21, 12, South, { tag: 'stone-drill' });
+  belts(belt, 22, 15, 22, 17, South);
   belts(belt, 11, 18, 26, 18, East);
   add(ItemId.UndergroundBelt, 27, 18, East);
   add(ItemId.UndergroundBelt, 29, 18, East);
