@@ -78,7 +78,8 @@
  * - an entity is placed or rotated on its pickup or drop tile
  *   (`entityPlaced`, `entityRotated`; a belt's far lane depends on its
  *   direction), or one there changes its recipe (`entityReconfigured`: an
- *   assembling machine then accepts other items),
+ *   assembling machine then accepts other items; or a technology unlocks a
+ *   smelting recipe, for every furnace, D76),
  * - it is rotated itself.
  * Waiting costs nothing per tick.
  */

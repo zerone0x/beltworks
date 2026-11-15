@@ -20,6 +20,8 @@
  * smelting recipe its force has unlocked, like Factorio's furnaces, so iron
  * plates go into one only once steel processing is researched (`attach`
  * connects the table to the research; without it, nothing is unlocked).
+ * Researching such a recipe wakes the inserters around every furnace
+ * (`researchCompleted`).
  *
  * Machine sleep: only furnaces on the active list are stepped. One that ends
  * a tick in any state but `Working` leaves the list, and goes back on it when
@@ -80,14 +82,14 @@ export class FurnaceTable implements EntityTypeTable {
   }
 
   /**
-   * Force `force` researched technology `tech`: if it unlocks a smelting
-   * recipe, every furnace now takes another input, so wake the inserters
-   * around each one (`Entities.reconfigured`). An inserter asleep on an
-   * unchanging source (a chest of iron plates, a stalled belt) would never
-   * look again otherwise (D76).
+   * Technology `tech` was researched: if it unlocks a smelting recipe,
+   * every furnace now takes another input, so wake the inserters around each
+   * one (`Entities.reconfigured`). An inserter asleep on an unchanging
+   * source (a chest of iron plates, a stalled belt) would never look again
+   * otherwise (D76). There is one force (`DEFAULT_FORCE`).
    */
-  researchCompleted(force: number, tech: number, entities: Entities): void {
-    if (force !== DEFAULT_FORCE || !unlocksSmelting(tech)) return;
+  researchCompleted(tech: number, entities: Entities): void {
+    if (!unlocksSmelting(tech)) return;
     for (let row = 0; row < this.set.size; row++) entities.reconfigured(this.set.idAt(row));
   }
 

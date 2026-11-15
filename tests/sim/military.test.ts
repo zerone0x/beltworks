@@ -367,9 +367,7 @@ describe('inserters asleep on a furnace’s source when steel processing complet
     const { state } = s;
     const { entities } = state;
     const src = source(s);
-    expect(placeEntity(state, 0, ItemId.BurnerInserter, 3, 0, Direction.East)).toBe(
-      BuildResult.Ok,
-    );
+    expect(placeEntity(state, 0, ItemId.BurnerInserter, 3, 0, Direction.East)).toBe(BuildResult.Ok);
     const ins = entities.at(3, 0);
     expect(placeEntity(state, 0, ItemId.StoneFurnace, 4, 0, Direction.North)).toBe(BuildResult.Ok);
     const furnace = entities.at(4, 0);
@@ -379,9 +377,7 @@ describe('inserters asleep on a furnace’s source when steel processing complet
   }
 
   function chestOfPlates(s: Sim): number {
-    expect(placeEntity(s.state, 0, ItemId.WoodenChest, 2, 0, Direction.North)).toBe(
-      BuildResult.Ok,
-    );
+    expect(placeEntity(s.state, 0, ItemId.WoodenChest, 2, 0, Direction.North)).toBe(BuildResult.Ok);
     const chest = s.state.entities.at(2, 0);
     s.state.entities.insert(chest, ItemId.IronPlate, 50);
     return chest;
@@ -424,11 +420,15 @@ describe('inserters asleep on a furnace’s source when steel processing complet
       'labs complete it',
       (s: Sim) => {
         const r = s.state.research;
-        while (!r.isResearched(0, TechId.SteelProcessing)) r.completeUnit(0, TechId.SteelProcessing);
+        while (!r.isResearched(0, TechId.SteelProcessing))
+          r.completeUnit(0, TechId.SteelProcessing);
       },
     ],
     // Without labs (tests and tools: `markResearched`).
-    ['it is marked researched', (s: Sim) => s.state.research.markResearched(0, TechId.SteelProcessing)],
+    [
+      'it is marked researched',
+      (s: Sim) => s.state.research.markResearched(0, TechId.SteelProcessing),
+    ],
   ] as const;
 
   for (const [what, source] of sources) {

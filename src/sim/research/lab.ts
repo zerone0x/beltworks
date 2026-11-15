@@ -45,8 +45,11 @@
  * `NoPower` leaves the active list. Changes to its slots put it back, and so
  * does every change to the research (a new current research, a technology
  * completed, a unit freed by a removed lab): `wakeAll` puts every lab back,
- * which is rare enough to cost nothing. It needs no subscriptions. Starting
- * a unit notifies its subscribers (inserters waiting to drop packs).
+ * which is rare enough to cost nothing. It needs no subscriptions; a new
+ * current research also notifies the inserters waiting on labs
+ * (`researchSwitched`), since `hasRoom` counts only the packs the current
+ * research uses (D76). Starting a unit notifies its subscribers (inserters
+ * waiting to drop packs).
  */
 
 import {

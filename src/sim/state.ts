@@ -80,8 +80,8 @@ export function createSimState(options: SimOptions): SimState {
   labTable(entities)?.attach(research);
   furnaceTable(entities)?.attach(research);
   // After the `researched` above: those have no entities to wake.
-  research.onResearched = (force, tech) =>
-    furnaceTable(entities)?.researchCompleted(force, tech, entities);
+  research.onResearched = (_force, tech) =>
+    furnaceTable(entities)?.researchCompleted(tech, entities);
   return {
     tick: 0,
     seed,
