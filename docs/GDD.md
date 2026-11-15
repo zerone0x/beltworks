@@ -49,7 +49,8 @@ explore/gather → hand-craft → place machines → connect logistics → resea
 
 ### Items and recipes
 - About 30 items and 25 recipes in v1, defined as data tables (TS) so balancing is easy.
-- Science packs: red (automation) and green (logistics). Blue comes in v1.x.
+- Science packs: red (automation), green (logistics) and military (D76). Blue comes in v1.x.
+- Military content (D76), Factorio 1.1's recipes: steel plate (5 iron plates in a furnace, 16 s), stone wall (5 bricks, 0.5 s), firearm magazine (4 iron plates, 1 s), piercing rounds magazine (firearm magazine + steel + 5 copper plates, 3 s), grenade (10 coal + 5 iron plates, 8 s). There is no combat in v1 (D7): walls, magazines and grenades are ingredients of the military science pack, nothing places or fires them.
 
 ### Tech tree
 - Technologies are researched in labs from science packs (`src/data/technologies.ts`); each one unlocks recipes. Everything from M1 and M2, the lab and the automation science pack are available from the start. About 15 nodes in v1; the M3 tree has 8, and more come with the mechanics they unlock (bonuses such as inserter capacity need their effects first). After the last of them comes **research speed**, a repeatable technology like Factorio's infinite ones (D74): it has levels and no last level, level n costs 100 × n units, and each level done makes labs 10 % faster, so labs always have something to research.
@@ -65,8 +66,15 @@ explore/gather → hand-craft → place machines → connect logistics → resea
 | Logistics 2 | Logistics, logistic science pack | red + green | 200 × 30 s | Fast transport belt, fast underground belt, fast splitter |
 | Logistics 3 | Logistics 2, automation 2 | red + green | 300 × 15 s | Express transport belt, express underground belt, express splitter |
 | Research speed (repeatable, D74) | Fast inserter, logistics 3 | red + green | level n: 100 × n × 15 s | Each level: labs research 10 % faster |
+| Military (D76) | — | red | 10 × 15 s | — (leads to military 2) |
+| Stone wall | — | red | 10 × 10 s | Stone wall |
+| Steel processing | — | red | 50 × 5 s | Steel plate (furnaces take iron plates only from then on) |
+| Military 2 | Military, steel processing, logistic science pack | red + green | 20 × 15 s | Piercing rounds magazine, grenade |
+| Military science pack | Military 2, stone wall | red + green | 30 × 15 s | Military science pack |
 
-Science packs: automation (red) = 1 copper plate + 1 iron gear wheel, 5 s; logistic (green) = 1 electric inserter + 1 transport belt, 6 s. A lab (3×3, 60 kW) holds a stack of each and researches one unit at a time; several labs add up.
+Research speed stays red + green until the demo factory makes military packs (D76): nothing costs military packs yet; the demo redesign (#146) moves research speed onto red + green + military, a one-line data change.
+
+Science packs: automation (red) = 1 copper plate + 1 iron gear wheel, 5 s; logistic (green) = 1 electric inserter + 1 transport belt, 6 s; military = 1 piercing rounds magazine + 1 grenade + 2 stone walls → 2 packs, 10 s. A lab (3×3, 60 kW) holds a stack of each and researches one unit at a time; several labs add up.
 
 ### Win condition
 - v1: researching every green-science technology finishes the demo.
