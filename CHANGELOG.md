@@ -20,6 +20,7 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 
 ### Fixed
 
+- Inserters top stone furnaces, labs and fuel slots up to a few items (2 crafts' worth of ore, 2 packs, 5 fuel) instead of a whole stack, so the first machines on a belt no longer starve the rest, and a furnace fed from a chest of ore and coal lights on the third swing instead of after 50 ores (#153, D75).
 - The player stands in the buildings' depth order: one north of a building is behind it instead of drawn over it (#128, D70).
 - An inserter dropping onto a belt loop made of a single line keeps the item spacing across the loop's seam (#73).
 - A splitter whose output is in front of a sparse input's half carries all it can when a full input's items cross over into that half, instead of up to a quarter less (#78, D71). Sparse inputs that arrive in clumps still lose some throughput.

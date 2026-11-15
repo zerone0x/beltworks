@@ -22,7 +22,12 @@
  * it work again.
  */
 
-import { ENTITIES, EntityTypeId, FURNACE_OUTPUT_LIMIT } from '../../data/entities';
+import {
+  ENTITIES,
+  EntityTypeId,
+  FURNACE_INPUT_MULTIPLIER,
+  FURNACE_OUTPUT_LIMIT,
+} from '../../data/entities';
 import { fuelValue, itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
 import { recipePrototype, smeltingRecipeFor, type Recipe } from '../../data/recipes';
 import { fnv1a32 } from '../hash';
@@ -145,9 +150,9 @@ export class FurnaceTable implements EntityTypeTable {
     return this.slotsAt(this.row(id));
   }
 
-  insertable(id: number, item: number): number {
+  insertable(id: number, item: number, byInserter = false): number {
     const row = this.row(id);
-    return this.inputRoom(row, item) + this.burner.insertable(row, item);
+    return this.inputRoom(row, item, byInserter) + this.burner.insertable(row, item, byInserter);
   }
 
   /** Ores (anything with a smelting recipe) and fuel. */
@@ -155,28 +160,28 @@ export class FurnaceTable implements EntityTypeTable {
     return smeltingRecipeFor(item) !== undefined || fuelValue(item) > 0;
   }
 
-  /** Whether the input slot (empty, or below a stack) or the fuel slot has room. */
+  /** Whether an inserter can put anything in: the input slot is empty or below its limit, or the fuel slot is (D75). */
   hasRoom(id: number): boolean {
     const row = this.row(id);
     const input = this.inputItem[row]!;
     const fuel = this.burner.fuelItem[row]!;
     return (
       input === 0 ||
-      this.inputCount[row]! < itemPrototype(input)!.stackSize ||
+      this.inputRoom(row, input, true) > 0 ||
       fuel === 0 ||
-      this.burner.fuelCount[row]! < itemPrototype(fuel)!.stackSize
+      this.burner.insertable(row, fuel, true) > 0
     );
   }
 
   /** Ingredients go into the input slot; fuel into the fuel slot (also when the input has no room). */
-  insert(id: number, item: number, count: number, entities: Entities): number {
+  insert(id: number, item: number, count: number, entities: Entities, byInserter = false): number {
     const row = this.row(id);
-    let n = Math.min(count, this.inputRoom(row, item));
+    let n = Math.min(count, this.inputRoom(row, item, byInserter));
     if (n > 0) {
       this.inputItem[row] = item;
       this.inputCount[row] = this.inputCount[row]! + n;
     }
-    n += this.burner.insert(row, item, count - n);
+    n += this.burner.insert(row, item, count - n, byInserter);
     if (n > 0) this.changed(id, entities);
     return n;
   }
@@ -315,12 +320,19 @@ export class FurnaceTable implements EntityTypeTable {
     return ok;
   }
 
-  /** How many units of `item` the input slot can take (0 if `item` isn't smeltable). */
-  private inputRoom(row: number, item: number): number {
-    if (!smeltingRecipeFor(item)) return 0;
+  /**
+   * How many units of `item` the input slot can take (0 if `item` isn't
+   * smeltable): up to a stack, or from an inserter up to
+   * `FURNACE_INPUT_MULTIPLIER` crafts' worth (D75).
+   */
+  private inputRoom(row: number, item: number, byInserter: boolean): number {
+    const r = smeltingRecipeFor(item);
+    if (!r) return 0;
     const slotItem = this.inputItem[row]!;
     if (slotItem !== 0 && slotItem !== item) return 0;
-    return itemPrototype(item)!.stackSize - this.inputCount[row]!;
+    const stack = itemPrototype(item)!.stackSize;
+    const limit = byInserter ? Math.min(FURNACE_INPUT_MULTIPLIER * r.inputs[0]![1], stack) : stack;
+    return Math.max(0, limit - this.inputCount[row]!);
   }
 
   /** Whether the output slot has room for one result of `r`. */

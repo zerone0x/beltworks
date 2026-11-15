@@ -15,6 +15,7 @@
  * `clearRow` on swap-remove).
  */
 
+import { INSERTER_FUEL_LIMIT } from '../../data/entities';
 import { fuelValue, itemPrototype, type ItemStack, type RealItemId } from '../../data/items';
 import { fnv1a32 } from '../hash';
 import type { SaveReader, SaveWriter } from '../save/codec';
@@ -81,8 +82,12 @@ export class BurnerColumns {
     return true;
   }
 
-  /** How many units of `item` the fuel slot of row `row` can take now (0 if it isn't fuel). */
-  insertable(row: number, item: number): number {
+  /**
+   * How many units of `item` the fuel slot of row `row` can take now (0 if
+   * it isn't fuel): up to a stack, or `INSERTER_FUEL_LIMIT` units from an
+   * inserter (D75).
+   */
+  insertable(row: number, item: number, byInserter = false): number {
     if (fuelValue(item) === 0) {
       return 0;
     }
@@ -90,12 +95,14 @@ export class BurnerColumns {
     if (slotItem !== 0 && slotItem !== item) {
       return 0;
     }
-    return itemPrototype(item)!.stackSize - this.fuelCount[row]!;
+    const stack = itemPrototype(item)!.stackSize;
+    const limit = byInserter ? Math.min(INSERTER_FUEL_LIMIT, stack) : stack;
+    return Math.max(0, limit - this.fuelCount[row]!);
   }
 
-  /** Adds up to `count` units of `item` to the fuel slot; returns how many went in. */
-  insert(row: number, item: number, count: number): number {
-    const n = Math.min(count, this.insertable(row, item));
+  /** Adds up to `count` units of `item` to the fuel slot (see `insertable`); returns how many went in. */
+  insert(row: number, item: number, count: number, byInserter = false): number {
+    const n = Math.min(count, this.insertable(row, item, byInserter));
     if (n > 0) {
       this.fuelItem[row] = item;
       this.fuelCount[row] = this.fuelCount[row]! + n;

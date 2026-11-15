@@ -49,7 +49,13 @@
  * a unit notifies its subscribers (inserters waiting to drop packs).
  */
 
-import { SAT_ONE, EntityTypeId, ENTITIES, type EntityPrototype } from '../../data/entities';
+import {
+  SAT_ONE,
+  EntityTypeId,
+  ENTITIES,
+  LAB_INSERTER_LIMIT,
+  type EntityPrototype,
+} from '../../data/entities';
 import { itemPrototype, type ItemStack } from '../../data/items';
 import {
   SCIENCE_PACKS,
@@ -75,9 +81,10 @@ export function labSlotOf(item: number): number {
   return SCIENCE_PACKS.indexOf(item as (typeof SCIENCE_PACKS)[number]);
 }
 
-/** Most units of science pack `item` a lab slot holds: one stack. */
-function slotLimit(item: number): number {
-  return itemPrototype(item)?.stackSize ?? 0;
+/** Most units of science pack `item` a lab slot holds: one stack, or `LAB_INSERTER_LIMIT` from an inserter (D75). */
+function slotLimit(item: number, byInserter: boolean): number {
+  const stack = itemPrototype(item)?.stackSize ?? 0;
+  return byInserter ? Math.min(LAB_INSERTER_LIMIT, stack) : stack;
 }
 
 export class LabTable implements EntityTypeTable {
@@ -225,9 +232,9 @@ export class LabTable implements EntityTypeTable {
     });
   }
 
-  insertable(id: number, item: number): number {
+  insertable(id: number, item: number, byInserter = false): number {
     const i = labSlotOf(item);
-    return i < 0 ? 0 : this.room(this.row(id), i);
+    return i < 0 ? 0 : this.room(this.row(id), i, byInserter);
   }
 
   /** Every science pack. */
@@ -235,18 +242,18 @@ export class LabTable implements EntityTypeTable {
     return labSlotOf(item) >= 0;
   }
 
-  /** Whether some pack slot is below a stack. */
+  /** Whether some pack slot is below an inserter's limit (D75). */
   hasRoom(id: number): boolean {
     const row = this.row(id);
-    return SCIENCE_PACKS.some((_, i) => this.room(row, i) > 0);
+    return SCIENCE_PACKS.some((_, i) => this.room(row, i, true) > 0);
   }
 
-  /** Packs go into their slot, up to a stack. */
-  insert(id: number, item: number, count: number, entities: Entities): number {
+  /** Packs go into their slot, up to a stack (from an inserter, up to `LAB_INSERTER_LIMIT`). */
+  insert(id: number, item: number, count: number, entities: Entities, byInserter = false): number {
     const i = labSlotOf(item);
     if (i < 0) return 0;
     const row = this.row(id);
-    const n = Math.min(count, this.room(row, i));
+    const n = Math.min(count, this.room(row, i, byInserter));
     if (n <= 0) return 0;
     this.packs[row * LAB_SLOTS + i]! += n;
     this.changed(id, entities);
@@ -418,8 +425,8 @@ export class LabTable implements EntityTypeTable {
   }
 
   /** Room left in slot `i`. */
-  private room(row: number, i: number): number {
-    return Math.max(0, slotLimit(SCIENCE_PACKS[i]!) - this.packs[row * LAB_SLOTS + i]!);
+  private room(row: number, i: number, byInserter: boolean): number {
+    return Math.max(0, slotLimit(SCIENCE_PACKS[i]!, byInserter) - this.packs[row * LAB_SLOTS + i]!);
   }
 
   /** The lab's slots changed: put it on the active list and tell its subscribers. */

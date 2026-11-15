@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ENTITIES, EntityTypeId } from '../../src/data/entities';
+import { ENTITIES, EntityTypeId, INSERTER_FUEL_LIMIT } from '../../src/data/entities';
 import { ItemId, fuelValue } from '../../src/data/items';
 import { beltTable } from '../../src/sim/belts/belts';
 import { BELT_LENGTH, BeltLane } from '../../src/sim/belts/line';
@@ -386,7 +386,8 @@ describe('burner inserter', () => {
     const inserter = s.place(ItemId.BurnerInserter, 3, 0, East);
     const furnace = s.place(ItemId.StoneFurnace, 4, 0);
     s.entities.insert(inserter, COAL, 5);
-    s.entities.insert(furnace, COAL, 50);
+    // Full for an inserter: it tops a fuel slot up to 5 units (D75).
+    s.entities.insert(furnace, COAL, INSERTER_FUEL_LIMIT);
     // Coal in the first slot, ore in the second: the fuel slot has no room for coal.
     s.entities.insert(source, COAL, 10);
     s.entities.insert(source, ORE, 2);
@@ -398,7 +399,10 @@ describe('burner inserter', () => {
     s.step(4 * INSERTER_CYCLE_TICKS);
     expect(s.count(source, ORE)).toBe(0);
     expect(s.count(source, COAL)).toBe(9);
-    expect(s.entities.slots(furnace)[FurnaceSlot.Fuel]).toEqual({ item: COAL, count: 50 });
+    expect(s.entities.slots(furnace)[FurnaceSlot.Fuel]).toEqual({
+      item: COAL,
+      count: INSERTER_FUEL_LIMIT,
+    });
     // No ore left and no room for coal: it waits on the furnace and its source.
     expect(s.entities.status(inserter)).toBe(InserterState.WaitingForTarget);
     expect(s.hand(inserter).held).toBe(0);
@@ -691,5 +695,215 @@ describe('burner inserter', () => {
     };
     expect(run(false)).toBe(run(false));
     expect(run(true)).not.toBe(run(false));
+  });
+});
+
+describe('insertion limits (D75)', () => {
+  it('caps what inserters put in furnaces, labs and fuel slots; hands still fill a stack', () => {
+    const sim = new Sim({
+      seed: 1,
+      startingKit: [
+        { item: ItemId.StoneFurnace, count: 2 },
+        { item: ItemId.Boiler, count: 1 },
+        { item: ItemId.Lab, count: 1 },
+        { item: ItemId.BurnerMiningDrill, count: 1 },
+        { item: ItemId.BurnerInserter, count: 1 },
+      ],
+    });
+    const { state } = sim;
+    const e = state.entities;
+    state.players.x[0] = tileCenter(0);
+    state.players.y[0] = tileCenter(-3);
+    const place = (item: number, x: number, y: number) => {
+      expect(placeEntity(state, 0, item, x, y, North)).toBe(BuildResult.Ok);
+      return e.at(x, y);
+    };
+    const furnace = place(ItemId.StoneFurnace, 0, 0);
+    const brickFurnace = place(ItemId.StoneFurnace, 2, 0);
+    const boiler = place(ItemId.Boiler, 4, 0);
+    const lab = place(ItemId.Lab, -4, 0);
+    const drill = place(ItemId.BurnerMiningDrill, 0, 3);
+    const inserter = place(ItemId.BurnerInserter, -1, -1);
+    const RED = ItemId.AutomationSciencePack;
+    // Inserters: 2 crafts' worth of ore (2 ore, 4 stone), 5 fuel, 2 packs.
+    expect(e.insertable(furnace, ORE, true)).toBe(2);
+    expect(e.insertable(brickFurnace, ItemId.Stone, true)).toBe(4);
+    for (const id of [furnace, boiler, drill, inserter])
+      expect(e.insertable(id, COAL, true)).toBe(5);
+    expect(e.insertable(lab, RED, true)).toBe(2);
+    expect(e.insert(furnace, ORE, 10, true)).toBe(2);
+    expect(e.insert(furnace, COAL, 10, true)).toBe(5);
+    expect(e.insert(lab, RED, 10, true)).toBe(2);
+    expect(e.insert(boiler, COAL, 10, true)).toBe(5);
+    expect(e.hasRoom(furnace)).toBe(false);
+    expect(e.hasRoom(lab)).toBe(true); // its green slot is empty
+    expect(e.insert(lab, ItemId.LogisticSciencePack, 10, true)).toBe(2);
+    expect(e.hasRoom(lab)).toBe(false);
+    // Hands (and drills, which drop through the same hook without the flag): up to a stack.
+    expect(e.insertable(furnace, ORE)).toBe(48);
+    expect(e.insert(furnace, ORE, 100)).toBe(48);
+    expect(e.insert(furnace, COAL, 100)).toBe(45);
+    expect(e.insert(lab, RED, 500)).toBe(198);
+    // Above the inserter limit, an inserter has no room at all.
+    expect(e.insertable(furnace, ORE, true)).toBe(0);
+    expect(e.insertable(furnace, COAL, true)).toBe(0);
+    expect(e.insertable(lab, RED, true)).toBe(0);
+  });
+
+  it('caps the fuel slot of a burner drill and of a burner inserter at 5 when inserted by an inserter', () => {
+    const sim = new Sim({
+      seed: 1,
+      startingKit: [
+        { item: ItemId.BurnerMiningDrill, count: 1 },
+        { item: ItemId.BurnerInserter, count: 1 },
+      ],
+    });
+    const { state } = sim;
+    const e = state.entities;
+    state.players.x[0] = tileCenter(0);
+    state.players.y[0] = tileCenter(-3);
+    expect(placeEntity(state, 0, ItemId.BurnerMiningDrill, 0, 3, North)).toBe(BuildResult.Ok);
+    expect(placeEntity(state, 0, ItemId.BurnerInserter, -3, -1, North)).toBe(BuildResult.Ok);
+    const drill = e.at(0, 3);
+    const inserter = e.at(-3, -1);
+    for (const id of [drill, inserter]) {
+      expect(e.insert(id, COAL, 10, true)).toBe(INSERTER_FUEL_LIMIT);
+      expect(e.insert(id, COAL, 10, true)).toBe(0);
+      // Hands are not limited by the inserter cap: up to a stack.
+      expect(e.insert(id, COAL, 10)).toBe(10);
+    }
+  });
+
+  it('two burner inserters feeding coal into one burner drill never take its fuel slot above 5', () => {
+    const s = setup();
+    const a = s.place(ItemId.WoodenChest, 0, 1);
+    const b = s.place(ItemId.WoodenChest, 5, 1);
+    s.place(ItemId.BurnerInserter, 1, 1, East);
+    s.place(ItemId.BurnerInserter, 4, 1, West);
+    const drill = s.place(ItemId.BurnerMiningDrill, 2, 1);
+    s.entities.insert(a, COAL, 50);
+    s.entities.insert(b, COAL, 50);
+    for (let t = 0; t < 10 * INSERTER_CYCLE_TICKS; t++) {
+      s.step();
+      expect(s.entities.slots(drill)[0]!.count).toBeLessThanOrEqual(INSERTER_FUEL_LIMIT);
+    }
+  });
+
+  it('tops a furnace up to two ores from a chest, then moves the coal behind them', () => {
+    // Chest (2, 0) with ore in its first slots and coal behind → burner
+    // inserter (3, 0) facing east, with no fuel of its own → furnace (4..5, 0..1).
+    const s = setup();
+    const source = s.place(ItemId.WoodenChest, 2, 0);
+    s.place(ItemId.BurnerInserter, 3, 0, East);
+    const furnace = s.place(ItemId.StoneFurnace, 4, 0);
+    s.entities.insert(source, ORE, 100);
+    s.entities.insert(source, COAL, 20);
+    let firstWork = -1;
+    for (let t = 0; t < 60 * 60 && firstWork < 0; t++) {
+      s.step();
+      if (s.entities.status(furnace) === MachineState.Working) firstWork = t;
+    }
+    // Two ores, then coal: it lights on the third swing, not after 50 ores.
+    expect(firstWork).toBeGreaterThanOrEqual(0);
+    expect(firstWork).toBeLessThanOrEqual(3 * CYCLE_TICKS);
+    expect(s.entities.slots(furnace)[FurnaceSlot.Input]!.count).toBeLessThanOrEqual(2);
+    // It keeps smelting from then on, and never holds more than its limits.
+    s.step(20 * PLATE_TICKS);
+    expect(s.count(furnace, PLATE)).toBeGreaterThanOrEqual(19);
+    const [input, fuel] = s.entities.slots(furnace);
+    expect(input!.count).toBeLessThanOrEqual(2);
+    expect(fuel!.count).toBeLessThanOrEqual(5);
+    expect(s.count(source, ORE)).toBeGreaterThanOrEqual(100 - 20 - 3);
+  });
+
+  it('lets ore and coal pass the first furnaces on a belt, so the last one works within a minute', () => {
+    const s = setup();
+    // A belt from (-5, 2) east to (8, 2), where it ends; four burner
+    // inserters on (0|2|4|6, 3) face south into furnaces on (0..7, 4..5).
+    // Coal goes onto the left lane, ore onto the right lane, about one of
+    // each a second: what the first inserter alone could move.
+    const belts: number[] = [];
+    for (let x = -5; x <= 8; x++) belts.push(s.place(ItemId.TransportBelt, x, 2, East));
+    const furnaces: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      s.entities.insert(s.place(ItemId.BurnerInserter, 2 * i, 3, South), COAL, 1);
+      furnaces.push(s.place(ItemId.StoneFurnace, 2 * i, 4));
+    }
+    const table = beltTable(s.entities)!;
+    const first = belts[0]!;
+    const pos = table.beltOffset(first) + BELT_LENGTH / 2;
+    const firstWork = furnaces.map(() => -1);
+    for (let t = 0; t < 3 * 60 * 60; t++) {
+      if (t % 60 === 0) {
+        const line = table.beltLine(first);
+        table.insertAt(line, BeltLane.Left, pos, COAL);
+        table.insertAt(line, BeltLane.Right, pos, ORE);
+      }
+      s.step();
+      furnaces.forEach((f, i) => {
+        if (firstWork[i]! < 0 && s.entities.status(f) === MachineState.Working) firstWork[i] = t;
+      });
+    }
+    for (const t of firstWork) {
+      expect(t).toBeGreaterThanOrEqual(0);
+      expect(t).toBeLessThan(60 * 60);
+    }
+    for (const f of furnaces) {
+      const [input, fuel] = s.entities.slots(f);
+      expect(input!.count).toBeLessThanOrEqual(2);
+      expect(fuel!.count).toBeLessThanOrEqual(5);
+    }
+  });
+
+  // Review of #155: both inserters pick up while the slot has room for one,
+  // so only the drop-side check (insert(..., byInserter)) keeps the second
+  // drop out; it waits holding its item until the slot has room again.
+  it('keeps two inserters feeding one furnace input slot at 2 ores', () => {
+    // Chest (2, 0) → inserter (3, 0) east → furnace (4..5, 0..1) ← inserter (6, 0) west ← chest (7, 0).
+    const s = setup();
+    const left = s.place(ItemId.WoodenChest, 2, 0);
+    const a = s.place(ItemId.BurnerInserter, 3, 0, East);
+    const furnace = s.place(ItemId.StoneFurnace, 4, 0);
+    const b = s.place(ItemId.BurnerInserter, 6, 0, West);
+    const right = s.place(ItemId.WoodenChest, 7, 0);
+    for (const id of [a, b]) s.entities.insert(id, COAL, 5);
+    s.entities.insert(left, ORE, 100);
+    s.entities.insert(right, ORE, 100);
+    s.entities.insert(furnace, COAL, INSERTER_FUEL_LIMIT);
+    let most = 0;
+    let waitedHolding = 0;
+    for (let t = 0; t < 20 * PLATE_TICKS; t++) {
+      s.step();
+      most = Math.max(most, s.entities.slots(furnace)[FurnaceSlot.Input]?.count ?? 0);
+      for (const id of [a, b]) {
+        if (s.entities.status(id) === InserterState.WaitingForTarget && s.hand(id).held === ORE)
+          waitedHolding++;
+      }
+    }
+    expect(most).toBe(2);
+    expect(waitedHolding).toBeGreaterThan(0);
+    expect(s.count(furnace, PLATE)).toBeGreaterThanOrEqual(15);
+  });
+
+  it('keeps two inserters feeding one furnace fuel slot at 5 coal', () => {
+    // As above, but the chests hold coal and the furnace 50 ore by hand: each
+    // coal burnt makes room for one, and both inserters go for it.
+    const s = setup();
+    const left = s.place(ItemId.WoodenChest, 2, 0);
+    const a = s.place(ItemId.BurnerInserter, 3, 0, East);
+    const furnace = s.place(ItemId.StoneFurnace, 4, 0);
+    const b = s.place(ItemId.BurnerInserter, 6, 0, West);
+    const right = s.place(ItemId.WoodenChest, 7, 0);
+    for (const id of [a, b]) s.entities.insert(id, COAL, 5);
+    s.entities.insert(left, COAL, 20);
+    s.entities.insert(right, COAL, 20);
+    s.entities.insert(furnace, ORE, 50);
+    let most = 0;
+    for (let t = 0; t < 45 * PLATE_TICKS; t++) {
+      s.step();
+      most = Math.max(most, s.entities.slots(furnace)[FurnaceSlot.Fuel]?.count ?? 0);
+    }
+    expect(most).toBe(INSERTER_FUEL_LIMIT);
+    expect(s.count(furnace, PLATE)).toBeGreaterThanOrEqual(40);
   });
 });

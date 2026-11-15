@@ -481,12 +481,14 @@ export abstract class InserterTableBase implements EntityTypeTable {
       return InserterState.WaitingForTarget;
     }
     // Only what the target can take now: a belt anything it carries (it frees
-    // up as it moves), any other entity what its `insert` would accept now.
+    // up as it moves), any other entity what its `insert` would accept now
+    // from an inserter (D75: a few crafts' worth, a few fuel units, packs).
     const belts = beltTable(entities);
     const toBelt = belts !== undefined && isBeltType(store.type(target));
     let blocked = false;
     const usable = (it: number): boolean => {
-      if (toBelt ? entities.accepts(target, it) : entities.insertable(target, it) > 0) return true;
+      if (toBelt ? entities.accepts(target, it) : entities.insertable(target, it, true) > 0)
+        return true;
       // The target uses this item but has no room for it right now.
       if (!blocked && entities.accepts(target, it)) blocked = true;
       return false;
@@ -526,7 +528,7 @@ export abstract class InserterTableBase implements EntityTypeTable {
       // Anywhere on the far lane of the tile it reaches where the item fits.
       ok = belts.dropOnTile(target, to.x, to.y, farLane(dir, store.dir(target)), item);
     } else if (target !== 0) {
-      ok = entities.insert(target, item, 1) === 1;
+      ok = entities.insert(target, item, 1, true) === 1;
     }
     if (!ok) {
       this.waitOn(id, target, entities);
@@ -651,12 +653,12 @@ export class InserterTable extends InserterTableBase {
     return isFuel(item);
   }
 
-  insertable(id: number, item: number): number {
-    return this.burner.insertable(this.row(id), item);
+  insertable(id: number, item: number, byInserter = false): number {
+    return this.burner.insertable(this.row(id), item, byInserter);
   }
 
-  insert(id: number, item: number, count: number, entities: Entities): number {
-    const n = this.burner.insert(this.row(id), item, count);
+  insert(id: number, item: number, count: number, entities: Entities, byInserter = false): number {
+    const n = this.burner.insert(this.row(id), item, count, byInserter);
     if (n > 0) this.changed(id, entities);
     return n;
   }
