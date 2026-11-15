@@ -20,8 +20,9 @@ import {
 import { MachineState } from '../../src/sim/entities/machine';
 import { tileCenter } from '../../src/sim/fixed';
 import { decodeEntityDetail, encodeEntityDetail } from '../../src/sim/snapshot';
+import { TechId } from '../../src/data/technologies';
 import { saveSim } from '../../src/sim/save/save';
-import { Sim } from '../../src/sim/tick';
+import { Sim, setResearch } from '../../src/sim/tick';
 import { reload, stepTogether } from './saveRoundTrip';
 
 const { North, East, South, West } = Direction;
@@ -709,9 +710,12 @@ describe('insertion limits (D75)', () => {
         { item: ItemId.BurnerMiningDrill, count: 1 },
         { item: ItemId.BurnerInserter, count: 1 },
       ],
+      researched: [TechId.Automation, TechId.Logistics, TechId.LogisticSciencePack],
     });
     const { state } = sim;
     const e = state.entities;
+    // Red + green: `hasRoom` counts the slots of the packs it uses (D76).
+    expect(setResearch(state, 0, TechId.Logistics2)).toBe(true);
     state.players.x[0] = tileCenter(0);
     state.players.y[0] = tileCenter(-3);
     const place = (item: number, x: number, y: number) => {
@@ -738,7 +742,8 @@ describe('insertion limits (D75)', () => {
     expect(e.hasRoom(furnace)).toBe(false);
     expect(e.hasRoom(lab)).toBe(true); // its green slot is empty
     expect(e.insert(lab, ItemId.LogisticSciencePack, 10, true)).toBe(2);
-    expect(e.hasRoom(lab)).toBe(true); // and its military slot (D76)
+    // Its military slot is empty, but red + green research doesn't use it (D76).
+    expect(e.hasRoom(lab)).toBe(false);
     expect(e.insert(lab, ItemId.MilitarySciencePack, 10, true)).toBe(2);
     expect(e.hasRoom(lab)).toBe(false);
     // Hands (and drills, which drop through the same hook without the flag): up to a stack.
