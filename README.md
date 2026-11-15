@@ -2,7 +2,7 @@
 
 [![The demo factory running: drills on ore, furnaces, assembling machines making red and green science, and labs researching](docs/demo-factory.gif)](https://zerone0x.github.io/beltworks-play/?demo)
 
-**[Try the demo](https://zerone0x.github.io/beltworks-play/?demo)**: a complete factory, from ore to research, running in your browser in one click (no account, no download).
+**[Try the demo](https://zerone0x.github.io/beltworks-play/?demo)**: a complete factory, from ore to research, running in your browser in one click (no account, no download). Past the science, the plate bus runs on into a small mall that turns what the science leaves into gears, circuits, electric inserters and assembling machines, and the stone becomes bricks, so every furnace and drill keeps working.
 
 ## See the pipeline work
 

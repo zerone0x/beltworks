@@ -10,6 +10,7 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 
 ### Changed
 
+- **Demo factory: a longer chain that keeps running** (#146, #147, #149, D73): the plate bus goes on past the science into a mall (gears, copper cable into circuits, electric inserters and assembling machines into chests) and the stone drill feeds a furnace making bricks, with the power plant moved east of them. The mall takes the plates the science left, which used to pack the bus solid from about minute 15 and leave two furnaces and two drills dark: now every furnace and ore drill keeps working for the hour, and the research keeps its pace. No pole stands right below another entity any more (the red fast inserter at (12, 3) was hidden behind one).
 - Idle machines cost (almost) nothing per tick: an incremental power solve, logarithmic belt lane queries and per-system activity counters in the benchmarks and the debug overlay (#73, D62).
 - The title screen shows without waiting for the renderer (#112, D64): PixiJS loads in the background while it is up, in a chunk of its own that stays cached across releases; the first download before the title screen drops from about 170 kB to 64 kB (gzipped). If the game's files can't be downloaded (offline), a message says so and offers Reload.
 

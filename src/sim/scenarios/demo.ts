@@ -14,7 +14,7 @@
  *   running east along y = -15, three on the copper patch onto one along
  *   y = 8. A row of four drills on the coal patch feeds a belt along y = -16
  *   both ways: west to the furnaces, east to the power plant. One drill on
- *   stone fills a chest, which an inserter empties into a second one.
+ *   stone drops it into a furnace that makes bricks.
  * - **Smelting**: two columns of stone furnaces on the axis x = 0. Each
  *   furnace belt is fed from both sides, ore into one lane and coal into the
  *   other (side-loading), and electric inserters move both into the
@@ -37,14 +37,20 @@
  * - **Research**: three labs end the green machines' row, fed through two
  *   splitters. They research {@link DEMO_RESEARCH_CHAIN} one technology
  *   after the other, for about an hour of game time.
+ * - **The mall** (D73), where the bus goes on east of the assembly block:
+ *   gears, and copper cable into circuits, onto a belt of their own, then
+ *   electric inserters and assembling machines 1 into chests. It takes
+ *   the plates the science leaves, and a chest at the bus's end takes what
+ *   it doesn't use, so nothing backs up to the furnaces.
  * - **Power**: two boilers facing south with two steam engines each, east
- *   of the assembly block, fed by burner inserters through buffer chests
- *   from the coal belt. Small electric poles in straight lines carry the
- *   power everywhere ({@link DEMO_POLES}).
+ *   of the mall, fed by burner inserters through buffer chests from the
+ *   coal belt. Small electric poles in straight lines carry the power
+ *   everywhere ({@link DEMO_POLES}).
  *
- * The production is sized to the labs, which hold up to a stack of each
- * pack: they take what the science machines make for the whole chain, so
- * nothing backs up into the science belts while they research.
+ * The science is sized to the labs, which hold up to a stack of each pack:
+ * they take what the science machines make for the whole chain, so nothing
+ * backs up into the science belts while they research. The smelting makes
+ * more than the science uses; the mall uses the rest.
  */
 
 import { ENTITIES, entityForItem } from '../../data/entities';
@@ -419,7 +425,10 @@ export function demoLayout(): DemoEntity[] {
     add(ItemId.FastInserter, near + 1, -5, North);
     add(ItemId.IronChest, near + 1, -6, North, { tag: `${tag}-chest` });
   }
-  add(ItemId.AssemblingMachine1, slot(4), 3, North, { recipe: RecipeId.CopperCable, tag: 'mall-cable' });
+  add(ItemId.AssemblingMachine1, slot(4), 3, North, {
+    recipe: RecipeId.CopperCable,
+    tag: 'mall-cable',
+  });
   add(ItemId.LongHandedInserter, slot(4) + 2, 2, South);
   add(ItemId.FastInserter, slot(4) + 3, 5, East);
   add(ItemId.AssemblingMachine1, slot(5), 3, North, {

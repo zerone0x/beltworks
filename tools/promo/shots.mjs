@@ -109,9 +109,9 @@ export const SHOTS = [
     media: 'power',
     title: 'The steam power plant, with its network panel',
     seconds: 7,
-    from: { x: 27, y: -1, zoom: 1.4 },
-    to: { x: 28, y: 0, zoom: 1.6 },
-    openPole: { x: 28, y: 0 },
+    from: { x: 43, y: -1, zoom: 1.4 },
+    to: { x: 44, y: 0, zoom: 1.6 },
+    openPole: { x: 44, y: 0 },
     still: 0.8,
   },
 ];

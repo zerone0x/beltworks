@@ -507,14 +507,12 @@ describe('demo factory', { timeout: 60_000 }, () => {
       expect(ticks / ((WINDOWS - 1) * WINDOW), tag).toBeGreaterThanOrEqual(least);
     }
     const held = (tag: string, item?: number): number[] =>
-      tagged
-        .get(tag)!
-        .map((id) =>
-          sim.state.entities
-            .contents(id)
-            .filter((s) => item === undefined || s.item === item)
-            .reduce((n, s) => n + s.count, 0),
-        );
+      tagged.get(tag)!.map((id) =>
+        sim.state.entities
+          .contents(id)
+          .filter((s) => item === undefined || s.item === item)
+          .reduce((n, s) => n + s.count, 0),
+      );
     // Its buildings, and the bricks, gather in their chests...
     expect(held('mall-inserters-chest', ItemId.ElectricInserter)[0]).toBeGreaterThan(100);
     expect(held('mall-assemblers-chest', ItemId.AssemblingMachine1)[0]).toBeGreaterThan(0);
