@@ -456,6 +456,12 @@ describe('demo factory', { timeout: 600_000 }, () => {
     }
   });
 
+  it('throws if the factory does not research its military branch in time', () => {
+    // A minute is far too short (it takes about 11): the build stops there
+    // instead of handing over a factory whose military line never starts.
+    expect(() => buildDemo(0, MINUTE)).toThrow(/never researched its military branch/);
+  });
+
   it('researches the military branch while it is built, and sets the military recipes', () => {
     const sim = demo();
     const { research, entities } = sim.state;

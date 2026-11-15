@@ -628,13 +628,13 @@ const key = (x: number, y: number): string => `${String(x)},${String(y)}`;
  * walks around placing the layout and setting the recipes it has unlocked,
  * fuels the boilers and starts the research. The factory then researches the
  * military branch from its own red and green packs (at most
- * {@link DEMO_UNLOCK_TICKS_MAX} ticks), the player sets the military recipes
+ * `unlockTicksMax` ticks, else it throws), the player sets the military recipes
  * it unlocked and walks to {@link DEMO_SPAWN}, and the factory runs
  * `warmup` ticks more on research speed, so the player arrives at a factory
  * at its steady pace. Deterministic: the same simulation (state hash) every
  * time.
  */
-export function buildDemo(warmup = DEMO_WARMUP_TICKS): Sim {
+export function buildDemo(warmup = DEMO_WARMUP_TICKS, unlockTicksMax = DEMO_UNLOCK_TICKS_MAX): Sim {
   const layout = demoLayout();
   const sim = new Sim({
     seed: DEMO_SEED,
@@ -734,7 +734,7 @@ export function buildDemo(warmup = DEMO_WARMUP_TICKS): Sim {
   builder.setResearch(DEMO_RESEARCH);
   const player = new DemoResearch(sim);
   for (let t = 0; !sim.state.research.isResearched(force, TechId.MilitarySciencePack); t++) {
-    if (t >= DEMO_UNLOCK_TICKS_MAX)
+    if (t >= unlockTicksMax)
       throw new Error('the demo factory never researched its military branch');
     sim.step();
     player.afterTick();
