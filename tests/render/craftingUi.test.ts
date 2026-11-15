@@ -37,6 +37,11 @@ describe('crafting panel helpers', () => {
       'splitter',
       'fast-splitter',
       'express-splitter',
+      'stone-wall',
+      'firearm-magazine',
+      'piercing-rounds-magazine',
+      'grenade',
+      'military-science-pack',
     ]);
     expect(recipeTitle(RECIPES[RecipeId.TransportBelt])).toBe(
       '2 × Transport belt ← 1 × Iron gear wheel, 1 × Iron plate (0.5 s)',

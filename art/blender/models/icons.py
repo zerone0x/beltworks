@@ -67,6 +67,69 @@ def plates(ctx):
         box((0.9, 0.62, 0.1), (k * 0.03, -k * 0.02, 0.05 + k * 0.12), mat, bevel=0.025, rot=(0, 0, k * 0.08))
 
 
+def steel(ctx):
+    """
+    Steel plates: darker and bluer than iron, two thick slabs with a bright
+    rolled edge, so they tell apart from iron plates in grayscale too.
+    """
+    mat = m.worn('icon_steel_plate', 0x6f7c8a, wear=0x4a5460, metallic=0.85, roughness=0.28, amount=0.1, scale=8.0)
+    edge = m.worn('icon_steel_edge', 0xc4ccd6, metallic=0.9, roughness=0.2, amount=0.03)
+    for k in range(2):
+        z = 0.08 + k * 0.2
+        rot = (0, 0, -0.1 + k * 0.16)
+        box((0.92, 0.66, 0.16), (k * 0.03, -k * 0.03, z), mat, bevel=0.03, rot=rot)
+        box((0.92, 0.04, 0.17), (k * 0.03 + math.sin(rot[2]) * 0.33, -k * 0.03 - math.cos(rot[2]) * 0.33, z), edge, bevel=0.015, rot=rot)
+
+
+def stone_wall(ctx):
+    """A short stretch of wall: courses of pale stone blocks in a running bond, with a cap."""
+    mat = m.worn('icon_wall', 0xd6ccb4, wear=0xa89c84, metallic=0.0, roughness=0.9, amount=0.15, scale=4.0)
+    dark = m.worn('icon_wall_dark', 0xa49a82, wear=0x8a8068, metallic=0.0, roughness=0.9, amount=0.15, scale=4.0)
+    w, h, d = 1.0, 0.2, 0.42
+    # (left, right) edges of the blocks in each course: halves, then a half between two quarters.
+    courses = ([(-0.5, 0.0), (0.0, 0.5)], [(-0.5, -0.25), (-0.25, 0.25), (0.25, 0.5)])
+    for row in range(3):
+        z = h / 2 + row * h
+        for k, (left, right) in enumerate(courses[row % 2]):
+            box((right - left - 0.03, d, h - 0.03), ((left + right) / 2, 0, z), mat if (row + k) % 2 else dark, bevel=0.02)
+    box((w + 0.04, d + 0.06, 0.07), (0, 0, 3 * h + 0.02), dark, bevel=0.02)
+
+
+def magazine(ctx):
+    """
+    An ammunition magazine standing up: a box in the item's color with
+    rounds showing at the top, yellow with brass tips for firearm magazines,
+    red with dark steel tips for piercing rounds (which also get a white band).
+    """
+    item = ctx.model['item']
+    piercing = item == 'piercing-rounds-magazine'
+    body = m.paint(f'icon_{item}', 0xb83a30 if piercing else 0xd8a830, amount=0.12)
+    tip = m.worn('icon_tip_steel', 0x4a5058, metallic=0.85, roughness=0.3, amount=0.05) if piercing else m.worn('icon_tip_brass', 0xd8b048, metallic=0.9, roughness=0.3, amount=0.05)
+    case = m.worn('icon_case_brass', 0xc89a40, metallic=0.9, roughness=0.3, amount=0.05)
+    base = m.dark_iron()
+    box((0.5, 0.28, 0.9), (0, 0, 0.47), body, bevel=0.04, rot=(0, 0.12, 0))
+    box((0.58, 0.34, 0.1), (-0.05, 0, 0.05), base, bevel=0.025, rot=(0, 0.12, 0))
+    if piercing:
+        box((0.52, 0.3, 0.09), (0.0, 0, 0.5), m.plain('icon_band', 0xe8e4d8, roughness=0.5), bevel=0.01, rot=(0, 0.12, 0))
+    for k, x in enumerate((-0.12, 0.08)):
+        top = (x + 0.12, 0, 0.98 + k * 0.02)
+        cylinder(0.075, 0.14, top, case, rot=(0, 0.12, 0), verts=14)
+        cylinder(0.075, 0.18, (top[0] + 0.02, 0, top[2] + 0.14), tip, rot=(0, 0.12, 0), verts=14, radius2=0.01)
+
+
+def grenade(ctx):
+    """A round olive grenade with a grooved body, a fuse cap, a lever and a pull ring."""
+    body = m.worn('icon_grenade', 0x55663a, wear=0x3a4628, metallic=0.2, roughness=0.6, amount=0.2, scale=9.0)
+    groove = m.plain('icon_grenade_groove', 0x2c3420, roughness=0.7)
+    steel = m.worn('icon_grenade_fuse', 0xa8b0b8, metallic=0.8, roughness=0.3, amount=0.05)
+    sphere(0.4, (0, 0, 0.42), body, segments=24, scale=(1.0, 1.0, 1.1))
+    for z in (0.3, 0.52):
+        torus(0.39, 0.025, (0, 0, z), groove, major_segments=32, minor_segments=6)
+    cylinder(0.14, 0.16, (0, 0, 0.9), steel, verts=16, bevel=0.02)
+    box((0.1, 0.12, 0.5), (0.17, 0, 0.7), steel, bevel=0.02, rot=(0, 0.35, 0))
+    torus(0.11, 0.022, (-0.2, 0, 0.98), steel, rot=(math.pi / 2, 0, 0), major_segments=20, minor_segments=6)
+
+
 def bricks(ctx):
     mat = m.stone('icon_brick', base=0xb09060)
     box((0.8, 0.38, 0.26), (0, -0.2, 0.13), mat, bevel=0.03)
@@ -195,7 +258,11 @@ def splitter(ctx):
 
 def science_pack(ctx):
     """A round flask of colored liquid with a cork."""
-    color = {'automation-science-pack': 0xd23c3c, 'logistic-science-pack': 0x3cb44a}[ctx.model['item']]
+    color = {
+        'automation-science-pack': 0xd23c3c,
+        'logistic-science-pack': 0x3cb44a,
+        'military-science-pack': 0x5a5e6e,
+    }[ctx.model['item']]
     liquid = m.plain(f'icon_liquid_{color:06x}', color, roughness=0.2)
     glass = m.plain('icon_glass', 0xc8dce4, metallic=0.0, roughness=0.08)
     sphere(0.36, (0, 0, 0.36), liquid, segments=24)
@@ -287,6 +354,13 @@ MODELS = (
         icon('small-electric-pole', pole),
         icon('automation-science-pack', science_pack),
         icon('logistic-science-pack', science_pack),
+        # Military science (D76).
+        icon('steel-plate', steel, tilt=0.25),
+        icon('stone-wall', stone_wall),
+        icon('firearm-magazine', magazine),
+        icon('piercing-rounds-magazine', magazine),
+        icon('grenade', grenade),
+        icon('military-science-pack', science_pack),
     ]
     + [
         icon(name, **{'from': name}, direction=1 if name == 'steam-engine' else 0)
