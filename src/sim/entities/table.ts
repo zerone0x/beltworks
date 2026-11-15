@@ -176,9 +176,10 @@ export interface EntityTypeTable {
 
   /**
    * Whether `insertable` (`byInserter`) is above 0 for some item the entity
-   * accepts; true when absent. Only inserters ask. An inserter whose target has no room for anything waits on
-   * the target alone (nothing its source offers could help until the target
-   * makes room), instead of also being woken by every change at its source.
+   * accepts; true when absent. Only inserters ask. An inserter whose target
+   * has no room for anything waits on the target alone (nothing its source
+   * offers could help until the target makes room), instead of also being
+   * woken by every change at its source.
    */
   hasRoom?(id: number): boolean;
 
