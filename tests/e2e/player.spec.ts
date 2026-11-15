@@ -45,7 +45,7 @@ async function open(page: Page): Promise<void> {
   });
 }
 
-test('WASD moves the player, the camera follows, panning frees it and F re-follows', async ({
+test('WASD moves the player, the camera follows, panning frees it and F or walking re-follows', async ({
   page,
 }) => {
   const errors = collectErrors(page);
@@ -87,16 +87,26 @@ test('WASD moves the player, the camera follows, panning frees it and F re-follo
   expect(await page.evaluate(() => window.__beltworks!.following())).toBe(false);
   const panned = await camera(page);
   expect(panned.x).toBeLessThan(moved.x * TILE_PX - 10);
-  // Walking now doesn't move the free camera.
+  // F snaps back onto the player.
+  await page.keyboard.press('f');
+  expect(await page.evaluate(() => window.__beltworks!.following())).toBe(true);
+  await expect
+    .poll(async () => {
+      const c = await camera(page);
+      return Math.hypot(c.x - moved.x * TILE_PX, c.y - moved.y * TILE_PX);
+    })
+    .toBeLessThan(0.01);
+
+  // Pan away again: walking brings the camera back onto the player.
+  await page.keyboard.down('ArrowLeft');
+  await page.waitForTimeout(250);
+  await page.keyboard.up('ArrowLeft');
+  expect(await page.evaluate(() => window.__beltworks!.following())).toBe(false);
   await page.keyboard.down('w');
   await page.waitForTimeout(200);
   await page.keyboard.up('w');
   const walked = await waitUntilStill(page);
   expect(walked.y).toBeLessThan(moved.y);
-  expect(await camera(page)).toEqual(panned);
-
-  // F snaps back onto the player.
-  await page.keyboard.press('f');
   expect(await page.evaluate(() => window.__beltworks!.following())).toBe(true);
   await expect
     .poll(async () => {

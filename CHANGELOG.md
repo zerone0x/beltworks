@@ -15,6 +15,7 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 
 - The player is magenta instead of orange, which vanished on copper ore, and the pickaxe is easier to see (#128, D70).
 - Sprite atlases are smaller: the packer drops the noise of the shadow frames (the player's sheet is 48% smaller in texels and its PNG 14%, the other atlases' PNGs 8 to 19%) (#128, D70).
+- Walking brings the camera back onto the player after panning away (arrow keys, middle drag, a minimap click or the demo's framing), so the player can't walk off screen; **F** still re-follows without moving.
 
 ### Fixed
 
