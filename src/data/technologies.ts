@@ -175,16 +175,16 @@ export const TECHNOLOGIES: Readonly<Record<RealTechId, Technology>> = {
       RecipeId.ExpressSplitter,
     ],
   },
-  // Repeatable (D74): level n takes 100 × n units of red + green packs, and
-  // each level done makes every lab research 10% faster. It stays red +
-  // green while the demo has no military line (D76): the demo's research
-  // never ends on it, so a military pack here would stop the labs.
+  // Repeatable (D74): level n takes 100 × n units of red + green + military
+  // packs (D77: red + green until the demo factory made military packs,
+  // D76), and each level done makes every lab research 10% faster. Its
+  // prerequisites stay those of D74 (prerequisites have lower ids).
   [TechId.ResearchSpeed]: {
     id: TechId.ResearchSpeed,
     name: 'research-speed',
     label: 'Research speed',
     prerequisites: [TechId.FastInserter, TechId.Logistics3],
-    packs: RED_GREEN,
+    packs: [...RED_GREEN, ItemId.MilitarySciencePack],
     units: 100,
     ticksPerUnit: 15 * S,
     unlocks: [],
