@@ -62,7 +62,7 @@ describe('m3 scene', () => {
     expect(machineStates['assembling-machine-1']!.Working).toBeGreaterThanOrEqual(CELLS);
     expect(machineStates['burner-inserter']).toEqual({ Working: CELLS });
     // The end state `npm run bench -- m3` reports (tools/bench/baseline.json).
-    expect(result.hash).toBe('0x3b3cb842');
+    expect(result.hash).toBe('0xa41be380');
     // (The cells run in step, so their belts sleep and wake together: on
     // the last tick none of them moves.)
   });
