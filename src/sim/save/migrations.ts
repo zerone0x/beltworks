@@ -68,5 +68,46 @@ const RESEARCH_LEVELS: Migration = {
   },
 };
 
+/** Science pack slots per lab before the military science pack (D76). */
+const LAB_SLOTS_V2 = 2;
+/** Science pack slots per lab since format 3: red, green and military. */
+const LAB_SLOTS_V3 = 3;
+
+/**
+ * 2 → 3 (D76): labs get a third pack slot, for the military science pack.
+ * The `table:lab` section's last column (packs, slots per lab row after
+ * row) widens from 2 to 3 per lab; the new slot starts empty. The columns
+ * before it (the lab and active id lists, unit technology, progress,
+ * state) are copied as they are.
+ */
+const LAB_MILITARY_SLOT: Migration = {
+  from: 2,
+  describe: 'labs get a slot for military science packs',
+  migrate(doc) {
+    const name = 'table:lab';
+    const old = doc.sections.get(name);
+    if (!old) return; // loading reports the missing section
+    const r = new SaveReader(old, name);
+    const w = new SaveWriter();
+    const ids = r.column(new Uint32Array(0));
+    const n = ids.length;
+    w.column(ids);
+    w.column(r.column(new Uint32Array(0))); // active
+    w.column(r.column(new Uint16Array(0), n)); // technology of the unit in progress
+    w.column(r.column(new Uint32Array(0), n)); // progress
+    w.column(r.column(new Uint8Array(0), n)); // state
+    const packs = r.column(new Uint16Array(0), n * LAB_SLOTS_V2);
+    r.end();
+    const wide = new Uint16Array(n * LAB_SLOTS_V3);
+    for (let row = 0; row < n; row++) {
+      for (let i = 0; i < LAB_SLOTS_V2; i++) {
+        wide[row * LAB_SLOTS_V3 + i] = packs[row * LAB_SLOTS_V2 + i]!;
+      }
+    }
+    w.column(wide);
+    doc.sections.set(name, w.bytes());
+  },
+};
+
 /** Every migration, oldest first. Format 1 is the first release of saves (#86). */
-export const MIGRATIONS: readonly Migration[] = [RESEARCH_LEVELS];
+export const MIGRATIONS: readonly Migration[] = [RESEARCH_LEVELS, LAB_MILITARY_SLOT];

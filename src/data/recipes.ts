@@ -56,6 +56,13 @@ export const RecipeId = {
   Splitter: 30,
   FastSplitter: 31,
   ExpressSplitter: 32,
+  // Military science (D76).
+  SteelPlate: 33,
+  StoneWall: 34,
+  FirearmMagazine: 35,
+  PiercingRoundsMagazine: 36,
+  Grenade: 37,
+  MilitarySciencePack: 38,
 } as const;
 
 export type RecipeId = (typeof RecipeId)[keyof typeof RecipeId];
@@ -85,6 +92,12 @@ export interface Recipe {
 
 /** Ticks a stone furnace takes per smelting craft (3.2 s); shared M1 design number. */
 export const SMELTING_TICKS = 192;
+
+/**
+ * Ticks a stone furnace takes per steel plate (16 s, Factorio's time at the
+ * stone furnace's speed, like `SMELTING_TICKS`).
+ */
+export const STEEL_SMELTING_TICKS = 960;
 
 /** Recipe prototypes keyed by id. There is no entry for id 0 ("no recipe"). */
 export const RECIPES: Readonly<Record<RealRecipeId, Recipe>> = {
@@ -399,6 +412,62 @@ export const RECIPES: Readonly<Record<RealRecipeId, Recipe>> = {
     ticks: 120,
     category: 'hand',
   },
+  // Military science (D76), Factorio 1.1's recipes and times. Steel is the
+  // only smelting recipe whose input is itself a product: a furnace fed iron
+  // plates makes steel.
+  [RecipeId.SteelPlate]: {
+    id: RecipeId.SteelPlate,
+    inputs: [[ItemId.IronPlate, 5]],
+    outputs: [[ItemId.SteelPlate, 1]],
+    ticks: STEEL_SMELTING_TICKS,
+    category: 'smelting',
+  },
+  [RecipeId.StoneWall]: {
+    id: RecipeId.StoneWall,
+    inputs: [[ItemId.StoneBrick, 5]],
+    outputs: [[ItemId.StoneWall, 1]],
+    ticks: 30,
+    category: 'hand',
+  },
+  [RecipeId.FirearmMagazine]: {
+    id: RecipeId.FirearmMagazine,
+    inputs: [[ItemId.IronPlate, 4]],
+    outputs: [[ItemId.FirearmMagazine, 1]],
+    ticks: 60,
+    category: 'hand',
+  },
+  [RecipeId.PiercingRoundsMagazine]: {
+    id: RecipeId.PiercingRoundsMagazine,
+    inputs: [
+      [ItemId.FirearmMagazine, 1],
+      [ItemId.SteelPlate, 1],
+      [ItemId.CopperPlate, 5],
+    ],
+    outputs: [[ItemId.PiercingRoundsMagazine, 1]],
+    ticks: 180,
+    category: 'hand',
+  },
+  [RecipeId.Grenade]: {
+    id: RecipeId.Grenade,
+    inputs: [
+      [ItemId.Coal, 10],
+      [ItemId.IronPlate, 5],
+    ],
+    outputs: [[ItemId.Grenade, 1]],
+    ticks: 480,
+    category: 'hand',
+  },
+  [RecipeId.MilitarySciencePack]: {
+    id: RecipeId.MilitarySciencePack,
+    inputs: [
+      [ItemId.PiercingRoundsMagazine, 1],
+      [ItemId.Grenade, 1],
+      [ItemId.StoneWall, 2],
+    ],
+    outputs: [[ItemId.MilitarySciencePack, 2]],
+    ticks: 600,
+    category: 'hand',
+  },
 };
 
 /** Every real recipe id, in id order. */
@@ -435,6 +504,12 @@ export const RECIPE_IDS: readonly RealRecipeId[] = [
   RecipeId.Splitter,
   RecipeId.FastSplitter,
   RecipeId.ExpressSplitter,
+  RecipeId.SteelPlate,
+  RecipeId.StoneWall,
+  RecipeId.FirearmMagazine,
+  RecipeId.PiercingRoundsMagazine,
+  RecipeId.Grenade,
+  RecipeId.MilitarySciencePack,
 ];
 
 /** The hand recipes, in id order (the order of the crafting panel). */

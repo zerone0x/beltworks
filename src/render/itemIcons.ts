@@ -34,7 +34,7 @@ export const ICON_PX = 13;
 export type IconShape = 'ore' | 'plate' | 'item';
 
 export interface IconSpec {
-  /** One or two letters (A–Z) or digits (1, 2: machine tiers) drawn on the icon. */
+  /** One or two letters (A–Z) or digits (1, 2, 3: machine tiers, science packs) drawn on the icon. */
   label: string;
   shape: IconShape;
 }
@@ -81,6 +81,13 @@ const ICONS: Readonly<Partial<Record<RealItemId, IconSpec>>> = {
   [ItemId.Splitter]: { label: 'SP', shape: 'item' },
   [ItemId.FastSplitter]: { label: 'SF', shape: 'item' },
   [ItemId.ExpressSplitter]: { label: 'SX', shape: 'item' },
+  // Military science (D76): steel is a plate, the third pack is S3.
+  [ItemId.SteelPlate]: { label: 'ST', shape: 'plate' },
+  [ItemId.StoneWall]: { label: 'WA', shape: 'item' },
+  [ItemId.FirearmMagazine]: { label: 'FM', shape: 'item' },
+  [ItemId.PiercingRoundsMagazine]: { label: 'PM', shape: 'item' },
+  [ItemId.Grenade]: { label: 'GR', shape: 'item' },
+  [ItemId.MilitarySciencePack]: { label: 'S3', shape: 'item' },
 };
 
 /** Color of unknown items, so bad data is obvious. */
@@ -134,6 +141,7 @@ const GLYPHS: Readonly<Record<string, readonly string[]>> = {
   Z: ['###', '..#', '.#.', '#..', '###'],
   '1': ['.#.', '##.', '.#.', '.#.', '###'],
   '2': ['##.', '..#', '.#.', '#..', '###'],
+  '3': ['##.', '..#', '.#.', '..#', '##.'],
   '?': ['##.', '..#', '.#.', '...', '.#.'],
 };
 const GLYPH_W = 3;
