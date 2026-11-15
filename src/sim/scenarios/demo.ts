@@ -215,68 +215,48 @@ export function demoLayout(): DemoEntity[] {
   const fast = ItemId.FastTransportBelt;
   const express = ItemId.ExpressTransportBelt;
 
-  // --- Iron: five drills on the iron patch onto a belt east along y = -15. ---
-  for (const x of [-20, -17, -14, -11, -8]) {
-    add(ItemId.ElectricMiningDrill, x, -18, South, { tag: 'iron-drill' });
+  // ===== NEW LAYOUT (WIP) =====
+  // --- Iron: eight drills on both sides of an ore belt along y = -15, which
+  // runs east, up x = -6 and along y = -24 to the top of the iron furnaces. ---
+  for (const x of [-18, -15, -12, -9]) add(ItemId.ElectricMiningDrill, x, -18, South, { tag: 'iron-drill' });
+  for (const x of [-19, -16, -13, -10]) add(ItemId.ElectricMiningDrill, x, -14, North, { tag: 'iron-drill' });
+  belts(belt, -18, -15, -7, -15, East);
+  belts(belt, -6, -15, -6, -23, North);
+  belts(belt, -6, -24, -1, -24, East);
+  // Coal for the iron furnaces: a drill, up x = 6 and west along y = -24.
+  add(ItemId.ElectricMiningDrill, 8, -18, West, { tag: 'fuel-drill' });
+  add(belt, 7, -17, West);
+  belts(belt, 6, -17, 6, -23, North);
+  belts(belt, 6, -24, 1, -24, West);
+  // The iron column: a furnace belt down x = 0 with twelve furnaces.
+  belts(belt, 0, -25, 0, -2, South);
+  const furnacePair = (cx: number, fy: number, iy: number, tag: string): void => {
+    add(ItemId.ElectricInserter, cx - 1, iy, West);
+    add(ItemId.StoneFurnace, cx - 3, fy, North, { tag });
+    add(ItemId.ElectricInserter, cx - 4, iy, West);
+    add(ItemId.ElectricInserter, cx + 1, iy, East);
+    add(ItemId.StoneFurnace, cx + 2, fy, North, { tag });
+    add(ItemId.ElectricInserter, cx + 4, iy, East);
+  };
+  for (const [fy, iy] of [[-22, -21], [-18, -18], [-14, -13], [-10, -10], [-6, -5], [-2, -2]] as const) {
+    furnacePair(0, fy, iy, 'iron-furnace');
   }
-  belts(belt, -19, -15, -1, -15, East);
+  belts(belt, -5, -21, -5, -1, South);
+  belts(belt, 5, -21, 5, -1, South);
 
-  // --- Coal: a row of four drills under a belt along y = -16. The two on the
-  // west feed the iron furnaces' belt (west) and the copper furnaces' (down
-  // x = 6, under the bus); the two on the east the power plant's (east). ---
-  add(ItemId.ElectricMiningDrill, 8, -15, West, { tag: 'coal-drill' });
-  add(ItemId.ElectricMiningDrill, 11, -15, North, { tag: 'coal-drill' });
-  belts(belt, 12, -16, 2, -16, West);
-  add(belt, 1, -16, South);
-  add(belt, 1, -15, West);
-  add(belt, 7, -14, West);
-  belts(belt, 6, -14, 6, -2, South);
+  // --- Copper (as D72). ---
+  for (const x of [-18, -15, -12]) add(ItemId.ElectricMiningDrill, x, 9, North, { tag: 'copper-drill' });
+  belts(belt, -17, 8, -1, 8, East);
+  add(ItemId.ElectricMiningDrill, 8, -14, West, { tag: 'fuel-drill' });
+  add(belt, 7, -13, West);
+  belts(belt, 6, -13, 6, -2, South);
   add(ItemId.UndergroundBelt, 6, -1, South);
   add(ItemId.UndergroundBelt, 6, 1, South);
   belts(belt, 6, 2, 6, 7, South);
   belts(belt, 6, 8, 1, 8, West);
-  for (const x of [14, 17]) {
-    add(ItemId.ElectricMiningDrill, x, -15, North, { tag: 'plant-coal-drill' });
-  }
-  belts(belt, 15, -16, 21, -16, East);
-  belts(belt, 22, -16, 22, -9, South);
-  belts(belt, 22, -8, 31, -8, East);
-
-  // --- The iron column: a furnace belt down x = 0 with eight furnaces, in two
-  // groups of four, each around a row of poles: y = -11 and y = -3 (8 rows
-  // apart, so the two rows' wires never meet over a furnace). A wire hangs
-  // about a tile above the ground, so the row above a row of poles stays
-  // free. ---
-  // Ore (west) and coal (east) side-load onto its second belt, one lane each.
-  belts(belt, 0, -16, 0, -2, South);
-  /** A furnace west of the belt at `fy` (and one east with `east`), their inserters on row `iy`. */
-  const furnacePair = (fy: number, iy: number, tag: string, east = true): void => {
-    add(ItemId.ElectricInserter, -1, iy, West);
-    add(ItemId.StoneFurnace, -3, fy, North, { tag: `${tag}-w`, fill: FURNACE_FUEL });
-    add(ItemId.ElectricInserter, -4, iy, West);
-    if (!east) return;
-    add(ItemId.ElectricInserter, 1, iy, East);
-    add(ItemId.StoneFurnace, 2, fy, North, { tag: `${tag}-e`, fill: FURNACE_FUEL });
-    add(ItemId.ElectricInserter, 4, iy, East);
-  };
-  furnacePair(-14, -13, 'iron-furnace');
-  furnacePair(-10, -10, 'iron-furnace');
-  furnacePair(-6, -5, 'iron-furnace');
-  furnacePair(-2, -2, 'iron-furnace');
-  // Iron plates down both sides into the bus's north lane.
-  belts(belt, -5, -13, -5, -1, South);
-  belts(belt, 5, -13, 5, -1, South);
-
-  // --- Copper: three drills onto a belt east along y = 8, and a furnace belt
-  // down x = 0 with four furnaces around a row of poles at y = 13. ---
-  for (const x of [-18, -15, -12]) {
-    add(ItemId.ElectricMiningDrill, x, 9, North, { tag: 'copper-drill' });
-  }
-  belts(belt, -17, 8, -1, 8, East);
   belts(belt, 0, 7, 0, 14, South);
-  furnacePair(10, 11, 'copper-furnace');
-  furnacePair(14, 14, 'copper-furnace');
-  // Copper plates up both sides into the bus's south lane, under the ore and coal belts.
+  furnacePair(0, 10, 11, 'copper-furnace');
+  furnacePair(0, 14, 14, 'copper-furnace');
   for (const x of [-5, 5]) {
     belts(belt, x, 14, x, 10, North);
     add(ItemId.UndergroundBelt, x, 9, North);
@@ -284,118 +264,172 @@ export function demoLayout(): DemoEntity[] {
     belts(belt, x, 6, x, 1, North);
   }
 
-  // --- The bus: iron plates on the north lane, copper on the south lane. ---
-  belts(fast, -6, 0, 23, 0, East);
+  // --- The bus. ---
+  belts(fast, -6, 0, 37, 0, East);
 
-  // --- The assembly block: slots of 3×3 machines 4 tiles apart from x = 9;
-  // the free column between two slots carries the poles. ---
+  // --- Red and green (the D72 assembly block). ---
   const X0 = 9;
   const slot = (k: number): number => X0 + 4 * k;
-  // Gears and circuits: a belt along y = 1.
-  belts(belt, X0, 1, slot(3) + 2, 1, East);
-  // The upper row: gears, then three red science machines. Each machine's
-  // inserters stand on the side of the poles that power it.
-  add(ItemId.AssemblingMachine1, slot(0), -4, North, {
-    recipe: RecipeId.IronGearWheel,
-    tag: 'gears',
-  });
+  belts(belt, X0, 1, slot(3), 1, East);
+  add(ItemId.AssemblingMachine1, slot(0), -4, North, { recipe: RecipeId.IronGearWheel, tag: 'gears' });
   add(ItemId.FastInserter, slot(0) + 1, -1, North);
   add(ItemId.LongHandedInserter, slot(0) + 2, -1, South);
-  for (const k of [1, 2, 3]) {
-    const x = slot(k);
-    const near = k === 2 ? x + 1 : x;
-    add(ItemId.AssemblingMachine1, x, -4, North, {
-      recipe: RecipeId.AutomationSciencePack,
-      tag: `red-${String(k)}`,
-    });
-    add(ItemId.ElectricInserter, near, -1, North);
-    add(ItemId.LongHandedInserter, near + 1, -1, North);
-    add(ItemId.FastInserter, x + 1, -5, North);
-  }
-  // The lower row: copper cable into circuits, electric inserters, transport belts.
+  add(ItemId.AssemblingMachine2, slot(1), -4, North, { recipe: RecipeId.AutomationSciencePack, tag: 'red' });
+  add(ItemId.ElectricInserter, slot(1), -1, North);
+  add(ItemId.LongHandedInserter, slot(1) + 1, -1, North);
+  add(ItemId.FastInserter, slot(1) + 1, -5, North);
+  add(ItemId.AssemblingMachine1, slot(2), -4, North, { recipe: RecipeId.AutomationSciencePack, tag: 'red' });
+  add(ItemId.ElectricInserter, slot(2) + 1, -1, North);
+  add(ItemId.LongHandedInserter, slot(2) + 2, -1, North);
+  add(ItemId.FastInserter, slot(2) + 1, -5, North);
   add(ItemId.AssemblingMachine1, slot(0), 3, North, { recipe: RecipeId.CopperCable, tag: 'cable' });
   add(ItemId.LongHandedInserter, slot(0) + 1, 2, South);
-  add(ItemId.FastInserter, slot(0) + 3, 3, East);
-  add(ItemId.AssemblingMachine1, slot(1), 3, North, {
-    recipe: RecipeId.ElectronicCircuit,
-    tag: 'circuits',
-  });
+  add(ItemId.FastInserter, slot(0) + 3, 5, East);
+  add(ItemId.AssemblingMachine1, slot(1), 3, North, { recipe: RecipeId.ElectronicCircuit, tag: 'circuits' });
   add(ItemId.ElectricInserter, slot(1), 2, North);
   add(ItemId.LongHandedInserter, slot(1) + 1, 2, South);
-  add(ItemId.AssemblingMachine1, slot(2), 3, North, {
-    recipe: RecipeId.ElectricInserter,
-    tag: 'inserters',
-  });
+  add(ItemId.AssemblingMachine1, slot(2), 3, North, { recipe: RecipeId.ElectricInserter, tag: 'inserters' });
   add(ItemId.ElectricInserter, slot(2) + 1, 2, South);
   add(ItemId.LongHandedInserter, slot(2) + 2, 2, South);
-  add(ItemId.AssemblingMachine1, slot(3), 3, North, {
-    recipe: RecipeId.TransportBelt,
-    tag: 'belts',
-  });
+  add(ItemId.AssemblingMachine1, slot(3), 3, North, { recipe: RecipeId.TransportBelt, tag: 'belts' });
   add(ItemId.ElectricInserter, slot(3), 2, South);
   add(ItemId.LongHandedInserter, slot(3) + 1, 2, South);
-  // Electric inserters and belts onto the two lanes of the green machines' belt.
   add(ItemId.ElectricInserter, slot(2) + 2, 6, South);
   add(belt, slot(2) + 2, 7, East);
   add(ItemId.ElectricInserter, slot(3), 6, South);
   add(belt, slot(3), 7, West);
   add(belt, slot(2) + 3, 7, South);
-  // It ends short of the red packs' belt, so nothing side-loads onto it.
   belts(belt, slot(2) + 3, 8, X0 + 1, 8, West);
-  // Three green science machines, their packs onto an express belt along y = 14.
-  for (const k of [0, 1, 2]) {
+  for (const k of [0, 1]) {
     const x = slot(k);
     add(ItemId.ElectricInserter, x + 1, 9, South);
-    add(ItemId.AssemblingMachine1, x, 10, North, {
-      recipe: RecipeId.LogisticSciencePack,
-      tag: `green-${String(k)}`,
-    });
+    add(ItemId.AssemblingMachine2, x, 10, North, { recipe: RecipeId.LogisticSciencePack, tag: 'green' });
     add(ItemId.FastInserter, x + 1, 13, South);
   }
-
-  // --- Research: the red packs go west and down under the bus, onto the north
-  // lane of the green packs' belt. Three labs end the green machines' row; two
-  // splitters share the packs out (a half, then two quarters), since a lab
-  // takes all the packs it gets up to a stack. ---
-  belts(express, slot(3) + 1, -6, X0, -6, West);
+  // Red packs west, down under the bus and onto the green packs' belt.
+  belts(express, slot(2) + 1, -6, X0, -6, West);
   belts(express, X0 - 1, -6, X0 - 1, -2, South);
   add(ItemId.ExpressUndergroundBelt, X0 - 1, -1, South);
   add(ItemId.ExpressUndergroundBelt, X0 - 1, 1, South);
   belts(express, X0 - 1, 2, X0 - 1, 13, South);
-  belts(express, X0 - 2, 14, slot(3) - 2, 14, East);
-  const lab = (k: number): number => slot(3 + k);
-  add(ItemId.Splitter, lab(0) - 1, 14, East, { tag: 'science-splitter' });
-  belts(express, lab(0), 14, lab(0) + 2, 14, East);
-  belts(express, lab(0), 15, lab(1) - 2, 15, East);
-  add(ItemId.Splitter, lab(1) - 1, 15, East, { tag: 'science-splitter' });
-  belts(express, lab(1), 15, lab(1) + 2, 15, East);
-  belts(express, lab(1), 16, lab(2) - 1, 16, East);
-  belts(express, lab(2), 16, lab(2), 15, North);
-  belts(express, lab(2), 14, lab(2) + 2, 14, East);
-  add(ItemId.FastInserter, lab(0) + 1, 13, North);
-  add(ItemId.LongHandedInserter, lab(1) + 1, 13, North);
-  add(ItemId.FastInserter, lab(2) + 1, 13, North);
-  for (const k of [0, 1, 2]) add(ItemId.Lab, lab(k), 10, North, { tag: `lab-${String(k)}` });
+  belts(express, slot(1) + 1, 14, X0 - 1, 14, West);
+  belts(express, X0 - 2, 14, X0 - 2, 17, South);
 
-  // --- Stone: a drill into a chest, emptied into a second one. ---
-  add(ItemId.ElectricMiningDrill, 14, 16, West, { tag: 'stone-drill' });
-  add(ItemId.IronChest, 13, 17, North, { tag: 'stone-chest' });
-  add(ItemId.ElectricInserter, 13, 18, South);
-  add(ItemId.IronChest, 13, 19, North, { tag: 'stone-chest' });
+  // --- Coal: six drills onto a belt along y = -16, split between the power
+  // plant (north) and the military block (south). ---
+  for (const x of [11, 14, 17]) add(ItemId.ElectricMiningDrill, x, -19, South, { tag: 'coal-drill' });
+  for (const x of [11, 14, 17]) add(ItemId.ElectricMiningDrill, x, -15, North, { tag: 'coal-drill' });
+  belts(belt, 12, -16, 20, -16, East);
+  add(ItemId.Splitter, 21, -17, East);
+  belts(belt, 22, -17, 22, -23, North);
+  belts(belt, 22, -24, 32, -24, East);
+  belts(belt, 22, -16, 22, -7, South);
+  // --- Power: three boilers facing south with two steam engines each. ---
+  for (const x of [23, 27, 31]) {
+    add(ItemId.ElectricInserter, x + 1, -23, South);
+    add(ItemId.Boiler, x + 1, -22, South, { fill: { item: ItemId.Coal, count: BOILER_COAL }, tag: 'boiler' });
+    add(ItemId.SteamEngine, x, -19, South);
+    add(ItemId.SteamEngine, x, -14, South);
+  }
 
-  // --- Power, east of the labs and the assembly block: two boilers facing
-  // south with two steam engines each, fed by burner inserters (which fuel
-  // themselves) through buffer chests from the plant's coal belt. ---
+  // --- Military, upper row along the bus: grenades and steel. ---
+  belts(belt, 22, -6, 36, -6, East);
+  add(ItemId.UndergroundBelt, 37, -6, East);
+  add(ItemId.UndergroundBelt, 39, -6, East);
+  belts(belt, 40, -6, 40, 17, South);
   for (const x of [25, 29]) {
-    add(ItemId.BurnerInserter, x + 1, -7, South);
-    add(ItemId.IronChest, x + 1, -6, North, { tag: 'coal-chest' });
-    add(ItemId.BurnerInserter, x + 1, -5, South);
-    add(ItemId.Boiler, x + 1, -4, South, {
-      fill: { item: ItemId.Coal, count: BOILER_COAL },
-      tag: 'boiler',
+    add(ItemId.AssemblingMachine1, x, -4, North, { recipe: RecipeId.Grenade, tag: 'grenade' });
+    add(ItemId.ElectricInserter, x, -1, North);
+    add(ItemId.ElectricInserter, x + 1, -5, South);
+    add(ItemId.LongHandedInserter, x + 2, -5, North);
+  }
+  belts(belt, 27, -7, 37, -7, East);
+  belts(belt, 38, -7, 38, 6, South);
+  add(ItemId.StoneFurnace, 33, -3, North, { tag: 'steel-furnace' });
+  add(ItemId.ElectricInserter, 33, -1, North);
+  add(ItemId.LongHandedInserter, 33, -4, South);
+  add(ItemId.LongHandedInserter, 34, -1, South);
+  add(ItemId.StoneFurnace, 36, -3, North, { tag: 'steel-furnace' });
+  add(ItemId.ElectricInserter, 37, -1, North);
+  add(ItemId.LongHandedInserter, 36, -4, South);
+  add(ItemId.LongHandedInserter, 36, -1, South);
+  belts(belt, 34, 1, 36, 1, East);
+  // Lower row: firearm magazines into piercing rounds.
+  add(ItemId.AssemblingMachine1, 31, 3, North, { recipe: RecipeId.FirearmMagazine, tag: 'firearm' });
+  add(ItemId.LongHandedInserter, 32, 2, South);
+  add(ItemId.ElectricInserter, 34, 4, East);
+  add(ItemId.AssemblingMachine1, 35, 3, North, { recipe: RecipeId.PiercingRoundsMagazine, tag: 'piercing' });
+  add(ItemId.LongHandedInserter, 37, 2, South);
+  add(ItemId.ElectricInserter, 36, 2, South);
+  add(ItemId.ElectricInserter, 35, 6, South);
+  // Piercing rounds (south lane) and grenades (north lane) west to the military packs.
+  belts(belt, 39, 7, 28, 7, West);
+  for (const x of [31, 27]) {
+    add(ItemId.ElectricInserter, x + 1, 8, South);
+    add(x === 31 ? ItemId.AssemblingMachine2 : ItemId.AssemblingMachine1, x, 9, North, {
+      recipe: RecipeId.MilitarySciencePack,
+      tag: 'military',
     });
-    add(ItemId.SteamEngine, x, -1, South);
-    add(ItemId.SteamEngine, x, 4, South);
+    add(ItemId.ElectricInserter, x + 2, 12, North);
+    add(ItemId.LongHandedInserter, x + 1, 12, South);
+  }
+  belts(belt, 33, 13, 29, 13, West);
+  add(ItemId.ElectricInserter, 34, 13, West);
+  add(ItemId.AssemblingMachine1, 35, 12, North, { recipe: RecipeId.StoneWall, tag: 'walls' });
+  add(ItemId.ElectricInserter, 35, 15, North);
+  add(ItemId.ElectricInserter, 37, 15, North);
+  // Military packs west and down x = 24 to the labs.
+  belts(express, 32, 14, 25, 14, West);
+  belts(express, 24, 14, 24, 16, South);
+  add(ItemId.ExpressUndergroundBelt, 24, 17, South);
+  add(ItemId.ExpressUndergroundBelt, 24, 19, South);
+  belts(express, 24, 20, 24, 28, South);
+  belts(express, 24, 29, 9, 29, West);
+  belts(express, 8, 29, 8, 29, North);
+
+  // --- Stone: five drills, bricks in four furnaces, then walls. ---
+  for (const x of [11, 14, 17, 21]) add(ItemId.ElectricMiningDrill, x, 15, South, { tag: 'stone-drill' });
+  add(ItemId.ElectricMiningDrill, 17, 11, East, { tag: 'stone-drill' });
+  belts(belt, 20, 12, 20, 17, South);
+  belts(belt, 12, 18, 26, 18, East);
+  add(ItemId.UndergroundBelt, 27, 18, East);
+  add(ItemId.UndergroundBelt, 29, 18, East);
+  belts(belt, 30, 18, 32, 18, East);
+  belts(belt, 33, 17, 33, 23, South);
+  add(belt, 40, 18, West);
+  add(ItemId.UndergroundBelt, 39, 18, West);
+  add(ItemId.UndergroundBelt, 37, 18, West);
+  belts(belt, 36, 18, 34, 18, West);
+  furnacePair(33, 19, 20, 'brick-furnace');
+  furnacePair(33, 23, 23, 'brick-furnace');
+  belts(belt, 28, 23, 28, 17, North);
+  belts(belt, 28, 16, 35, 16, East);
+  belts(belt, 38, 23, 38, 17, North);
+  belts(belt, 38, 16, 37, 16, West);
+
+  // --- Research: four labs in two pairs, each pair flanking the two halves
+  // of a splitter: red and green from above, military from below. ---
+  add(ItemId.Splitter, 7, 18, South, { tag: 'science-splitter' });
+  belts(express, 7, 19, -2, 19, West);
+  add(express, -3, 19, South);
+  add(express, 8, 19, South);
+  add(ItemId.Splitter, 7, 28, North, { tag: 'science-splitter' });
+  belts(express, 7, 27, -2, 27, West);
+  add(express, -3, 27, North);
+  add(express, 8, 27, North);
+  for (const c of [-3, 7]) {
+    add(ItemId.Splitter, c, 20, South, { tag: 'science-splitter' });
+    belts(express, c, 21, c, 22, South);
+    belts(express, c + 1, 21, c + 1, 22, South);
+    add(ItemId.ElectricInserter, c - 1, 22, West);
+    add(ItemId.ElectricInserter, c + 2, 22, East);
+    add(ItemId.Lab, c - 4, 21, North, { tag: 'lab' });
+    add(ItemId.Lab, c + 3, 21, North, { tag: 'lab' });
+    add(ItemId.ElectricInserter, c - 3, 24, North);
+    add(ItemId.ElectricInserter, c + 4, 24, North);
+    add(ItemId.Splitter, c, 26, North, { tag: 'science-splitter' });
+    belts(express, c, 25, c - 3, 25, West);
+    belts(express, c + 1, 25, c + 4, 25, East);
   }
 
   // --- Small electric poles. ---
@@ -413,45 +447,6 @@ export function demoLayout(): DemoEntity[] {
  * above a pole either (tests/sim/demo.test.ts checks all of it).
  */
 export const DEMO_POLES: readonly (readonly [number, number])[] = [
-  // The spine, west to east along y = -11: the first group of iron furnaces,
-  // the coal drills, and the tops of the assembly block's three lines.
-  [-21, -11],
-  [-15, -11],
-  [-9, -11],
-  [-3, -11],
-  [3, -11],
-  [7, -11],
-  [12, -11],
-  [16, -11],
-  [20, -11],
-  [24, -11],
-  [28, -11],
-  // The west edge, up to a line along the iron drills north of the ore belt.
-  [-21, -15],
-  [-21, -19],
-  [-15, -19],
-  [-9, -19],
-  // Down the west edge of the furnaces: the second group of iron furnaces
-  // (y = -3), then the copper drills and furnaces (y = 13).
-  [-9, -7],
-  [-9, -3],
-  [-3, -3],
-  [3, -3],
-  [-9, 2],
-  [-9, 7],
-  [-9, 13],
-  [-15, 13],
-  [-3, 13],
-  [3, 13],
-  // The assembly block: down the free columns x = 12 and 20 (8 apart).
-  ...[12, 20].flatMap((x) => [-5, -1, 4, 9, 13].map((y) => [x, y] as const)),
-  // The stone drill, south of x = 12.
-  [12, 18],
-  // The engines and the labs: down x = 28, between the two boilers' rows.
-  [28, -5],
-  [28, 0],
-  [28, 5],
-  [28, 11],
 ];
 
 /** Everything the layout places, counted by item. */
