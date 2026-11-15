@@ -842,8 +842,7 @@ export function installTestHook(context: TestHookContext): void {
     }),
     research: () => {
       const r = research();
-      const techs: Record<string, { unitsDone: number; researched: boolean; levels: number }> =
-        {};
+      const techs: Record<string, { unitsDone: number; researched: boolean; levels: number }> = {};
       for (const id of TECH_IDS) {
         const t = TECHNOLOGIES[id];
         const unitsDone = r.techs.get(id)?.unitsDone ?? 0;

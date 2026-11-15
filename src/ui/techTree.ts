@@ -381,7 +381,8 @@ export class TechTreePanel {
     if (current) {
       const p = techProgress(research, current.id);
       this.status.dataset.tech = current.name;
-      if (current.repeatable) this.status.dataset.level = String(levelsIn(research, current.id) + 1);
+      if (current.repeatable)
+        this.status.dataset.level = String(levelsIn(research, current.id) + 1);
       else delete this.status.dataset.level;
       this.status.dataset.progress = String(Math.floor(p * 1000) / 10);
       this.statusText.textContent = `Researching ${techName(research, current.id)}: ${String(Math.floor(p * 100))}%`;

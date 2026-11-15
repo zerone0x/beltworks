@@ -33,9 +33,15 @@ const MINUTE = 60 * 60;
 const FIRST = 2 * MINUTE;
 /** Research units the labs finish within `FIRST`, at least. */
 const UNITS = 30;
-/** The long run: an hour of play after the demo starts, in five-minute windows. */
+/**
+ * The long run: an hour and a half of play after the demo starts, in
+ * five-minute windows: the tech tree ends after about 64 minutes, and the
+ * labs then research research speed, level after level (D74).
+ */
 const WINDOW = 5 * MINUTE;
 const WINDOWS = 18;
+/** The windows of the first hour, which the tech tree's technologies fill. */
+const HOUR_WINDOWS = 12;
 
 /**
  * Least share of the first two minutes each tagged machine spends working
@@ -93,12 +99,19 @@ const BUSY_LONG: readonly (readonly [prefix: string, share: number, idle: number
 ];
 
 /**
- * Science packs on the science belts at any window's end, at most: the
- * science machines make a little more than the three labs use, so packs
- * gather slowly (about 160 after the hour, when the tech tree ends) but stay
- * far from what the belts hold (about 500).
+ * Science packs on the science belts at any window's end of the first hour,
+ * at most: the science machines make a little more than the three labs use,
+ * so packs gather slowly (about 160 after the hour, when the tech tree ends)
+ * but stay far from what the belts hold (388: the red lane fills first).
  */
 const MOST_PACKS_ON_BELTS = 200;
+/**
+ * And after the hour, on research speed (D74): they go on gathering until its
+ * first level makes the labs 10 % faster (about 245), then stay put.
+ */
+const MOST_PACKS_ON_BELTS_LATER = 260;
+/** Packs the science belts may gain over the last three windows (they don't fill up). */
+const MOST_PACKS_GAINED_LATE = 10;
 
 interface Window {
   /** Working ticks by entity id. */
@@ -116,6 +129,10 @@ interface Run {
   windows: Window[];
   /** The tick (since the demo started) each technology of the chain completed at. */
   completedAt: Map<number, number>;
+  /** The tick (since the demo started) each level of research speed completed at. */
+  levelsAt: number[];
+  /** The last tick (since the demo started) a lab had nothing to research, or -1. */
+  lastNoResearch: number;
 }
 
 const SCIENCE_BELTS: number[] = [ItemId.ExpressTransportBelt, ItemId.ExpressUndergroundBelt];
@@ -146,6 +163,9 @@ function run(): Run {
   const counter = new ProductionCounter(sim);
   const grid = powerGrid(sim.state.entities)!;
   const completedAt = new Map<number, number>();
+  const levelsAt: number[] = [];
+  let lastNoResearch = -1;
+  const labs = [...demoTagged(sim)].filter(([tag]) => tag.startsWith('lab-')).flatMap(([, l]) => l);
   const windows: Window[] = [];
   const start = sim.tick;
   const player = new DemoResearch(sim);
@@ -172,6 +192,13 @@ function run(): Run {
         completedAt.set(tech, sim.tick - start);
       }
     }
+    if (sim.state.research.levelsDone(DEFAULT_FORCE, TechId.ResearchSpeed) > levelsAt.length) {
+      levelsAt.push(sim.tick - start);
+    }
+    for (const id of labs) {
+      if (sim.state.entities.status(id) === MachineState.NoResearch)
+        lastNoResearch = sim.tick - start;
+    }
     if (t === FIRST) {
       firstWindow.packs = packsOnBelts(sim);
       first = { ...firstWindow, counts: counter.read(), units: unitsDone(sim) };
@@ -182,7 +209,7 @@ function run(): Run {
       window = { working: new Map(), minSatisfaction: Infinity, packs: 0 };
     }
   }
-  cached = { sim, first: first!, windows, completedAt };
+  cached = { sim, first: first!, windows, completedAt, levelsAt, lastNoResearch };
   return cached;
 }
 
@@ -207,8 +234,8 @@ function footprint(e: DemoEntity): { x: number; y: number; w: number; h: number 
   return { x: e.x, y: e.y, ...footprintSize(proto, e.dir) };
 }
 
-// The first test that needs it plays the hour (about 10 s).
-describe('demo factory', { timeout: 60_000 }, () => {
+// The first test that needs it plays the hour and a half (about 15 s).
+describe('demo factory', { timeout: 120_000 }, () => {
   it('lays out every entity inside its bounds, without overlaps, with everything in the kit', () => {
     const layout = demoLayout();
     const taken = new Set<string>();
@@ -378,8 +405,8 @@ describe('demo factory', { timeout: 60_000 }, () => {
     expect(made['iron-plate']).toBeGreaterThan(0.8 * mined['iron-ore']!);
   });
 
-  it('goes on researching after automation 2, for an hour', () => {
-    const { sim, completedAt } = run();
+  it('goes on researching after automation 2, through the tech tree and on to research speed', () => {
+    const { sim, completedAt, levelsAt, lastNoResearch } = run();
     const done = completedAt.get(DEMO_RESEARCH)!;
     // Each technology of the chain starts as the one before completes...
     const order = DEMO_RESEARCH_CHAIN.map((tech) => completedAt.get(tech) ?? Infinity);
@@ -387,9 +414,22 @@ describe('demo factory', { timeout: 60_000 }, () => {
     // ...so the labs are still at it several minutes after automation 2,
     expect(completedAt.get(TechId.Logistics)).toBeLessThan(done + 5 * MINUTE);
     expect(completedAt.get(TechId.FastInserter)).toBeLessThan(done + 10 * MINUTE);
-    // and an hour after the demo started, on the last technology of the tree.
-    expect(completedAt.has(TechId.Logistics2)).toBe(true);
-    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.Logistics3);
+    // and through the last technology of the tree,
+    expect(DEMO_RESEARCH_CHAIN.at(-1)).toBe(TechId.ResearchSpeed);
+    expect(completedAt.get(TechId.Logistics3)).toBeLessThan(70 * MINUTE);
+    // then on research speed (D74), which has no last level: the labs never
+    // wait for research again (only for the tick the chain picks it on), level
+    // after level, each taking longer than the one before.
+    expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.ResearchSpeed);
+    expect(lastNoResearch).toBeLessThanOrEqual(completedAt.get(TechId.Logistics3)! + 1);
+    expect(levelsAt.length).toBeGreaterThanOrEqual(2);
+    expect(levelsAt[0]).toBeGreaterThan(completedAt.get(TechId.Logistics3)!);
+    expect(levelsAt[1]! - levelsAt[0]!).toBeGreaterThan(
+      levelsAt[0]! - completedAt.get(TechId.Logistics3)!,
+    );
+    expect(sim.state.research.levelsDone(DEFAULT_FORCE, TechId.ResearchSpeed)).toBe(
+      levelsAt.length,
+    );
   });
 
   it('leaves the research to the player once they pick one of their own', () => {
@@ -435,7 +475,7 @@ describe('demo factory', { timeout: 60_000 }, () => {
     expect(sim.state.research.currentOf(DEFAULT_FORCE)).toBe(TechId.None);
   });
 
-  it('keeps the labs, the science and what feeds it busy for an hour, without backing up', () => {
+  it('keeps the labs, the science and what feeds it busy for an hour and a half, without backing up', () => {
     const { sim, windows } = run();
     expect(windows).toHaveLength(WINDOWS);
     const tagged = demoTagged(sim);
@@ -443,7 +483,7 @@ describe('demo factory', { timeout: 60_000 }, () => {
       const when = `minutes ${String(5 * i)}-${String(5 * i + 5)}`;
       expect(w.minSatisfaction, `power, ${when}`).toBe(1 << 16);
       expect(w.packs, `packs on the science belts, ${when}`).toBeLessThanOrEqual(
-        MOST_PACKS_ON_BELTS,
+        i < HOUR_WINDOWS ? MOST_PACKS_ON_BELTS : MOST_PACKS_ON_BELTS_LATER,
       );
       if (i === 0) return;
       for (const [prefix, least, idle] of BUSY_LONG) {
@@ -463,8 +503,12 @@ describe('demo factory', { timeout: 60_000 }, () => {
         ).toBeLessThanOrEqual(idle);
       }
     });
+    // The science belts stopped filling up once research speed got going.
+    expect(windows.at(-1)!.packs - windows.at(-4)!.packs).toBeLessThanOrEqual(
+      MOST_PACKS_GAINED_LATE,
+    );
     // Stone: the drill fills a chest that an inserter empties into another;
-    // after the hour (and the warm-up) there is room left.
+    // after the hour and a half (and the warm-up) there is room left.
     const stone = tagged
       .get('stone-chest')!
       .map((id) => sim.state.entities.contents(id).reduce((n, s) => n + s.count, 0));

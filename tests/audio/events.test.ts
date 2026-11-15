@@ -141,7 +141,9 @@ describe('SoundEventDiffer', () => {
     const d = new SoundEventDiffer();
     const research = (unitsDone: number) => ({
       current: TechId.Automation,
-      techs: new Map([[TechId.Automation, { unitsDone, unitsInProgress: 0, ticksInProgress: 0, levels: 0 }]]),
+      techs: new Map([
+        [TechId.Automation, { unitsDone, unitsInProgress: 0, ticksInProgress: 0, levels: 0 }],
+      ]),
     });
     d.next(frame({ research: research(9) }));
     expect(kinds(d.next(frame({ tick: 1, research: research(10) })))).toEqual([

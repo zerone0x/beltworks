@@ -7,13 +7,7 @@ import { ChestTable } from '../../src/sim/entities/chest';
 import { createEntityTables } from '../../src/sim/entities/registry';
 import { SaveReader, SaveWriter } from '../../src/sim/save/codec';
 import { MIGRATIONS, type Migration } from '../../src/sim/save/migrations';
-import {
-  SAVE_VERSION,
-  decodeSave,
-  loadSim,
-  readSaveMeta,
-  saveSim,
-} from '../../src/sim/save/save';
+import { SAVE_VERSION, decodeSave, loadSim, readSaveMeta, saveSim } from '../../src/sim/save/save';
 import { buildDeterminismScript, createDeterminismSim } from '../../src/sim/scenarios/determinism';
 import { STATE_HASH_VERSION } from '../../src/sim/state';
 import { expectRoundTrip } from './saveRoundTrip';

@@ -6,7 +6,14 @@ import type { EntityDetailData, ResearchData } from '../../src/sim/snapshot';
 import { NO_RESEARCH } from '../../src/sim/snapshot';
 import { hasEntityGui, machineBars, statusView } from '../../src/ui/entityPanel';
 import { controls } from '../../src/ui/help';
-import { costText, techProgress, techState, treeLayout, unlocksText } from '../../src/ui/techTree';
+import {
+  costText,
+  techName,
+  techProgress,
+  techState,
+  treeLayout,
+  unlocksText,
+} from '../../src/ui/techTree';
 
 const research = (
   current: number,
@@ -79,6 +86,37 @@ describe('tech tree', () => {
       'Unlocks: Assembling machine 1, Long-handed inserter',
     );
     expect(unlocksText(TECHNOLOGIES[TechId.Electronics])).toBe('Leads on to further research');
+  });
+
+  it('shows research speed with the level under way, its cost and progress (D74)', () => {
+    const speed = TechId.ResearchSpeed;
+    const t = TECHNOLOGIES[speed];
+    const finite = Object.fromEntries(
+      TECH_IDS.filter((id) => id !== speed).map((id) => [id, TECHNOLOGIES[id].units]),
+    );
+    expect(techState(research(0, {}), speed)).toBe('locked');
+    expect(techState(research(0, finite), speed)).toBe('available');
+    expect(techName(research(0, finite), speed)).toBe('Research speed 1');
+    // Two levels done, 75 of level 3's 300 units, and two labs halfway through one each.
+    const r = research(
+      speed,
+      { ...finite, [speed]: 75 },
+      { [speed]: [2, t.ticksPerUnit] },
+      { [speed]: 2 },
+    );
+    expect(techState(r, speed)).toBe('current');
+    expect(techName(r, speed)).toBe('Research speed 3');
+    expect(techProgress(r, speed)).toBe(76 / 300);
+    expect(costText(t, 2)).toBe(
+      '300 × (Automation science pack + Logistic science pack), 15 s each',
+    );
+    expect(costText(t)).toMatch(/^100 × /);
+    expect(unlocksText(t)).toBe('Each level: labs research 10% faster');
+    // A level done never makes it "researched".
+    expect(techState(research(0, { ...finite, [speed]: 0 }, {}, { [speed]: 9 }), speed)).toBe(
+      'available',
+    );
+    expect(techName(r, TechId.Automation)).toBe('Automation');
   });
 
   it('has a key in the controls help', () => {
