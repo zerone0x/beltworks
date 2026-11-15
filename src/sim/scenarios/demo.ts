@@ -730,36 +730,22 @@ export function buildDemo(warmup = DEMO_WARMUP_TICKS): Sim {
     builder.insert([{ entity: ids[i]!, item: e.fill.item, count: e.fill.count }]);
   });
   // The labs research the military branch from the red and green packs the
-  // factory makes, the demo's player picking each next technology, and the
-  // player sets each military recipe as soon as it is unlocked: the military
-  // line fills while the rest of the branch is researched, so its packs reach
-  // the labs about when research speed starts, instead of the red and green
-  // ones gathering in front of the labs meanwhile.
+  // factory makes, the demo's player picking each next technology.
   builder.setResearch(DEMO_RESEARCH);
   const player = new DemoResearch(sim);
-  const setUnlockedRecipes = (): void => {
-    layout.forEach((e, i) => {
-      if (e.recipe === undefined || sim.state.entities.selectedRecipe(ids[i]!) === e.recipe) return;
-      if (!isRecipeUnlocked(sim.state, force, e.recipe)) return;
-      reach(i);
-      builder.setRecipe(ids[i]!, e.recipe);
-      player.afterTick();
-    });
-  };
-  const researched = (): number =>
-    DEMO_RESEARCH_CHAIN.filter((tech) => sim.state.research.isResearched(force, tech)).length;
-  let unlocked = researched();
   for (let t = 0; !sim.state.research.isResearched(force, TechId.MilitarySciencePack); t++) {
     if (t >= DEMO_UNLOCK_TICKS_MAX)
       throw new Error('the demo factory never researched its military branch');
     sim.step();
     player.afterTick();
-    if (researched() !== unlocked) {
-      unlocked = researched();
-      setUnlockedRecipes();
-    }
   }
-  setUnlockedRecipes();
+  // Then the player sets the recipes the research unlocked.
+  layout.forEach((e, i) => {
+    if (e.recipe === undefined || sim.state.entities.selectedRecipe(ids[i]!) === e.recipe) return;
+    reach(i);
+    builder.setRecipe(ids[i]!, e.recipe);
+    player.afterTick();
+  });
   builder.walkTo(DEMO_SPAWN.x, DEMO_SPAWN.y);
   for (let t = 0; t < warmup; t++) {
     sim.step();
