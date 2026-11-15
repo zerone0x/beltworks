@@ -3,7 +3,7 @@ import { EntityTypeId } from '../../src/data/entities';
 import { TECH_IDS, TECHNOLOGIES, TechId } from '../../src/data/technologies';
 import { MachineState } from '../../src/sim/entities/machine';
 import type { EntityDetailData, ResearchData } from '../../src/sim/snapshot';
-import { NO_RESEARCH } from '../../src/sim/snapshot';
+import { NO_RESEARCH, isResearchedIn } from '../../src/sim/snapshot';
 import { hasEntityGui, machineBars, statusView } from '../../src/ui/entityPanel';
 import { controls } from '../../src/ui/help';
 import {
@@ -117,6 +117,22 @@ describe('tech tree', () => {
       'available',
     );
     expect(techName(r, TechId.Automation)).toBe('Automation');
+  });
+
+  it('never shows research speed as researched partway through a level past its base units (D74)', () => {
+    const speed = TechId.ResearchSpeed;
+    const finite = Object.fromEntries(
+      TECH_IDS.filter((id) => id !== speed).map((id) => [id, TECHNOLOGIES[id].units]),
+    );
+    // Level 1 done, 150 of level 2's 200 units: unitsDone is past the base 100 units.
+    expect(150).toBeGreaterThanOrEqual(TECHNOLOGIES[speed].units);
+    const idle = research(0, { ...finite, [speed]: 150 }, {}, { [speed]: 1 });
+    expect(isResearchedIn(idle, speed)).toBe(false);
+    expect(techState(idle, speed)).toBe('available');
+    const busy = research(speed, { ...finite, [speed]: 150 }, {}, { [speed]: 1 });
+    expect(isResearchedIn(busy, speed)).toBe(false);
+    expect(techState(busy, speed)).toBe('current');
+    expect(techName(busy, speed)).toBe('Research speed 2');
   });
 
   it('has a key in the controls help', () => {
