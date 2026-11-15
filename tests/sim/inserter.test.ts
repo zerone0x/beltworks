@@ -750,6 +750,45 @@ describe('insertion limits (D75)', () => {
     expect(e.insertable(lab, RED, true)).toBe(0);
   });
 
+  it('caps the fuel slot of a burner drill and of a burner inserter at 5 when inserted by an inserter', () => {
+    const sim = new Sim({
+      seed: 1,
+      startingKit: [
+        { item: ItemId.BurnerMiningDrill, count: 1 },
+        { item: ItemId.BurnerInserter, count: 1 },
+      ],
+    });
+    const { state } = sim;
+    const e = state.entities;
+    state.players.x[0] = tileCenter(0);
+    state.players.y[0] = tileCenter(-3);
+    expect(placeEntity(state, 0, ItemId.BurnerMiningDrill, 0, 3, North)).toBe(BuildResult.Ok);
+    expect(placeEntity(state, 0, ItemId.BurnerInserter, -3, -1, North)).toBe(BuildResult.Ok);
+    const drill = e.at(0, 3);
+    const inserter = e.at(-3, -1);
+    for (const id of [drill, inserter]) {
+      expect(e.insert(id, COAL, 10, true)).toBe(INSERTER_FUEL_LIMIT);
+      expect(e.insert(id, COAL, 10, true)).toBe(0);
+      // Hands are not limited by the inserter cap: up to a stack.
+      expect(e.insert(id, COAL, 10)).toBe(10);
+    }
+  });
+
+  it('two burner inserters feeding coal into one burner drill never take its fuel slot above 5', () => {
+    const s = setup();
+    const a = s.place(ItemId.WoodenChest, 0, 1);
+    const b = s.place(ItemId.WoodenChest, 5, 1);
+    s.place(ItemId.BurnerInserter, 1, 1, East);
+    s.place(ItemId.BurnerInserter, 4, 1, West);
+    const drill = s.place(ItemId.BurnerMiningDrill, 2, 1);
+    s.entities.insert(a, COAL, 50);
+    s.entities.insert(b, COAL, 50);
+    for (let t = 0; t < 10 * INSERTER_CYCLE_TICKS; t++) {
+      s.step();
+      expect(s.entities.slots(drill)[0]!.count).toBeLessThanOrEqual(INSERTER_FUEL_LIMIT);
+    }
+  });
+
   it('tops a furnace up to two ores from a chest, then moves the coal behind them', () => {
     // Chest (2, 0) with ore in its first slots and coal behind → burner
     // inserter (3, 0) facing east, with no fuel of its own → furnace (4..5, 0..1).
