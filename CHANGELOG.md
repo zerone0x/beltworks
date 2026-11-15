@@ -23,6 +23,7 @@ What changed in Beltworks, newest first. Milestones M0–M4 were development bui
 ### Fixed
 
 - The demo factory no longer jams after 15 minutes: no furnace or drill stands dark for want of room, and the bus keeps moving (#147, D77).
+- The demo factory no longer runs out of ore after about three hours: the ore tiles under its drills hold a million units each, more than a week of play; new games keep the usual patches (#146, D77).
 - Nothing in the demo factory stands right behind a power pole, where the pole covered it (#149).
 - Inserters top stone furnaces, labs and fuel slots up to a few items (2 crafts' worth of ore, 2 packs, 5 fuel) instead of a whole stack, so the first machines on a belt no longer starve the rest, and a furnace fed from a chest of ore and coal lights on the third swing instead of after 50 ores (#153, D75).
 - The player stands in the buildings' depth order: one north of a building is behind it instead of drawn over it (#128, D70).
