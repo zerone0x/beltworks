@@ -55,6 +55,7 @@ import { tileCenter } from '../fixed';
 import { PLAYER_SPEED } from '../player';
 import { STARTING_KIT } from '../../data/start';
 import { Sim } from '../tick';
+import type { World } from '../world/world';
 import { Builder } from './builder';
 import { DEMO_SEED, DEMO_SPAWN } from './demoInfo';
 
@@ -173,6 +174,43 @@ export const DEMO_UNLOCK_TICKS_MAX = 40 * 60 * 60;
  * machines and belts and for every line to run at its steady pace.
  */
 export const DEMO_WARMUP_TICKS = 15 * 60 * 60;
+
+/**
+ * Ore each tile under a demo drill holds (D77): {@link enrichDemoOre} sets it
+ * on every ore tile in the layout's mining areas before the first tick. The
+ * starting patches hold up to 1 600 a tile, about 4 to 19 hours of a drill
+ * flat out, and the line ran dry after 3; at this amount a tile lasts more
+ * than a week even mined flat out by every drill that reaches it.
+ */
+export const DEMO_ORE_PER_TILE = 1_000_000;
+
+/**
+ * Where a drill of the layout mines: the tiles of its mining area, or nothing
+ * for anything that isn't a drill.
+ */
+export function miningTiles(e: DemoEntity): { x: number; y: number }[] {
+  const proto = entityForItem(e.item);
+  if (proto?.miningTicks === undefined) return [];
+  const size = proto.miningArea ?? proto.width;
+  const offset = (proto.width - size) >> 1;
+  const tiles: { x: number; y: number }[] = [];
+  for (let dy = 0; dy < size; dy++)
+    for (let dx = 0; dx < size; dx++) tiles.push({ x: e.x + offset + dx, y: e.y + offset + dy });
+  return tiles;
+}
+
+/**
+ * Gives the demo's ore what "never stops" needs (D77): every ore tile a drill
+ * of `layout` mines holds {@link DEMO_ORE_PER_TILE}. Part of setting up the
+ * demo's world, like its seed, before any tick: no tile gains a resource,
+ * and nothing outside the drills' areas changes. The chunks it touches count
+ * as modified, so a saved demo keeps its ore; other games never call it.
+ */
+export function enrichDemoOre(world: World, layout: readonly DemoEntity[]): void {
+  for (const e of layout) {
+    for (const { x, y } of miningTiles(e)) world.setAmount(x, y, DEMO_ORE_PER_TILE);
+  }
+}
 
 /** Coal each boiler gets to start the power plant (the coal drills take over from there). */
 const BOILER_COAL = 5;
@@ -641,8 +679,9 @@ export function buildDemo(warmup = DEMO_WARMUP_TICKS, unlockTicksMax = DEMO_UNLO
     startingKit: demoKit(layout),
     researched: DEMO_RESEARCHED,
   });
-  const builder = new Builder(sim);
   const world = sim.state.world;
+  enrichDemoOre(world, layout);
+  const builder = new Builder(sim);
   const force = forceOf(sim.state, 0);
   // The player never stands where something will go.
   const taken = new Set<string>();

@@ -13,18 +13,23 @@ import { DEFAULT_FORCE } from '../../src/sim/research/unlocks';
 import {
   DEMO_BOUNDS,
   DEMO_FINAL_RESEARCH,
+  DEMO_ORE_PER_TILE,
   DEMO_POLES,
   DEMO_RESEARCH_CHAIN,
+  DEMO_SEED,
   DEMO_SPAWN,
   DemoResearch,
   buildDemo,
   demoKit,
   demoLayout,
   demoTagged,
+  enrichDemoOre,
+  miningTiles,
   type DemoEntity,
 } from '../../src/sim/scenarios/demo';
 import { ProductionCounter } from '../../src/sim/scenarios/production';
-import type { Sim } from '../../src/sim/tick';
+import { Sim } from '../../src/sim/tick';
+import { World } from '../../src/sim/world/world';
 import { reload, stepTogether } from './saveRoundTrip';
 
 const hex = (h: number): string => `0x${h.toString(16).padStart(8, '0')}`;
@@ -121,6 +126,10 @@ interface Window {
   levels: number;
   /** Science packs on the science belts at the window's end. */
   packs: number;
+  /** Each science pack made in the window. */
+  made: number[];
+  /** Units the drills mined in the window, by ore name. */
+  mined: Record<string, number>;
 }
 
 interface Run {
@@ -131,7 +140,22 @@ interface Run {
   counts: ReturnType<ProductionCounter['read']>;
   /** Inserters that pick from a belt, and the windows each one moved in. */
   beltInserterMoves: Map<number, number>;
+  /** Drills that ran out of ore (reported `Depleted`), with the tick it first happened. */
+  depleted: Map<number, number>;
 }
+
+const DAY = 24 * 60 * 60;
+
+/** The ore each drill of the layout mines, by tag, and its item's name. */
+const DRILL_ORE: Readonly<Record<string, { resource: number; item: string }>> = {
+  'iron-drill': { resource: ResourceId.IronOre, item: 'iron-ore' },
+  'copper-drill': { resource: ResourceId.CopperOre, item: 'copper-ore' },
+  'coal-drill': { resource: ResourceId.Coal, item: 'coal' },
+  'fuel-drill': { resource: ResourceId.Coal, item: 'coal' },
+  'stone-drill': { resource: ResourceId.Stone, item: 'stone' },
+};
+
+const PACK_NAMES = ['automation-science-pack', 'logistic-science-pack', 'military-science-pack'];
 
 const SCIENCE_BELTS: number[] = [ItemId.ExpressTransportBelt, ItemId.ExpressUndergroundBelt];
 
@@ -207,7 +231,11 @@ function run(): Run {
     noResearch: 0,
     levels: 0,
     packs: 0,
+    made: [],
+    mined: {},
   });
+  const depleted = new Map<number, number>();
+  const windowCounter = new ProductionCounter(sim);
   let window = fresh();
   let moved = new Set<number>();
   const levels = (): number => sim.state.research.levelsDone(DEFAULT_FORCE, TechId.ResearchSpeed);
@@ -216,10 +244,13 @@ function run(): Run {
     sim.step();
     player.afterTick();
     counter.observe();
+    windowCounter.observe();
     for (const id of ids) {
       const status = sim.state.entities.status(id);
       if (status === MachineState.Working) {
         window.working.set(id, (window.working.get(id) ?? 0) + 1);
+      } else if (status === MachineState.Depleted && !depleted.has(id)) {
+        depleted.set(id, t);
       }
     }
     for (const id of labs) {
@@ -235,14 +266,41 @@ function run(): Run {
     if (t % WINDOW === 0) {
       window.levels = levels();
       window.packs = packsOnBelts(sim);
+      const counts = windowCounter.read();
+      window.made = PACK_NAMES.map((pack) => counts.made[pack] ?? 0);
+      window.mined = counts.mined;
+      windowCounter.reset();
       windows.push(window);
       window = fresh();
       for (const id of moved) beltInserterMoves.set(id, beltInserterMoves.get(id)! + 1);
       moved = new Set();
     }
   }
-  cached = { sim, windows, levelsAt, counts: counter.read(), beltInserterMoves };
+  cached = { sim, windows, levelsAt, counts: counter.read(), beltInserterMoves, depleted };
+  if (process.env.DEMO_MINUTES !== undefined) logWindows(cached);
   return cached;
+}
+
+/**
+ * The long probe's table (vitest drops console.log): per window, the packs
+ * made a second, the lowest lab share, the ore mined and the drills dry.
+ */
+function logWindows({ sim, windows, depleted }: Run): void {
+  const labs = demoTagged(sim).get('lab')!;
+  const ores = ['iron-ore', 'copper-ore', 'coal', 'stone'];
+  const rows = [
+    `| minutes | red/s | green/s | military/s | labs (lowest) | level | ${ores.join(' | ')} | drills dry |`,
+    `|---|---|---|---|---|---|${ores.map(() => '---|').join('')}---|`,
+  ];
+  windows.forEach((w, i) => {
+    const end = WINDOW * (i + 1);
+    const dry = [...depleted.values()].filter((t) => t <= end).length;
+    const low = Math.min(...labs.map((id) => (w.working.get(id) ?? 0) / WINDOW));
+    rows.push(
+      `| ${String(10 * i)}-${String(10 * i + 10)} | ${w.made.map((n) => (n / (WINDOW / 60)).toFixed(3)).join(' | ')} | ${pct(low)} | ${String(w.levels)} | ${ores.map((o) => String(w.mined[o] ?? 0)).join(' | ')} | ${String(dry)} |`,
+    );
+  });
+  process.stderr.write(`${rows.join('\n')}\n`);
 }
 
 /** Plays `ticks` ticks of the demo with its research player, as the worker does. */
@@ -420,40 +478,75 @@ describe('demo factory', { timeout: 600_000 }, () => {
     expect(entities.count).toBe(demoLayout().length);
   });
 
-  it('puts every drill on its ore, with ore for hours', () => {
-    const sim = demo();
-    const ore: Record<string, number> = {
-      'iron-drill': ResourceId.IronOre,
-      'copper-drill': ResourceId.CopperOre,
-      'coal-drill': ResourceId.Coal,
-      'fuel-drill': ResourceId.Coal,
-      'stone-drill': ResourceId.Stone,
-    };
-    for (const [tag, ids] of demoTagged(sim)) {
-      if (!(tag in ore)) continue;
-      for (const id of ids) {
-        const f = sim.state.entities.footprint(id);
-        let tiles = 0;
-        let amount = 0;
-        for (let y = f.y - 1; y <= f.y + 3; y++) {
-          for (let x = f.x - 1; x <= f.x + 3; x++) {
-            const r = sim.state.world.resourceAt(x, y);
-            expect([ResourceId.None, ore[tag]]).toContain(r);
-            if (r === ore[tag]) {
-              tiles++;
-              amount += sim.state.world.amountAt(x, y);
-            }
-          }
+  it('sets the ore under its drills, and nothing else, before the first tick', () => {
+    // A fresh world of the demo's seed, as a new game gets it (D77).
+    const generated = new World(DEMO_SEED);
+    expect(new Sim({ seed: DEMO_SEED }).state.world.hashInto()).toBe(generated.hashInto());
+    const world = new World(DEMO_SEED);
+    enrichDemoOre(world, demoLayout());
+    const mined = new Set(
+      demoLayout()
+        .flatMap(miningTiles)
+        .map(({ x, y }) => at(x, y)),
+    );
+    let set = 0;
+    let bare = 0;
+    for (let y = DEMO_BOUNDS.y0 - 3; y <= DEMO_BOUNDS.y1 + 3; y++) {
+      for (let x = DEMO_BOUNDS.x0 - 3; x <= DEMO_BOUNDS.x1 + 3; x++) {
+        const r = generated.resourceAt(x, y);
+        // No tile gains or loses a resource.
+        expect(world.resourceAt(x, y), `resource at ${at(x, y)}`).toBe(r);
+        expect(generated.amountAt(x, y)).toBeLessThan(DEMO_ORE_PER_TILE);
+        if (mined.has(at(x, y)) && r !== ResourceId.None) {
+          expect(world.amountAt(x, y), `ore at ${at(x, y)}`).toBe(DEMO_ORE_PER_TILE);
+          set++;
+        } else {
+          expect(world.amountAt(x, y), `ore at ${at(x, y)}`).toBe(generated.amountAt(x, y));
+          if (r !== ResourceId.None) bare++;
         }
-        expect(tiles, `${tag} ${String(id)}: ore tiles under it`).toBeGreaterThanOrEqual(10);
-        // A drill mines 0.5 units a second at most: ore for 3.5 hours flat out
-        // (most have 8 to 20), and for the fuel drills, which work at most 55%
-        // of the time, 2 hours flat out.
-        expect(amount / 0.5 / 3600, `${tag} ${String(id)}: hours of ore`).toBeGreaterThan(
-          tag === 'fuel-drill' ? 2 : 3.5,
-        );
       }
     }
+    // Every drill's area, the drills at both ends of a row included (23 drills).
+    expect(set).toBeGreaterThan(300);
+    expect(bare, 'ore outside the drills keeps its amount').toBeGreaterThan(0);
+  });
+
+  it('puts every drill on its ore, every tile it mines holding a week of ore flat out', () => {
+    const sim = demo();
+    const { world } = sim.state;
+    const generated = new World(DEMO_SEED);
+    // Units a second the drills reaching a tile take from it at most: a drill
+    // mines its ore tiles in turn, so each gets its share of the drill's pace.
+    const draw = new Map<string, number>();
+    let drills = 0;
+    for (const e of demoLayout()) {
+      const tiles = miningTiles(e);
+      if (tiles.length === 0) continue;
+      drills++;
+      const ore = DRILL_ORE[e.tag ?? ''];
+      expect(ore, `the ore of drill ${at(e.x, e.y)}`).toBeDefined();
+      const oreTiles = tiles.filter(({ x, y }) => {
+        const r = world.resourceAt(x, y);
+        expect([ResourceId.None, ore!.resource], `ore at ${at(x, y)}`).toContain(r);
+        // Nothing mined a tile dry, and no tile gained ore.
+        expect(r, `resource at ${at(x, y)}`).toBe(generated.resourceAt(x, y));
+        return r === ore!.resource;
+      });
+      expect(oreTiles.length, `ore tiles under ${at(e.x, e.y)}`).toBeGreaterThanOrEqual(10);
+      const pace = 60 / entityForItem(e.item)!.miningTicks!;
+      for (const { x, y } of oreTiles) {
+        draw.set(at(x, y), (draw.get(at(x, y)) ?? 0) + pace / oreTiles.length);
+      }
+    }
+    expect(drills).toBe(23);
+    let shortest = Infinity;
+    for (const [tile, perSecond] of draw) {
+      const [x, y] = tile.slice(1, -1).split(', ').map(Number) as [number, number];
+      shortest = Math.min(shortest, world.amountAt(x, y) / perSecond);
+    }
+    expect(shortest / DAY, 'days until the first tile runs dry, every drill flat out').toBeGreaterThan(
+      7,
+    );
   });
 
   it('throws if the factory does not research its military branch in time', () => {
@@ -549,6 +642,45 @@ describe('demo factory', { timeout: 600_000 }, () => {
     const { beltInserterMoves } = run();
     const idle = [...beltInserterMoves].filter(([, n]) => n < WINDOWS).map(([id]) => id);
     expect(idle, 'inserters that stood still on their belt for a whole window').toEqual([]);
+  });
+
+  it('runs no drill dry, and makes every pack at its pace in every window', () => {
+    const { windows, depleted } = run();
+    expect([...depleted.keys()], 'drills out of ore').toEqual([]);
+    windows.forEach((w, i) => {
+      const when = `minutes ${String(10 * i)}-${String(10 * i + 10)}`;
+      PACK_NAMES.forEach((pack, k) => {
+        expect(w.made[k]! / (WINDOW / 60), `${pack} a second, ${when}`).toBeGreaterThanOrEqual(
+          0.97 * PACKS_PER_SECOND,
+        );
+      });
+    });
+  });
+
+  it('has ore under each ore line for a week at the pace it mines', () => {
+    const { sim, counts } = run();
+    const seconds = counts.ticks / 60;
+    // Each tile counted once, however many drills reach it.
+    const left = new Map<string, Map<string, number>>();
+    for (const e of demoLayout()) {
+      const ore = DRILL_ORE[e.tag ?? ''];
+      if (!ore) continue;
+      const tiles = left.get(ore.item) ?? new Map<string, number>();
+      left.set(ore.item, tiles);
+      for (const { x, y } of miningTiles(e)) {
+        if (sim.state.world.resourceAt(x, y) === ore.resource) {
+          tiles.set(at(x, y), sim.state.world.amountAt(x, y));
+        }
+      }
+    }
+    expect([...left.keys()].sort()).toEqual(['coal', 'copper-ore', 'iron-ore', 'stone']);
+    for (const [item, tiles] of left) {
+      const perSecond = (counts.mined[item] ?? 0) / seconds;
+      expect(perSecond, `${item} mined a second`).toBeGreaterThan(0);
+      let total = 0;
+      for (const amount of tiles.values()) total += amount;
+      expect(total / perSecond / DAY, `days of ${item} left`).toBeGreaterThan(7);
+    }
   });
 
   it('completes research speed level after level, each taking longer', () => {
