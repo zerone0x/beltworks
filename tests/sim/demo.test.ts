@@ -103,7 +103,7 @@ const BUSY_LONG: readonly (readonly [prefix: string, share: number])[] = [
  * Least share of the hour (after the first window) the mall's machines
  * spend working: they run as fast as the plates the science leaves allow,
  * about a tenth of the time (an assembling machine 1 gets the few gears and
- * circuits the inserters before it leave, and works about 1 %).
+ * circuits the inserters before it leave, and works under 1 %).
  */
 const BUSY_MALL: readonly (readonly [tag: string, share: number])[] = [
   ['mall-gears', 0.08],
