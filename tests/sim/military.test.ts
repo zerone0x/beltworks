@@ -331,6 +331,15 @@ describe('steel in a stone furnace (D76)', () => {
     expect(slot(FurnaceSlot.Output)).toEqual({ item: ItemId.SteelPlate, count: 2 });
   });
 
+  it('takes two crafts’ worth of plates from an inserter, enough for a full steel craft (D75)', () => {
+    const { s, id } = furnaceSim([TechId.SteelProcessing]);
+    const { entities } = s.state;
+    expect(entities.insertable(id, ItemId.IronPlate, true)).toBe(2 * 5);
+    expect(entities.insert(id, ItemId.IronPlate, 7, true)).toBe(7);
+    expect(entities.insertable(id, ItemId.IronPlate, true)).toBe(3);
+    expect(furnaceSim([]).s.state.entities.insertable(id, ItemId.IronPlate, true)).toBe(0);
+  });
+
   it('starts taking iron plates the moment steel processing completes', () => {
     const { s, id } = furnaceSim([]);
     expect(s.state.entities.insertable(id, ItemId.IronPlate)).toBe(0);

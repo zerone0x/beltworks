@@ -22,6 +22,8 @@ import {
   technologyUnits,
   unlockingTechnology,
 } from '../../src/data/technologies';
+import { beltTable } from '../../src/sim/belts/belts';
+import { BeltLane } from '../../src/sim/belts/line';
 import { BuildResult, placeEntity, removeEntity } from '../../src/sim/entities/build';
 import { Direction } from '../../src/sim/entities/direction';
 import { MachineState } from '../../src/sim/entities/machine';
@@ -80,7 +82,9 @@ class FakeProducers implements EntityTypeTable {
  * `null`), `labs` labs in a row from (2, 0) (3 tiles apart), and poles so
  * they share one network with the producer.
  */
-function rig(options: { labs?: number; supply?: number | null; researched?: number[] } = {}) {
+function rig(
+  options: { labs?: number; supply?: number | null; researched?: number[]; kit?: ItemStack[] } = {},
+) {
   const producers = new FakeProducers();
   const sim = new Sim({
     seed: 1,
@@ -91,6 +95,7 @@ function rig(options: { labs?: number; supply?: number | null; researched?: numb
       { item: ItemId.SmallElectricPole, count: 10 },
       { item: ItemId.ElectricInserter, count: 4 },
       { item: ItemId.WoodenChest, count: 4 },
+      ...(options.kit ?? []),
     ],
     entityTables: [
       ...createEntityTables().filter((t) => t.type !== EntityTypeId.SteamEngine),
@@ -394,6 +399,54 @@ describe('unlocks', () => {
 });
 
 describe('labs', () => {
+  it('fed from one belt, all three research: the first takes a few packs, not a stack (D75)', () => {
+    const r = rig({
+      labs: 3,
+      kit: [
+        { item: ItemId.TransportBelt, count: 20 },
+        { item: ItemId.BurnerInserter, count: 3 },
+        { item: ItemId.Coal, count: 10 },
+      ],
+    });
+    // A belt from (-2, -2) east to (11, -2), where it ends; a burner inserter
+    // on (3|6|9, -1) faces south into each lab on (2..10, 0..2). Red packs
+    // arrive one every two seconds, more than the three labs use (one each per
+    // 10 s unit) but less than the first inserter alone could move.
+    r.state.players.x[0] = tileCenter(5);
+    r.state.players.y[0] = tileCenter(-4);
+    const belts: number[] = [];
+    for (let x = -2; x <= 11; x++) belts.push(r.place(ItemId.TransportBelt, x, -2, East));
+    for (const x of [3, 6, 9]) {
+      expect(
+        insertIntoEntity(
+          r.state,
+          0,
+          r.place(ItemId.BurnerInserter, x, -1, Direction.South),
+          ItemId.Coal,
+          2,
+        ),
+      ).toBe(TransferResult.Ok);
+    }
+    r.research(TechId.Automation);
+    const table = beltTable(r.entities)!;
+    const first = belts[0]!;
+    const started = r.labs.map(() => -1);
+    for (let t = 0; t < 60 * 60; t++) {
+      if (t % 120 === 0)
+        table.insertAt(table.beltLine(first), BeltLane.Left, table.beltOffset(first), RED);
+      r.step();
+      r.labs.forEach((lab, i) => {
+        if (started[i]! < 0 && r.table.unitTech(lab) !== 0) started[i] = t;
+      });
+    }
+    // Every lab starts a unit within half a minute, and none hoards packs.
+    for (const t of started) {
+      expect(t).toBeGreaterThanOrEqual(0);
+      expect(t).toBeLessThan(30 * 60);
+    }
+    for (const lab of r.labs) expect(r.entities.slots(lab)[0]!.count).toBeLessThanOrEqual(2);
+  });
+
   it('research a unit in exactly ticksPerUnit ticks, and a technology in units × that', () => {
     const r = rig();
     const [lab] = r.labs as [number];

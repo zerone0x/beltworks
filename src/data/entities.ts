@@ -173,6 +173,21 @@ export const FURNACE_OUTPUT_LIMIT = 100;
 export const ASSEMBLER_INPUT_MULTIPLIER = 2;
 
 /**
+ * Inserters' insertion limits for everything else (D75; Factorio's automated
+ * insertion limit). Hands (`Insert`) and drills still fill a slot up to a
+ * stack; inserters only top it up to these, so items on a belt flow on to
+ * the next machine instead of filling the first one:
+ * - a furnace's input slot: this many crafts' worth of the smelting recipe's
+ *   ingredient (2 ores, 4 stone), as an assembling machine's (D32);
+ * - a lab's slot: this many packs of its type;
+ * - a fuel slot (stone furnaces, boilers, burner drills and burner
+ *   inserters): `INSERTER_FUEL_LIMIT` units.
+ */
+export const FURNACE_INPUT_MULTIPLIER = 2;
+export const LAB_INSERTER_LIMIT = 2;
+export const INSERTER_FUEL_LIMIT = 5;
+
+/**
  * Working ticks at full power an entity with crafting speed `speed` takes
  * for a recipe of `ticks` ticks: `ceil(ticks × den / num)` (assembling
  * machine 1, speed 1/2: twice the recipe's ticks; assembling machine 2,
