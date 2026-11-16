@@ -67,14 +67,14 @@ Inserters top machines up instead of filling them, like Factorio's automated ins
 | Automation 2 | Electronics, logistic science pack | red + green | 40 × 5 s | Assembling machine 2 |
 | Logistics 2 | Logistics, logistic science pack | red + green | 200 × 30 s | Fast transport belt, fast underground belt, fast splitter |
 | Logistics 3 | Logistics 2, automation 2 | red + green | 300 × 15 s | Express transport belt, express underground belt, express splitter |
-| Research speed (repeatable, D74) | Fast inserter, logistics 3 | red + green | level n: 100 × n × 15 s | Each level: labs research 10 % faster |
+| Research speed (repeatable, D74) | Fast inserter, logistics 3 | red + green + military | level n: 100 × n × 15 s | Each level: labs research 10 % faster |
 | Military (D76) | — | red | 10 × 15 s | — (leads to military 2) |
 | Stone wall | — | red | 10 × 10 s | Stone wall |
 | Steel processing | — | red | 50 × 5 s | Steel plate (furnaces take iron plates only from then on) |
 | Military 2 | Military, steel processing, logistic science pack | red + green | 20 × 15 s | Piercing rounds magazine, grenade |
 | Military science pack | Military 2, stone wall | red + green | 30 × 15 s | Military science pack |
 
-Research speed stays red + green until the demo factory makes military packs (D76): nothing costs military packs yet; the demo redesign (#146) moves research speed onto red + green + military, a one-line data change.
+Research speed costs a military pack as well since the demo redesign (D77, #146): it is the one technology that uses military packs, so a factory has to make all three kinds to keep researching it.
 
 Science packs: automation (red) = 1 copper plate + 1 iron gear wheel, 5 s; logistic (green) = 1 electric inserter + 1 transport belt, 6 s; military = 1 piercing rounds magazine + 1 grenade + 2 stone walls → 2 packs, 10 s. A lab (3×3, 60 kW) holds up to a stack of each (2 from inserters, D75) and researches one unit at a time; several labs add up.
 

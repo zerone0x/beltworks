@@ -74,7 +74,7 @@ If the game ever stops with "The game stopped", it offers to continue from your 
 
 ### Public beta: what to expect
 
-v1 covers the start of the game: hand mining, burner and electric machines, belts (three tiers, undergrounds, splitters), steam power, assembling machines, labs and red and green science. Not in yet: oil and fluids, blue science and beyond, enemies, trains and multiplayer (see [the roadmap](docs/ROADMAP.md)). Saves carry a format version and are migrated when the format changes, so beta saves should keep loading in later versions. Found a bug or have an idea? [Open an issue](https://github.com/zerone0x/beltworks/issues). What changed between versions is in [CHANGELOG.md](CHANGELOG.md).
+v1 covers the start of the game: hand mining, burner and electric machines, belts (three tiers, undergrounds, splitters), steam power, assembling machines, labs and red, green and military science. Not in yet: oil and fluids, blue science and beyond, enemies, trains and multiplayer (see [the roadmap](docs/ROADMAP.md)). Saves carry a format version and are migrated when the format changes, so beta saves should keep loading in later versions. Found a bug or have an idea? [Open an issue](https://github.com/zerone0x/beltworks/issues). What changed between versions is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Playing in detail
 
