@@ -142,7 +142,12 @@ export function checkAsleep(table: BeltTable): void {
         const target = out?.lanes[lane.index];
         const floor =
           out && target && target.count > 0 ? BELT_ITEM_SPACING - (out.length - target.total) : 0;
-        expect(lane.gap(0)).toBeLessThanOrEqual(Math.max(0, floor));
+        // Or further back, making way for the other half's first item
+        // (`mergeHold`), which is awake to go across in front of it (D78).
+        const other = line.sibling!.lanes[lane.index];
+        const held =
+          other.active && other.count > 0 && !lane.marked(0) && lane.spacing === BELT_ITEM_SPACING;
+        if (!held) expect(lane.gap(0)).toBeLessThanOrEqual(Math.max(0, floor));
         expect(halfCouldHandOn(lane), `asleep splitter half ${String(line.id)}`).toBe(false);
         continue;
       }

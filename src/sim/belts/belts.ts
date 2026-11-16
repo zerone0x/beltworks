@@ -959,6 +959,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
     this.refreshMerge(line);
     if (lane.count === 0) return false;
     this.handed = false;
+    this.waiting = false;
     const moved = lane.move(line.speed, this.splitOutlet) > 0;
     if (moved || this.handed) {
       lane.changedAt = this.tick;
@@ -973,6 +974,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       l !== undefined && l.changedAt >= this.tick - 1;
     const sib = line.sibling!;
     return (
+      this.waiting ||
       recent(line.out?.lanes[lane.index]) ||
       recent(sib.out?.lanes[lane.index]) ||
       recent(sib.lanes[lane.index])
@@ -1090,8 +1092,9 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
    * first item is ready to go across this tick (where it stops, or within
    * a tick of it), and this half's first item is its own (unmarked), didn't
    * make way already (the yield bit in `nextCol`, cleared when it goes on,
-   * so the two take turns), and isn't yet so close to the end that the
-   * other one couldn't go in front. Returns how far the other one may then
+   * so the two take turns; also set where the other one, offered across,
+   * couldn't go in front after all, `splitHandOn`), and isn't yet so close
+   * to the end that the other one couldn't go in front. Returns how far the other one may then
    * carry on past this half's end (onto the output, `crossOn`), or -1 when
    * it doesn't make way. The item crossing over lands right behind the
    * output's last item, so the output loses no slot, and this half gives
@@ -1178,15 +1181,7 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
           this.wakeLane(target);
           this.notifyWatchers(sib, pos, pos);
         } else {
-          // The other half's first item makes way for this one, which can't
-          // go in front of it after all (it came closer than the slot in
-          // front, or that half is yet to step this tick and would carry
-          // this one on too far): that one goes first instead, as if it had
-          // made way already, so neither waits for the other (#139).
-          if (making) {
-            this.nextCol[row] = this.nextCol[row]! | yieldBit(sib.half, i);
-            this.wakeLane(target);
-          }
+          if (making) this.cantGoInFront(sib, target, ahead);
           continue;
         }
         this.frontLeft(line);
@@ -1201,6 +1196,40 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
       return true;
     }
     return false;
+  }
+
+  /**
+   * The first item of the other half's lane was offered across into lane
+   * `target` of splitter half `half`, whose first item (`ahead` from its
+   * end) makes way for it (`mergeHold`), and couldn't go in front of that
+   * item (#139, D78):
+   *
+   * - Only because `half` is yet to step this tick (`due`), so it would go
+   *   in that much further back (`crossFront`): it goes in front on the
+   *   next tick, where `half` won't have stepped before it, so the lane
+   *   offering it stays awake (`waiting`) rather than sleep with work left.
+   * - Because `half`'s first item has come closer than the slot in front,
+   *   counted from its output's last item, while that output stands still
+   *   (so the slot doesn't move on): `half`'s own item goes first, as if it
+   *   had made way already (the yield bit), and `half` is woken, so neither
+   *   waits for the other while the output has room.
+   *
+   * While the output moves, the slot comes closer each tick, and the item
+   * goes in front once it reaches the held one. O(1).
+   */
+  private cantGoInFront(half: TransportLine, target: LineLane, ahead: number): void {
+    const i = target.index;
+    const pos = target.fitNear(this.crossFront(half, i), CROSS_REACH, BELT_ITEM_SPACING);
+    if (target.due === this.tick && pos >= 0 && pos < ahead) {
+      this.waiting = true;
+      return;
+    }
+    const t = half.out!.lanes[i];
+    if (pos >= 0 && pos < ahead) return;
+    if (t.count > 0 && t.changedAt >= this.tick - 1) return;
+    const row = this.row(half.splitter);
+    this.nextCol[row] = this.nextCol[row]! | yieldBit(half.half, i);
+    this.wakeLane(target);
   }
 
   /**
