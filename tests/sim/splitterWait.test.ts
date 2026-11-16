@@ -12,6 +12,7 @@ import { BeltLane, type LineLane, type TransportLine } from '../../src/sim/belts
 import { Direction } from '../../src/sim/entities/direction';
 import { buildDemo } from '../../src/sim/scenarios/demo';
 import {
+  COAL,
   IRON,
   TIERS,
   checkAsleep,
@@ -24,6 +25,7 @@ import {
 const { East } = Direction;
 const LANES = [BeltLane.Left, BeltLane.Right] as const;
 const YELLOW = TIERS[0];
+const FAST = TIERS[1];
 const EXPRESS = TIERS[2];
 
 /** The belt table's private waking, to start a hand-made state awake. */
@@ -98,6 +100,66 @@ describe('splitter halves making way (#139)', () => {
         expect(w.table.activeLanes).toBe(0);
       });
     }
+  }
+});
+
+/**
+ * A fast splitter facing east, on lane 0 only. Half 0's first item (iron)
+ * is one the other half sent across (marked), 48 from its end, then one of
+ * its own 64 behind; its output, two express belts, holds eight items
+ * packed from the end, with room for one more at its start, and stands
+ * still. Half 1 holds two of its own items (coal) at 64 and 128, and its
+ * output, a yellow belt, is full. `first` picks which half's lane is woken
+ * (and so steps) first.
+ */
+function turnSplitter(first: 0 | 1) {
+  const w = world();
+  const sp = w.place(FAST.splitter, 0, 0, East);
+  const [y0, y1] = w.table.halfLines(sp).map((h) => h.tileY) as [number, number];
+  const out0 = w.run(EXPRESS.belt, 1, y0, East, 2);
+  const out1 = w.run(YELLOW.belt, 1, y1, East, 1);
+  const [h0, h1] = w.table.halfLines(sp);
+  const o0 = w.lineOf(out0[0]!);
+  const o1 = w.lineOf(out1[0]!);
+  const lane = BeltLane.Left;
+  for (let k = 0; k < 8; k++) expect(o0.lanes[lane].insert(k * BELT_ITEM_SPACING, IRON)).toBe(true);
+  for (let k = 0; k < 5; k++) expect(o1.lanes[lane].insert(k * BELT_ITEM_SPACING, COAL)).toBe(true);
+  expect(h0.lanes[lane].insert(48, IRON, true)).toBe(true);
+  expect(h0.lanes[lane].insert(48 + BELT_ITEM_SPACING, IRON)).toBe(true);
+  expect(h1.lanes[lane].insert(BELT_ITEM_SPACING, COAL)).toBe(true);
+  expect(h1.lanes[lane].insert(2 * BELT_ITEM_SPACING, COAL)).toBe(true);
+  const halves = first === 0 ? [h0, h1] : [h1, h0];
+  for (const l of [...halves, o0, o1]) wake(w.table, l.lanes[lane]);
+  return { w, o0 };
+}
+
+describe('a splitter half that did not make way (#139, D78)', () => {
+  for (const first of [0, 1] as const) {
+    it(`keeps its turn to make way, half ${String(first)} stepping first`, () => {
+      const { w, o0 } = turnSplitter(first);
+      // Half 1's first coal is offered across at once and can't go in front
+      // of half 0's marked iron, which isn't making way for it (D58 makes
+      // way with a half's own items only). It goes in behind. Half 1's other
+      // coal then waits at half 1's end, as its output is full; half 0's own
+      // iron waits at the end of its output, full by now and standing still.
+      // From tick 48 the express output moves: half 0's own iron makes way
+      // (it never did before, so no yield bit), and the coal goes across in
+      // front of it. Setting the yield bit where the half wasn't making way
+      // would let the iron go first and put the coal behind it.
+      const taken: number[] = [];
+      for (let t = 0; t < 120; t++) {
+        w.step();
+        checkLanes(w.table);
+        checkCross(w.table);
+        checkAsleep(w.table);
+        checkNoMissedWake(w.table, `tick ${String(t)}`);
+        if (t < 48) continue;
+        const item = w.table.takeAt(o0.id, BeltLane.Left, 0, o0.speed - 1);
+        if (item !== 0) taken.push(item);
+      }
+      expect(taken).toEqual([...Array<number>(9).fill(IRON), COAL, IRON, COAL]);
+      expect(w.table.activeLanes).toBe(0);
+    });
   }
 });
 
