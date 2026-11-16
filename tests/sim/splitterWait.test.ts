@@ -255,6 +255,61 @@ describe('an item that can go in front once the other half has stepped (#139, D7
   }
 });
 
+/**
+ * A yellow splitter facing east, on lane 0 only. Half 0 holds three of its
+ * own items (iron) at 40, 128 and 200 from its end; its output, one fast
+ * belt, holds four iron at 0, 64, 136 and 208 from its end, and one item is
+ * taken off its end every seventh tick, so it moves in starts and stops.
+ * Half 1 holds one of its own items (coal) 64 from its end, where it stops,
+ * and its output, a yellow belt, is full. `first` picks which half's lane
+ * is woken (and so steps) first.
+ */
+function stopGoSplitter(first: 0 | 1) {
+  const w = world();
+  const sp = w.place(YELLOW.splitter, 0, 0, East);
+  const [y0, y1] = w.table.halfLines(sp).map((h) => h.tileY) as [number, number];
+  const out0 = w.run(FAST.belt, 1, y0, East, 1);
+  const out1 = w.run(YELLOW.belt, 1, y1, East, 1);
+  const [h0, h1] = w.table.halfLines(sp);
+  const o0 = w.lineOf(out0[0]!);
+  const o1 = w.lineOf(out1[0]!);
+  const lane = BeltLane.Left;
+  for (const p of [0, 64, 136, 208]) expect(o0.lanes[lane].insert(p, IRON)).toBe(true);
+  for (let k = 0; k < 5; k++) expect(o1.lanes[lane].insert(k * BELT_ITEM_SPACING, COAL)).toBe(true);
+  for (const p of [40, 128, 200]) expect(h0.lanes[lane].insert(p, IRON)).toBe(true);
+  expect(h1.lanes[lane].insert(BELT_ITEM_SPACING, COAL)).toBe(true);
+  const halves = first === 0 ? [h0, h1] : [h1, h0];
+  for (const l of [...halves, o0, o1]) wake(w.table, l.lanes[lane]);
+  return { w, o0 };
+}
+
+describe('a crossing item held up while the output only just stopped (#139, D78)', () => {
+  for (const first of [0, 1] as const) {
+    it(`keeps its turn, half ${String(first)} stepping first`, () => {
+      const { w, o0 } = stopGoSplitter(first);
+      // Half 0's first iron makes way for half 1's coal, which can't go in
+      // front of it yet. While the output moved this tick or the last, the
+      // slot in front still comes closer, so the iron keeps making way and
+      // the coal goes in front of it. Giving the iron its turn as soon as
+      // the output stops for a tick would let the iron go first.
+      const taken: number[] = [];
+      for (let t = 0; t < 200; t++) {
+        if (t % 7 === 0) {
+          const item = w.table.takeAt(o0.id, BeltLane.Left, 0, o0.speed - 1);
+          if (item !== 0) taken.push(item);
+        }
+        w.step();
+        checkLanes(w.table);
+        checkCross(w.table);
+        checkAsleep(w.table);
+        checkNoMissedWake(w.table, `tick ${String(t)}`);
+      }
+      expect(taken).toEqual([...Array<number>(5).fill(IRON), COAL, IRON, IRON]);
+      expect(w.table.activeLanes).toBe(0);
+    });
+  }
+});
+
 describe('the demo factory (#139)', () => {
   it('has no splitter half asleep with work left', { timeout: 120_000 }, () => {
     const sim = buildDemo();
