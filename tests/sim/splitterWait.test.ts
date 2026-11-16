@@ -163,6 +163,98 @@ describe('a splitter half that did not make way (#139, D78)', () => {
   }
 });
 
+/**
+ * A yellow splitter facing east, on lane 0 only. Half 0 holds two of its
+ * own items (iron) at 64 and 128 from its end; its output, one yellow belt,
+ * holds four iron packed from its end, with room for one more at its start,
+ * and stands still. Half 1 holds one of its own items (coal) 64 from its
+ * end (where it stops, the spacing behind its output's last item), and
+ * that output, a yellow belt, is full. `first` picks which half's
+ * lane is woken (and so steps) first.
+ */
+function frontSplitter(first: 0 | 1) {
+  const w = world();
+  const sp = w.place(YELLOW.splitter, 0, 0, East);
+  const [y0, y1] = w.table.halfLines(sp).map((h) => h.tileY) as [number, number];
+  const out0 = w.run(YELLOW.belt, 1, y0, East, 1);
+  const out1 = w.run(YELLOW.belt, 1, y1, East, 1);
+  const [h0, h1] = w.table.halfLines(sp);
+  const o0 = w.lineOf(out0[0]!);
+  const o1 = w.lineOf(out1[0]!);
+  const lane = BeltLane.Left;
+  for (let k = 0; k < 4; k++) expect(o0.lanes[lane].insert(k * BELT_ITEM_SPACING, IRON)).toBe(true);
+  expect(o0.length - o0.lanes[lane].total).toBe(BELT_ITEM_SPACING);
+  for (let k = 0; k < 5; k++) expect(o1.lanes[lane].insert(k * BELT_ITEM_SPACING, COAL)).toBe(true);
+  expect(h0.lanes[lane].insert(BELT_ITEM_SPACING, IRON)).toBe(true);
+  expect(h0.lanes[lane].insert(2 * BELT_ITEM_SPACING, IRON)).toBe(true);
+  expect(h1.lanes[lane].insert(BELT_ITEM_SPACING, COAL)).toBe(true);
+  const halves = first === 0 ? [h0, h1] : [h1, h0];
+  for (const l of [...halves, o0, o1]) wake(w.table, l.lanes[lane]);
+  return { w, sp, h0, h1, o0 };
+}
+
+/** Whether splitter `sp`'s half `half` made way on lane `lane` already (the yield bit). */
+function yielded(table: BeltTable, sp: number, half: 0 | 1, lane: BeltLane): boolean {
+  const t = table as unknown as { nextCol: Uint32Array | number[]; row(sp: number): number };
+  return (t.nextCol[t.row(sp)]! & (1 << (2 + 2 * half + lane))) !== 0;
+}
+
+describe('an item that can go in front once the other half has stepped (#139, D78)', () => {
+  for (const first of [0, 1] as const) {
+    it(`goes in front on the next tick, half ${String(first)} stepping first`, () => {
+      const { w, sp, h0, h1, o0 } = frontSplitter(first);
+      const lane = BeltLane.Left;
+      // Half 1's coal can only go across to half 0's output, which has room
+      // for one more item and stands still, and half 0's first iron makes
+      // way for it. Where half 1 steps first, half 0 is yet to step, so the
+      // coal would go in that much further back, behind the iron: it misses
+      // the slot in front only for that, and goes in front on the next tick.
+      // Treating the miss as if the slot were out of reach (the output
+      // stands still) would give half 0 the yield bit, so its iron would go
+      // first and take the output's last free slot.
+      w.step();
+      checkLanes(w.table);
+      checkCross(w.table);
+      if (first === 1) {
+        // Missed on the first tick, and the iron didn't get its turn instead.
+        expect(h0.lanes[lane].count).toBe(2);
+        expect(h1.lanes[lane].count).toBe(1);
+        expect(yielded(w.table, sp, 0, lane)).toBe(false);
+      } else {
+        // Half 0 has stepped: across in front of the iron at once (which
+        // then goes next).
+        expect(h0.lanes[lane].count).toBe(3);
+        expect(h0.lanes[lane].item(0)).toBe(COAL);
+        expect(h1.lanes[lane].count).toBe(0);
+        expect(yielded(w.table, sp, 0, lane)).toBe(true);
+      }
+      for (let t = 1; t < 30; t++) {
+        w.step();
+        checkLanes(w.table);
+        checkCross(w.table);
+        checkAsleep(w.table);
+        checkNoMissedWake(w.table, `tick ${String(t)}`);
+      }
+      // The coal took the output's last free slot, in front of half 0's iron.
+      expect(Array.from(o0.lanes[lane].items())).toEqual([IRON, IRON, IRON, IRON, COAL]);
+      expect(h1.lanes[lane].count).toBe(0);
+      // Taking items off the output: the coal, then both of half 0's iron.
+      const taken: number[] = [];
+      for (let t = 0; t < 120; t++) {
+        const item = w.table.takeAt(o0.id, lane, 0, o0.speed - 1);
+        if (item !== 0) taken.push(item);
+        w.step();
+        checkLanes(w.table);
+        checkCross(w.table);
+        checkAsleep(w.table);
+        checkNoMissedWake(w.table, `tick ${String(30 + t)}`);
+      }
+      expect(taken).toEqual([IRON, IRON, IRON, IRON, COAL, IRON, IRON]);
+      expect(w.table.activeLanes).toBe(0);
+    });
+  }
+});
+
 describe('the demo factory (#139)', () => {
   it('has no splitter half asleep with work left', { timeout: 120_000 }, () => {
     const sim = buildDemo();
