@@ -92,7 +92,8 @@ export function checkLanes(table: BeltTable): void {
  * Whether the first item of splitter half lane `lane`, where it is, could
  * go anywhere with a full tick's movement (the rule of `splitHandOn`): straight
  * on from the end, or across onto the other half's lane while that half's
- * output has room (an output that moved recently keeps the half awake).
+ * output has room (an output that moved recently keeps the half awake), no
+ * sooner than the half's rate allows.
  */
 function outputHasRoom(out: TransportLine, lane: number): boolean {
   const t = out.lanes[lane as BeltLane];
@@ -114,8 +115,16 @@ function halfCouldHandOn(lane: LineLane): boolean {
   const t = sib.out.lanes[lane.index];
   if (t.count > 0 && sib.out.length - t.total < t.spacing) return false;
   const target = sib.lanes[lane.index];
-  const floor = t.count > 0 ? Math.max(0, t.spacing - (sib.out.length - t.total)) : 0;
-  const pos = target.fitNear(floor, CROSS_REACH, BELT_ITEM_SPACING);
+  // No closer to the other half's end than the spacing behind its output's
+  // last item, counted across and, at the half's speed, since that item
+  // left (`crossFront`: the half's rate holds where its output is faster).
+  let front = 0;
+  if (t.count > 0) {
+    const room = sib.out.length - t.total;
+    const since = Math.floor((room * sib.speed) / sib.out.speed);
+    front = Math.max(0, t.spacing - room, BELT_ITEM_SPACING - since);
+  }
+  const pos = target.fitNear(front, CROSS_REACH, BELT_ITEM_SPACING);
   if (pos < 0) return false;
   const from = sib.feeders.find((f) => f.outLane < 0)?.lanes[lane.index];
   return !(from && from.count > 0 && pos > sib.length + from.gap(0) - target.spacing);
@@ -133,7 +142,12 @@ export function checkAsleep(table: BeltTable): void {
         const target = out?.lanes[lane.index];
         const floor =
           out && target && target.count > 0 ? BELT_ITEM_SPACING - (out.length - target.total) : 0;
-        expect(lane.gap(0)).toBeLessThanOrEqual(Math.max(0, floor));
+        // Or further back, making way for the other half's first item
+        // (`mergeHold`), which is awake to go across in front of it (D78).
+        const other = line.sibling!.lanes[lane.index];
+        const held =
+          other.active && other.count > 0 && !lane.marked(0) && lane.spacing === BELT_ITEM_SPACING;
+        if (!held) expect(lane.gap(0)).toBeLessThanOrEqual(Math.max(0, floor));
         expect(halfCouldHandOn(lane), `asleep splitter half ${String(line.id)}`).toBe(false);
         continue;
       }
