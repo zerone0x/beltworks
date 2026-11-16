@@ -1178,6 +1178,15 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
           this.wakeLane(target);
           this.notifyWatchers(sib, pos, pos);
         } else {
+          // The other half's first item makes way for this one, which can't
+          // go in front of it after all (it came closer than the slot in
+          // front, or that half is yet to step this tick and would carry
+          // this one on too far): that one goes first instead, as if it had
+          // made way already, so neither waits for the other (#139).
+          if (making) {
+            this.nextCol[row] = this.nextCol[row]! | yieldBit(sib.half, i);
+            this.wakeLane(target);
+          }
           continue;
         }
         this.frontLeft(line);
