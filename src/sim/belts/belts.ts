@@ -1220,12 +1220,12 @@ export class BeltTable implements EntityTypeTable, LaneOutlet {
   private cantGoInFront(half: TransportLine, target: LineLane, ahead: number): void {
     const i = target.index;
     const pos = target.fitNear(this.crossFront(half, i), CROSS_REACH, BELT_ITEM_SPACING);
-    if (target.due === this.tick && pos >= 0 && pos < ahead) {
-      this.waiting = true;
+    if (pos >= 0 && pos < ahead) {
+      // In front once `half` has stepped.
+      if (target.due === this.tick) this.waiting = true;
       return;
     }
     const t = half.out!.lanes[i];
-    if (pos >= 0 && pos < ahead) return;
     if (t.count > 0 && t.changedAt >= this.tick - 1) return;
     const row = this.row(half.splitter);
     this.nextCol[row] = this.nextCol[row]! | yieldBit(half.half, i);
